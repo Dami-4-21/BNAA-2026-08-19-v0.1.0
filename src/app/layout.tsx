@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Manrope, Sora } from "next/font/google";
+import { AuthProvider } from "@/components/auth-context";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -34,7 +35,9 @@ export default function RootLayout({
       lang="fr"
       className={`${manrope.variable} ${sora.variable} ${plexMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col soft-scrollbar">{children}</body>
+      <body className="min-h-full flex flex-col soft-scrollbar">
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

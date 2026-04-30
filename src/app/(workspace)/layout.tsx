@@ -1,14 +1,9 @@
-import { AppShell } from "@/components/app-shell";
-import { WorkspaceProvider } from "@/components/workspace-context";
+import { WorkspaceGate } from "@/components/workspace-gate";
 
 export default function WorkspaceLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <WorkspaceProvider>
-      <AppShell>{children}</AppShell>
-    </WorkspaceProvider>
-  );
+  return <WorkspaceGate>{children}</WorkspaceGate>;
 }

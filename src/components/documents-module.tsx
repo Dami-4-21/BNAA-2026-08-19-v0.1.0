@@ -110,16 +110,23 @@ const toneByReadStatus: Record<string, ActiveTone> = {
 };
 
 export function DocumentsModule() {
-  const { activeProject } = useWorkspace();
+  const { activeProject, can, currentUser } = useWorkspace();
   const projectData = useMemo(
     () => getDocumentsModuleData(activeProject.id),
     [activeProject.id],
   );
+  const canPublishVersion = can("documents.version.publish");
+  const canDistribute = can("documents.distribute");
+  const canMarkObsolete = can("documents.obsolete.mark");
 
   return (
     <DocumentsModuleContent
       key={activeProject.id}
       activeProject={activeProject}
+      canDistribute={canDistribute}
+      canMarkObsolete={canMarkObsolete}
+      canPublishVersion={canPublishVersion}
+      currentUserRole={currentUser.role}
       projectData={projectData}
     />
   );
@@ -127,9 +134,17 @@ export function DocumentsModule() {
 
 function DocumentsModuleContent({
   activeProject,
+  canDistribute,
+  canMarkObsolete,
+  canPublishVersion,
+  currentUserRole,
   projectData,
 }: {
   activeProject: WorkspaceProject;
+  canDistribute: boolean;
+  canMarkObsolete: boolean;
+  canPublishVersion: boolean;
+  currentUserRole: string;
   projectData: ReturnType<typeof getDocumentsModuleData>;
 }) {
   const [activeTab, setActiveTab] = useState<DocumentsTab>("library");
@@ -336,8 +351,14 @@ function DocumentsModuleContent({
         description={`Retrouvez pour ${activeProject.name} les versions en vigueur, les listes de diffusion et l'acces offline pour le terrain.`}
         action={
           <button
-            onClick={() => setActiveTab("versions")}
-            className="rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
+            onClick={() => (canPublishVersion ? setActiveTab("versions") : null)}
+            disabled={!canPublishVersion}
+            className={cx(
+              "rounded-2xl px-4 py-3 text-sm font-semibold",
+              canPublishVersion
+                ? "bg-black text-white hover:bg-stone-800"
+                : "cursor-not-allowed bg-stone-200 text-stone-500",
+            )}
           >
             Publier un plan
           </button>
@@ -356,6 +377,14 @@ function DocumentsModuleContent({
           />
         ))}
       </div>
+
+      {!canPublishVersion || !canDistribute || !canMarkObsolete ? (
+        <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm leading-6 text-stone-600">
+          Votre role <span className="font-semibold text-stone-950">{currentUserRole}</span> peut
+          consulter la documentation, avec des actions de publication et de diffusion selon les
+          droits attribues.
+        </div>
+      ) : null}
 
       <Panel className="overflow-hidden">
         <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
@@ -394,6 +423,8 @@ function DocumentsModuleContent({
 
               {activeTab === "versions" ? selectedDocument ? (
                 <VersionsTab
+                  canMarkObsolete={canMarkObsolete}
+                  canPublishVersion={canPublishVersion}
                   selectedDocument={selectedDocument}
                   draftVersion={draftVersion}
                   setDraftVersion={setDraftVersion}
@@ -404,6 +435,7 @@ function DocumentsModuleContent({
 
               {activeTab === "distribution" ? selectedDocument ? (
                 <DistributionTab
+                  canDistribute={canDistribute}
                   selectedDocument={selectedDocument}
                   recipients={recipientsForSelected}
                   draftVersion={draftVersion}
@@ -511,26 +543,6 @@ function DocumentsModuleContent({
               </div>
             </Panel>
 
-            <Panel
-              title="Bonnes pratiques de diffusion"
-              description="Des reperes simples pour garder une circulation claire des plans sur le chantier."
-            >
-              <div className="space-y-3">
-                {[
-                  "Diffuser les revisions critiques le jour de publication pour eviter les doublons terrain.",
-                  "Suivre les accuses de lecture sur les lots sensibles avant le demarrage d'une tache.",
-                  "Diffuser en priorite les plans structures, fluides et execution avant le demarrage d'une equipe.",
-                  "Retirer du cache les versions obsoletes apres validation de la nouvelle revision.",
-                ].map((item) => (
-                  <div
-                    key={item}
-                    className="rounded-[20px] border border-white/8 bg-white/4 px-4 py-3 text-sm leading-6 text-slate-200"
-                  >
-                    {item}
-                  </div>
-                ))}
-              </div>
-            </Panel>
           </div>
         </div>
       </Panel>
@@ -627,12 +639,16 @@ function LibraryTab({
 }
 
 function VersionsTab({
+  canMarkObsolete,
+  canPublishVersion,
   selectedDocument,
   draftVersion,
   setDraftVersion,
   publishNewVersion,
   markObsolete,
 }: {
+  canMarkObsolete: boolean;
+  canPublishVersion: boolean;
   selectedDocument: DocumentFile;
   draftVersion: {
     revision: string;
@@ -670,15 +686,27 @@ function VersionsTab({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <button
-              onClick={publishNewVersion}
-              className="flex items-center justify-center gap-2 rounded-[22px] bg-sky-400 px-4 py-4 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+              onClick={() => (canPublishVersion ? publishNewVersion() : null)}
+              disabled={!canPublishVersion}
+              className={cx(
+                "flex items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
+                canPublishVersion
+                  ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
+                  : "cursor-not-allowed bg-slate-700 text-slate-400",
+              )}
             >
               <Upload className="size-4" />
-              Publier nouvelle version
+              {canPublishVersion ? "Publier nouvelle version" : "Lecture seule des versions"}
             </button>
             <button
-              onClick={() => markObsolete(selectedDocument.id)}
-              className="flex items-center justify-center gap-2 rounded-[22px] border border-white/10 bg-white/5 px-4 py-4 text-sm font-semibold text-white hover:bg-white/8"
+              onClick={() => (canMarkObsolete ? markObsolete(selectedDocument.id) : null)}
+              disabled={!canMarkObsolete}
+              className={cx(
+                "flex items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
+                canMarkObsolete
+                  ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
+                  : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
+              )}
             >
               <ShieldCheck className="size-4" />
               Marquer obsolete
@@ -729,6 +757,7 @@ function VersionsTab({
 }
 
 function DistributionTab({
+  canDistribute,
   selectedDocument,
   recipients,
   draftVersion,
@@ -736,6 +765,7 @@ function DistributionTab({
   distributeSelected,
   acknowledgeRecipient,
 }: {
+  canDistribute: boolean;
   selectedDocument: DocumentFile;
   recipients: Recipient[];
   draftVersion: {
@@ -794,11 +824,17 @@ function DistributionTab({
           </div>
 
           <button
-            onClick={distributeSelected}
-            className="flex w-full items-center justify-center gap-2 rounded-[22px] bg-sky-400 px-4 py-4 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+            onClick={() => (canDistribute ? distributeSelected() : null)}
+            disabled={!canDistribute}
+            className={cx(
+              "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
+              canDistribute
+                ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
+                : "cursor-not-allowed bg-slate-700 text-slate-400",
+            )}
           >
             <Send className="size-4" />
-            Creer la diffusion controlee
+            {canDistribute ? "Creer la diffusion controlee" : "Lecture seule de la diffusion"}
           </button>
         </div>
 
@@ -824,8 +860,14 @@ function DistributionTab({
               </p>
               {recipient.status !== "Lu" ? (
                 <button
-                  onClick={() => acknowledgeRecipient(recipient.id)}
-                  className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/8"
+                  onClick={() => (canDistribute ? acknowledgeRecipient(recipient.id) : null)}
+                  disabled={!canDistribute}
+                  className={cx(
+                    "mt-3 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm",
+                    canDistribute
+                      ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
+                      : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
+                  )}
                 >
                   <CheckCheck className="size-4" />
                   Marquer comme lu

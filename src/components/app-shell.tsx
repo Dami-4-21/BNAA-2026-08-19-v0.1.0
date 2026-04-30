@@ -1,34 +1,48 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Bell,
   ChevronRight,
   CircleDollarSign,
+  BookOpenText,
   FileStack,
   FolderKanban,
   LayoutDashboard,
+  type LucideIcon,
+  LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
-  Settings2,
   ShieldCheck,
   SquarePen,
 } from "lucide-react";
 
-import { notifications, tenant } from "@/lib/mock-data";
-import { StatusBadge, cx } from "@/components/ui";
+import { useAuth } from "@/components/auth-context";
+import { type AppPermission } from "@/lib/auth";
+import { tenant } from "@/lib/mock-data";
+import { cx } from "@/components/ui";
 import { useWorkspace } from "@/components/workspace-context";
 
-const navItems = [
+type NavItem = {
+  href: string;
+  label: string;
+  shortLabel: string;
+  description: string;
+  icon: LucideIcon;
+  permission: AppPermission;
+};
+
+const navItems: NavItem[] = [
   {
     href: "/",
     label: "Tableau de bord",
     shortLabel: "Accueil",
     description: "Vue synthese des operations, documents et encaissements.",
     icon: LayoutDashboard,
+    permission: "dashboard.view",
   },
   {
     href: "/projects",
@@ -36,6 +50,15 @@ const navItems = [
     shortLabel: "Projets",
     description: "Portefeuille actif, sante projet et jalons a venir.",
     icon: FolderKanban,
+    permission: "projects.view",
+  },
+  {
+    href: "/documentation",
+    label: "Documentation",
+    shortLabel: "Docs",
+    description: "Guides d'usage, roles et bonnes pratiques centralises.",
+    icon: BookOpenText,
+    permission: "documentation.view",
   },
   {
     href: "/site",
@@ -43,6 +66,7 @@ const navItems = [
     shortLabel: "Site",
     description: "Rapports journaliers, photos terrain et non-conformites.",
     icon: SquarePen,
+    permission: "site.view",
   },
   {
     href: "/documents",
@@ -50,6 +74,7 @@ const navItems = [
     shortLabel: "Docs",
     description: "Bibliotheque, revisions courantes et diffusion controlee.",
     icon: FileStack,
+    permission: "documents.view",
   },
   {
     href: "/finance",
@@ -57,6 +82,7 @@ const navItems = [
     shortLabel: "Finance",
     description: "Factures, paiements, tresorerie et point de marge.",
     icon: CircleDollarSign,
+    permission: "finance.view",
   },
   {
     href: "/notifications",
@@ -64,6 +90,7 @@ const navItems = [
     shortLabel: "Alertes",
     description: "Alertes critiques, validations attendues et suivi lecture.",
     icon: Bell,
+    permission: "notifications.view",
   },
   {
     href: "/admin",
@@ -71,6 +98,7 @@ const navItems = [
     shortLabel: "Admin",
     description: "Utilisateurs, roles, traces d'audit et configuration tenant.",
     icon: ShieldCheck,
+    permission: "admin.view",
   },
 ];
 
@@ -84,7 +112,9 @@ function isActive(pathname: string, href: string) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { activeProject, availableProjects, currentUser, setActiveProjectId } =
+  const router = useRouter();
+  const { signOut } = useAuth();
+  const { activeProject, availableProjects, can, currentUser, setActiveProjectId } =
     useWorkspace();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") {
@@ -93,6 +123,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     return window.localStorage.getItem("bnaasaas-sidebar-collapsed") === "true";
   });
+  const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -101,10 +132,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }, [sidebarCollapsed]);
 
+  const visibleNavItems = navItems.filter((item) => can(item.permission));
+
   const currentNav =
-    navItems.find((item) => item.href !== "/" && pathname.startsWith(item.href)) ??
-    navItems.find((item) => item.href === pathname) ??
+    visibleNavItems.find((item) => item.href !== "/" && pathname.startsWith(item.href)) ??
+    visibleNavItems.find((item) => item.href === pathname) ??
+    visibleNavItems[0] ??
     navItems[0];
+
+  function handleSignOut() {
+    signOut();
+    router.replace("/login");
+  }
 
   return (
     <div className="workspace-light min-h-screen">
@@ -162,11 +201,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               sidebarCollapsed ? "px-1" : "",
             )}
           >
-            {navItems.map(({ href, label, icon: Icon }) => {
+            {visibleNavItems.map(({ href, label, icon: Icon }) => {
               const active = isActive(pathname, href);
               const sublabel =
                 href === "/"
                   ? "Overview"
+                  : href === "/documentation"
+                    ? "Guides"
                   : href === "/documents"
                     ? "Document control"
                     : href === "/finance"
@@ -271,6 +312,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <p className="mt-2 text-xs uppercase tracking-[0.14em] text-stone-500">
                     {currentUser.role}
                   </p>
+                  <div className="mt-4">
+                    <label
+                      htmlFor="sidebar-project-switcher"
+                      className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500"
+                    >
+                      Changer de projet
+                    </label>
+                    <select
+                      id="sidebar-project-switcher"
+                      value={activeProject.id}
+                      onChange={(event) => setActiveProjectId(event.target.value)}
+                      className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm font-medium text-stone-900 outline-none"
+                    >
+                      {availableProjects.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name} - {project.code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </>
               )}
             </div>
@@ -313,62 +374,62 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         <Bell className="size-5" />
                         <span className="absolute right-2 top-2 size-2 rounded-full bg-black" />
                       </button>
-                      <div className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-white px-3 py-2 shadow-sm">
-                        <div className="flex size-10 items-center justify-center rounded-2xl bg-black text-sm font-semibold text-white">
-                          {currentUser.initials}
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-stone-950">
-                            {currentUser.name}
-                          </p>
-                          <p className="text-xs text-stone-500">{currentUser.role}</p>
-                        </div>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setProfileOpen((current) => !current)}
+                          className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-white px-3 py-2 shadow-sm hover:bg-stone-50"
+                        >
+                          <div className="flex size-10 items-center justify-center rounded-2xl bg-black text-sm font-semibold text-white">
+                            {currentUser.initials}
+                          </div>
+                          <div className="text-left">
+                            <p className="text-sm font-semibold text-stone-950">
+                              {currentUser.name}
+                            </p>
+                            <p className="text-xs text-stone-500">{currentUser.role}</p>
+                          </div>
+                        </button>
+
+                        {profileOpen ? (
+                          <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 w-72 rounded-[22px] border border-stone-200 bg-white p-4 shadow-xl">
+                            <div className="space-y-1">
+                              <p className="text-sm font-semibold text-stone-950">
+                                {currentUser.name}
+                              </p>
+                              <p className="text-sm text-stone-600">{currentUser.email}</p>
+                            </div>
+                            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                              <div className="rounded-2xl border border-stone-200 bg-stone-50 p-3">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                                  Role
+                                </p>
+                                <p className="mt-2 text-sm font-semibold text-stone-950">
+                                  {currentUser.role}
+                                </p>
+                              </div>
+                              <div className="rounded-2xl border border-stone-200 bg-stone-50 p-3">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                                  Projets
+                                </p>
+                                <p className="mt-2 text-sm font-semibold text-stone-950">
+                                  {availableProjects.length} accessibles
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleSignOut}
+                              className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm font-semibold text-stone-900 hover:bg-stone-100"
+                            >
+                              <LogOut className="size-4" />
+                              Se deconnecter
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">
-                    Workspace actif
-                  </p>
-                  <p className="mt-1 text-sm text-stone-900">
-                    {activeProject.client} - {activeProject.location}
-                  </p>
-                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <div className="min-w-[260px]">
-                      <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                        Changer de projet selon votre role
-                      </label>
-                      <select
-                        value={activeProject.id}
-                        onChange={(event) => setActiveProjectId(event.target.value)}
-                        className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm font-medium text-stone-900 outline-none"
-                      >
-                        {availableProjects.map((project) => (
-                          <option key={project.id} value={project.id}>
-                            {project.name} - {project.code}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <StatusBadge tone="neutral">Role: {currentUser.role}</StatusBadge>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <StatusBadge tone="neutral">{activeProject.code}</StatusBadge>
-                  <StatusBadge tone="warning">
-                    {activeProject.invoicesDue} actions prioritaires
-                  </StatusBadge>
-                  <StatusBadge tone="success">
-                    {notifications.length} notifications en suivi
-                  </StatusBadge>
-                  <button className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 hover:bg-stone-100">
-                    <Settings2 className="size-4" />
-                    Configurer
-                  </button>
                 </div>
               </div>
             </div>
@@ -380,7 +441,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <nav className="fixed inset-x-4 bottom-4 z-30 rounded-[24px] border border-stone-200 bg-white p-2 shadow-lg lg:hidden">
         <div className="grid grid-cols-5 gap-1">
-          {navItems.slice(0, 5).map(({ href, shortLabel, icon: Icon }) => {
+          {visibleNavItems.slice(0, 5).map(({ href, shortLabel, icon: Icon }) => {
             const active = isActive(pathname, href);
 
             return (

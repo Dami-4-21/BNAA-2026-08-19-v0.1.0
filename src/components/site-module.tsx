@@ -176,16 +176,25 @@ function createFormState(projectData: ReturnType<typeof getSiteModuleData>): For
 }
 
 export function SiteModule() {
-  const { activeProject } = useWorkspace();
+  const { activeProject, can, currentUser } = useWorkspace();
   const projectData = useMemo(
     () => getSiteModuleData(activeProject.id),
     [activeProject.id],
   );
+  const canCreateReport = can("site.report.create");
+  const canAddPhoto = can("site.photo.create");
+  const canCreateNcr = can("site.ncr.create");
+  const canCloseNcr = can("site.ncr.close");
 
   return (
     <SiteModuleContent
       key={activeProject.id}
       activeProject={activeProject}
+      canAddPhoto={canAddPhoto}
+      canCloseNcr={canCloseNcr}
+      canCreateNcr={canCreateNcr}
+      canCreateReport={canCreateReport}
+      currentUserRole={currentUser.role}
       projectData={projectData}
     />
   );
@@ -193,9 +202,19 @@ export function SiteModule() {
 
 function SiteModuleContent({
   activeProject,
+  canAddPhoto,
+  canCloseNcr,
+  canCreateNcr,
+  canCreateReport,
+  currentUserRole,
   projectData,
 }: {
   activeProject: WorkspaceProject;
+  canAddPhoto: boolean;
+  canCloseNcr: boolean;
+  canCreateNcr: boolean;
+  canCreateReport: boolean;
+  currentUserRole: string;
   projectData: ReturnType<typeof getSiteModuleData>;
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
@@ -352,8 +371,14 @@ function SiteModuleContent({
         description={`Centralisez les rapports journaliers, l'avancement, les photos geolocalisees et les non-conformites pour ${activeProject.name}.`}
         action={
           <button
-            onClick={() => setActiveTab("rjc")}
-            className="rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
+            onClick={() => (canCreateReport ? setActiveTab("rjc") : null)}
+            disabled={!canCreateReport}
+            className={cx(
+              "rounded-2xl px-4 py-3 text-sm font-semibold",
+              canCreateReport
+                ? "bg-black text-white hover:bg-stone-800"
+                : "cursor-not-allowed bg-stone-200 text-stone-500",
+            )}
           >
             Nouveau rapport
           </button>
@@ -372,6 +397,13 @@ function SiteModuleContent({
           />
         ))}
       </div>
+
+      {!canCreateReport || !canAddPhoto || !canCreateNcr ? (
+        <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm leading-6 text-stone-600">
+          Votre role <span className="font-semibold text-stone-950">{currentUserRole}</span> peut
+          consulter le suivi chantier, avec des actions limitees selon les droits attribues.
+        </div>
+      ) : null}
 
       <Panel className="overflow-hidden">
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
@@ -406,6 +438,7 @@ function SiteModuleContent({
 
               {activeTab === "rjc" ? (
                 <RjcTab
+                  canCreateReport={canCreateReport}
                   formState={formState}
                   setFormState={setFormState}
                   reportCompleteness={reportCompleteness}
@@ -416,6 +449,7 @@ function SiteModuleContent({
 
               {activeTab === "photos" ? (
                 <PhotosTab
+                  canAddPhoto={canAddPhoto}
                   draftPhoto={draftPhoto}
                   setDraftPhoto={setDraftPhoto}
                   photos={filteredPhotos}
@@ -433,6 +467,8 @@ function SiteModuleContent({
 
               {activeTab === "ncr" ? (
                 <NcrTab
+                  canCloseNcr={canCloseNcr}
+                  canCreateNcr={canCreateNcr}
                   draftNcr={draftNcr}
                   setDraftNcr={setDraftNcr}
                   ncrs={ncrs}
@@ -604,16 +640,28 @@ function SiteModuleContent({
                     <div className="flex flex-wrap gap-2">
                       {!report.pdfReady ? (
                         <button
-                          onClick={() => markPdfReady(report.id)}
-                          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+                          onClick={() => (canCreateReport ? markPdfReady(report.id) : null)}
+                          disabled={!canCreateReport}
+                          className={cx(
+                            "rounded-2xl px-4 py-2 text-sm font-semibold",
+                            canCreateReport
+                              ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
+                              : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
+                          )}
                         >
                           Generer PDF
                         </button>
                       ) : null}
                       {!report.signedByMoe ? (
                         <button
-                          onClick={() => signAsMoe(report.id)}
-                          className="rounded-2xl bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+                          onClick={() => (canCreateReport ? signAsMoe(report.id) : null)}
+                          disabled={!canCreateReport}
+                          className={cx(
+                            "rounded-2xl px-4 py-2 text-sm font-semibold",
+                            canCreateReport
+                              ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
+                              : "cursor-not-allowed bg-slate-700 text-slate-400",
+                          )}
                         >
                           Signer cote MOE
                         </button>
@@ -787,12 +835,14 @@ function OverviewTab({
 }
 
 function RjcTab({
+  canCreateReport,
   formState,
   setFormState,
   reportCompleteness,
   incidentTemplates,
   submitDailyReport,
 }: {
+  canCreateReport: boolean;
   formState: FormState;
   setFormState: React.Dispatch<React.SetStateAction<FormState>>;
   reportCompleteness: number;
@@ -992,11 +1042,17 @@ function RjcTab({
           </div>
 
           <button
-            onClick={submitDailyReport}
-            className="flex w-full items-center justify-center gap-2 rounded-[22px] bg-sky-400 px-4 py-4 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+            onClick={() => (canCreateReport ? submitDailyReport() : null)}
+            disabled={!canCreateReport}
+            className={cx(
+              "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
+              canCreateReport
+                ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
+                : "cursor-not-allowed bg-slate-700 text-slate-400",
+            )}
           >
             <CheckCheck className="size-4" />
-            Soumettre le RJC du jour
+            {canCreateReport ? "Soumettre le RJC du jour" : "Lecture seule sur le RJC"}
           </button>
         </div>
       </div>
@@ -1005,6 +1061,7 @@ function RjcTab({
 }
 
 function PhotosTab({
+  canAddPhoto,
   draftPhoto,
   setDraftPhoto,
   photos,
@@ -1015,6 +1072,7 @@ function PhotosTab({
   availableLots,
   addPhoto,
 }: {
+  canAddPhoto: boolean;
   draftPhoto: {
     title: string;
     zone: string;
@@ -1084,11 +1142,17 @@ function PhotosTab({
           <div className="grid gap-3 sm:grid-cols-2">
             <ActionButton icon={MapPin} label="Capturer GPS" />
             <button
-              onClick={addPhoto}
-              className="flex items-center justify-center gap-2 rounded-[22px] bg-sky-400 px-4 py-4 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+              onClick={() => (canAddPhoto ? addPhoto() : null)}
+              disabled={!canAddPhoto}
+              className={cx(
+                "flex items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
+                canAddPhoto
+                  ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
+                  : "cursor-not-allowed bg-slate-700 text-slate-400",
+              )}
             >
               <Camera className="size-4" />
-              Ajouter au journal photo
+              {canAddPhoto ? "Ajouter au journal photo" : "Consultation du journal photo"}
             </button>
           </div>
         </div>
@@ -1156,12 +1220,16 @@ function PhotosTab({
 }
 
 function NcrTab({
+  canCloseNcr,
+  canCreateNcr,
   draftNcr,
   setDraftNcr,
   ncrs,
   createNcr,
   closeNcr,
 }: {
+  canCloseNcr: boolean;
+  canCreateNcr: boolean;
   draftNcr: {
     title: string;
     owner: string;
@@ -1261,11 +1329,17 @@ function NcrTab({
           </button>
 
           <button
-            onClick={createNcr}
-            className="flex w-full items-center justify-center gap-2 rounded-[22px] bg-sky-400 px-4 py-4 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+            onClick={() => (canCreateNcr ? createNcr() : null)}
+            disabled={!canCreateNcr}
+            className={cx(
+              "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
+              canCreateNcr
+                ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
+                : "cursor-not-allowed bg-slate-700 text-slate-400",
+            )}
           >
             <ShieldAlert className="size-4" />
-            Creer la fiche NC
+            {canCreateNcr ? "Creer la fiche NC" : "Consultation des non-conformites"}
           </button>
         </div>
 
@@ -1293,8 +1367,14 @@ function NcrTab({
                 </div>
                 {item.status !== "Levee" ? (
                   <button
-                    onClick={() => closeNcr(item.ref)}
-                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+                    onClick={() => (canCloseNcr ? closeNcr(item.ref) : null)}
+                    disabled={!canCloseNcr}
+                    className={cx(
+                      "rounded-2xl px-4 py-2 text-sm font-semibold",
+                      canCloseNcr
+                        ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
+                        : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
+                    )}
                   >
                     Cloturer
                   </button>

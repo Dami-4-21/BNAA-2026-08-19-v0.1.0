@@ -104,16 +104,25 @@ function nextInvoiceNumber(items: InvoiceItem[]) {
 }
 
 export function FinanceModule() {
-  const { activeProject } = useWorkspace();
+  const { activeProject, can, currentUser } = useWorkspace();
   const projectData = useMemo(
     () => getFinanceModuleData(activeProject.id),
     [activeProject.id],
   );
+  const canCreateInvoice = can("finance.invoice.create");
+  const canSendInvoice = can("finance.invoice.send");
+  const canValidateInvoice = can("finance.invoice.validate");
+  const canRecordPayment = can("finance.payment.record");
 
   return (
     <FinanceModuleContent
       key={activeProject.id}
       activeProject={activeProject}
+      canCreateInvoice={canCreateInvoice}
+      canRecordPayment={canRecordPayment}
+      canSendInvoice={canSendInvoice}
+      canValidateInvoice={canValidateInvoice}
+      currentUserRole={currentUser.role}
       projectData={projectData}
     />
   );
@@ -121,9 +130,19 @@ export function FinanceModule() {
 
 function FinanceModuleContent({
   activeProject,
+  canCreateInvoice,
+  canRecordPayment,
+  canSendInvoice,
+  canValidateInvoice,
+  currentUserRole,
   projectData,
 }: {
   activeProject: WorkspaceProject;
+  canCreateInvoice: boolean;
+  canRecordPayment: boolean;
+  canSendInvoice: boolean;
+  canValidateInvoice: boolean;
+  currentUserRole: string;
   projectData: ReturnType<typeof getFinanceModuleData>;
 }) {
   const [activeTab, setActiveTab] = useState<FinanceTab>("dm");
@@ -273,8 +292,14 @@ function FinanceModuleContent({
         description={`Suivez les decomptes, les validations et les paiements de ${activeProject.name} dans une vue unique.`}
         action={
           <button
-            onClick={() => setActiveTab("dm")}
-            className="rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
+            onClick={() => (canCreateInvoice ? setActiveTab("dm") : null)}
+            disabled={!canCreateInvoice}
+            className={cx(
+              "rounded-2xl px-4 py-3 text-sm font-semibold",
+              canCreateInvoice
+                ? "bg-black text-white hover:bg-stone-800"
+                : "cursor-not-allowed bg-stone-200 text-stone-500",
+            )}
           >
             Creer une facture
           </button>
@@ -293,6 +318,14 @@ function FinanceModuleContent({
           />
         ))}
       </div>
+
+      {!canCreateInvoice || !canSendInvoice || !canValidateInvoice || !canRecordPayment ? (
+        <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm leading-6 text-stone-600">
+          Votre role <span className="font-semibold text-stone-950">{currentUserRole}</span> peut
+          consulter la finance, avec des droits adaptes pour creer, valider ou enregistrer les
+          paiements.
+        </div>
+      ) : null}
 
       <Panel className="overflow-hidden">
         <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
@@ -318,6 +351,7 @@ function FinanceModuleContent({
             <div className="rounded-[28px] border border-white/8 bg-white/4 p-5">
               {activeTab === "dm" ? (
                 <DecompteTab
+                  canCreateInvoice={canCreateInvoice}
                   dmDraft={dmDraft}
                   setDmDraft={setDmDraft}
                   vatRegime={vatRegime}
@@ -328,6 +362,9 @@ function FinanceModuleContent({
 
               {activeTab === "invoices" ? (
                 <InvoicesTab
+                  canRecordPayment={canRecordPayment}
+                  canSendInvoice={canSendInvoice}
+                  canValidateInvoice={canValidateInvoice}
                   invoices={invoices}
                   selectedInvoiceId={selectedInvoiceId}
                   setSelectedInvoiceId={setSelectedInvoiceId}
@@ -416,25 +453,6 @@ function FinanceModuleContent({
               </div>
             </Panel>
 
-            <Panel
-              title="Reperes de pilotage"
-              description="Les points a surveiller pour garder un cycle de facturation fluide."
-            >
-              <div className="space-y-3">
-                {[
-                  "Valider rapidement les decomptes pour limiter le decalage entre terrain et facturation.",
-                  "Suivre les echeances clients avant qu'une facture ne passe en retard.",
-                  "Comparer chaque mois les recettes prevues, les encaissements reels et les couts engages.",
-                ].map((item) => (
-                  <div
-                    key={item}
-                    className="rounded-[20px] border border-white/8 bg-white/4 px-4 py-3 text-sm leading-6 text-slate-200"
-                  >
-                    {item}
-                  </div>
-                ))}
-              </div>
-            </Panel>
           </div>
         </div>
       </Panel>
@@ -443,12 +461,14 @@ function FinanceModuleContent({
 }
 
 function DecompteTab({
+  canCreateInvoice,
   dmDraft,
   setDmDraft,
   vatRegime,
   draftValues,
   generateMonthlyStatement,
 }: {
+  canCreateInvoice: boolean;
   dmDraft: {
     periodMonth: string;
     progressPct: number;
@@ -517,11 +537,17 @@ function DecompteTab({
           </div>
 
           <button
-            onClick={generateMonthlyStatement}
-            className="flex w-full items-center justify-center gap-2 rounded-[22px] bg-sky-400 px-4 py-4 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+            onClick={() => (canCreateInvoice ? generateMonthlyStatement() : null)}
+            disabled={!canCreateInvoice}
+            className={cx(
+              "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
+              canCreateInvoice
+                ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
+                : "cursor-not-allowed bg-slate-700 text-slate-400",
+            )}
           >
             <FileText className="size-4" />
-            Generer le decompte mensuel
+            {canCreateInvoice ? "Generer le decompte mensuel" : "Lecture seule des decomptes"}
           </button>
         </div>
 
@@ -565,6 +591,9 @@ function DecompteTab({
 }
 
 function InvoicesTab({
+  canRecordPayment,
+  canSendInvoice,
+  canValidateInvoice,
   invoices,
   selectedInvoiceId,
   setSelectedInvoiceId,
@@ -576,6 +605,9 @@ function InvoicesTab({
   setPaymentDraft,
   registerPayment,
 }: {
+  canRecordPayment: boolean;
+  canSendInvoice: boolean;
+  canValidateInvoice: boolean;
   invoices: InvoiceItem[];
   selectedInvoiceId: string;
   setSelectedInvoiceId: React.Dispatch<React.SetStateAction<string>>;
@@ -663,15 +695,27 @@ function InvoicesTab({
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
               <button
-                onClick={() => sendInvoice(selectedInvoice.id)}
-                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8"
+                onClick={() => (canSendInvoice ? sendInvoice(selectedInvoice.id) : null)}
+                disabled={!canSendInvoice}
+                className={cx(
+                  "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
+                  canSendInvoice
+                    ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
+                    : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
+                )}
               >
                 <Send className="size-4" />
                 Generer / envoyer PDF
               </button>
               <button
-                onClick={() => validateInvoice(selectedInvoice.id)}
-                className="inline-flex items-center gap-2 rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+                onClick={() => (canValidateInvoice ? validateInvoice(selectedInvoice.id) : null)}
+                disabled={!canValidateInvoice}
+                className={cx(
+                  "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
+                  canValidateInvoice
+                    ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
+                    : "cursor-not-allowed bg-slate-700 text-slate-400",
+                )}
               >
                 <CheckCheck className="size-4" />
                 Valider la facture
@@ -711,11 +755,17 @@ function InvoicesTab({
                 }
               />
               <button
-                onClick={() => registerPayment(selectedInvoice.id)}
-                className="flex w-full items-center justify-center gap-2 rounded-[22px] bg-sky-400 px-4 py-4 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+                onClick={() => (canRecordPayment ? registerPayment(selectedInvoice.id) : null)}
+                disabled={!canRecordPayment}
+                className={cx(
+                  "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
+                  canRecordPayment
+                    ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
+                    : "cursor-not-allowed bg-slate-700 text-slate-400",
+                )}
               >
                 <Landmark className="size-4" />
-                Enregistrer le paiement
+                {canRecordPayment ? "Enregistrer le paiement" : "Paiement en lecture seule"}
               </button>
             </div>
           </div>
