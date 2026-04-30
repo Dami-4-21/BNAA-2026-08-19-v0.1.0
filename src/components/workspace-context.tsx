@@ -16,6 +16,7 @@ import type { TenantRecord, WorkspacePayload, WorkspaceProject } from "@/lib/bac
 
 type WorkspaceContextValue = {
   isReady: boolean;
+  error: string;
   tenant: TenantRecord;
   currentUser: NonNullable<ReturnType<typeof useAuth>["currentUser"]>;
   availableProjects: WorkspaceProject[];
@@ -62,29 +63,43 @@ export function WorkspaceProvider({
 
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadWorkspace() {
-      const payload = await apiFetch<WorkspacePayload>("/api/workspace", {
-        method: "GET",
-      });
+      try {
+        setError("");
+        const payload = await apiFetch<WorkspacePayload>("/api/workspace", {
+          method: "GET",
+        });
 
-      if (cancelled) {
-        return;
+        if (cancelled) {
+          return;
+        }
+
+        const storedProjectId = window.localStorage.getItem(
+          `bnaasaas-active-project:${currentUserId}`,
+        );
+
+        setWorkspace(payload);
+        setSelectedProjectId(
+          payload.availableProjects.some((project) => project.id === storedProjectId)
+            ? (storedProjectId ?? "")
+            : (payload.availableProjects[0]?.id ?? ""),
+        );
+      } catch (nextError) {
+        if (!cancelled) {
+          setWorkspace(null);
+          setSelectedProjectId("");
+          setError(
+            nextError instanceof Error
+              ? nextError.message
+              : "Impossible de charger les projets accessibles.",
+          );
+        }
       }
-
-      const storedProjectId = window.localStorage.getItem(
-        `bnaasaas-active-project:${currentUserId}`,
-      );
-
-      setWorkspace(payload);
-      setSelectedProjectId(
-        payload.availableProjects.some((project) => project.id === storedProjectId)
-          ? (storedProjectId ?? "")
-          : (payload.availableProjects[0]?.id ?? ""),
-      );
     }
 
     void loadWorkspace();
@@ -121,6 +136,7 @@ export function WorkspaceProvider({
   const value = useMemo(
     () => ({
       isReady: Boolean(workspace && activeProject),
+      error,
       tenant: workspace?.tenant ?? placeholderTenant,
       currentUser,
       availableProjects,
@@ -133,6 +149,7 @@ export function WorkspaceProvider({
       activeProject,
       availableProjects,
       currentUser,
+      error,
       hasPermission,
       permissions,
       setActiveProjectId,

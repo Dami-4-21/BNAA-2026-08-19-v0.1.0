@@ -95,6 +95,26 @@ export function WorkspaceGate({
 function WorkspaceReadyShell({ children }: { children: React.ReactNode }) {
   const workspace = useWorkspace();
 
+  if (workspace.error) {
+    return (
+      <div className="workspace-light flex min-h-screen items-center justify-center px-4">
+        <Panel className="w-full max-w-lg">
+          <div className="flex items-start gap-4">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-700">
+              <ShieldAlert className="size-5" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="font-display text-2xl font-semibold text-stone-950">
+                Impossible de charger votre espace
+              </h1>
+              <p className="text-sm leading-6 text-stone-600">{workspace.error}</p>
+            </div>
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+
   if (!workspace.isReady) {
     return (
       <div className="workspace-light flex min-h-screen items-center justify-center px-4">

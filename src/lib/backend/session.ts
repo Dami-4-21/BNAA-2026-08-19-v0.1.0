@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 
 export const sessionCookieName = "bnaasaas_session";
 export const sessionLifetimeSeconds = 60 * 60 * 24 * 7;
+const useSecureCookies = process.env.BNAASAAS_SECURE_COOKIE === "true";
 
 export function createSessionToken() {
   return randomBytes(24).toString("hex");
@@ -17,7 +18,7 @@ export function buildSessionCookie(value: string) {
     value,
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: useSecureCookies,
     path: "/",
     maxAge: sessionLifetimeSeconds,
   };
