@@ -40,7 +40,6 @@ export default function DashboardPage() {
       <SectionHeading
         eyebrow="Vue d'ensemble"
         title="Operations fluides du terrain jusqu'a l'encaissement"
-        description="Le tableau de bord rassemble le terrain, les documents et la finance dans une vue unique pour une prise en main rapide sur desktop comme sur mobile."
         action={<StatusBadge tone="success">Plateforme active</StatusBadge>}
       />
 
@@ -55,16 +54,6 @@ export default function DashboardPage() {
               <StatusBadge tone="success">
                 Site reporting en direct
               </StatusBadge>
-            </div>
-            <div className="space-y-3">
-              <h2 className="font-display max-w-3xl text-3xl font-semibold text-white md:text-4xl">
-                Un cockpit concu pour que le chef de projet voie tout en moins de 30 secondes.
-              </h2>
-              <p className="max-w-2xl text-base leading-7 text-slate-300">
-                La home priorise les actions utiles : rapport du jour, dernier plan en
-                vigueur, encaissements critiques et alertes terrain. On evite les ecrans
-                vides en ramenant le contexte directement sur la vue principale.
-              </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
@@ -205,7 +194,6 @@ export default function DashboardPage() {
       <div className="grid gap-6 2xl:grid-cols-[1.2fr_0.8fr]">
         <Panel
           title="Rythme chantier"
-          description="Les rapports recents sont presentes dans un format scannable pour limiter les clics. Chaque carte remonte la progression, la meteo et l'auteur."
         >
           <div className="space-y-4">
             {siteReports.map((report) => (
@@ -259,7 +247,6 @@ export default function DashboardPage() {
         <div className="space-y-6">
           <Panel
             title="Equipe projet"
-            description="Les roles visibles ici servent aussi de reference pour la future gestion fine des permissions."
           >
             <AvatarStack
               people={teamMembers.map((member) => ({
@@ -272,7 +259,6 @@ export default function DashboardPage() {
 
           <Panel
             title="Alertes prioritaires"
-            description="Notifications courtes, ton direct, et contexte actionnable."
           >
             <div className="space-y-3">
               {alerts.map((alert) => (
@@ -297,7 +283,6 @@ export default function DashboardPage() {
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <Panel
           title="Controle documentaire"
-          description="Les revisions en vigueur et la progression de lecture sont au meme endroit pour limiter les erreurs de version sur chantier."
           action={<StatusBadge tone="success">24 plans courants</StatusBadge>}
         >
           <div className="space-y-4">
@@ -347,7 +332,6 @@ export default function DashboardPage() {
 
         <Panel
           title="Point finance"
-          description="La finance reste reliee au terrain : l'avancement saisi nourrit les decomptes et les relances restent visibles immediatement."
         >
           <div className="grid gap-3 sm:grid-cols-2">
             {invoiceMetrics.map((metric) => (

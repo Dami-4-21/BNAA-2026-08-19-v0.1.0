@@ -289,7 +289,6 @@ function FinanceModuleContent({
       <SectionHeading
         eyebrow="Finance"
         title="Facturation, encaissements et tresorerie"
-        description={`Suivez les decomptes, les validations et les paiements de ${activeProject.name} dans une vue unique.`}
         action={
           <button
             onClick={() => (canCreateInvoice ? setActiveTab("dm") : null)}
@@ -400,7 +399,6 @@ function FinanceModuleContent({
           <div className="space-y-4">
             <Panel
               title="Synthese facture selectionnee"
-              description="La fiche de droite donne le contexte financier immediat du projet et de la facture courante."
             >
               {selectedInvoice ? (
                 <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
@@ -441,7 +439,6 @@ function FinanceModuleContent({
 
             <Panel
               title="Alerte tresorerie"
-              description="Le chef de projet doit voir rapidement les tensions de cash."
             >
               <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
                 <div className="flex items-start gap-3">

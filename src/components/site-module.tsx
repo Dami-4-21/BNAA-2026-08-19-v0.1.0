@@ -368,7 +368,6 @@ function SiteModuleContent({
       <SectionHeading
         eyebrow="Suivi chantier"
         title="Pilotage terrain en temps reel"
-        description={`Centralisez les rapports journaliers, l'avancement, les photos geolocalisees et les non-conformites pour ${activeProject.name}.`}
         action={
           <button
             onClick={() => (canCreateReport ? setActiveTab("rjc") : null)}
@@ -482,7 +481,6 @@ function SiteModuleContent({
           <div className="space-y-4">
             <Panel
               title="Meteo chantier"
-              description="Point live injecte dans le dashboard terrain."
             >
               <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
                 <div className="flex items-start justify-between gap-3">
@@ -531,7 +529,6 @@ function SiteModuleContent({
 
             <Panel
               title="Avancement par lot"
-              description="Lecture rapide des glissements et de l'etat reel par corps d'etat."
             >
               <div className="space-y-4">
                 {formState.progressByLot.map((item, index) => {
@@ -569,7 +566,6 @@ function SiteModuleContent({
 
             <Panel
               title="Actions critiques"
-              description="Les automatismes doivent guider l'utilisateur vers l'action suivante."
             >
               <div className="space-y-3">
                 {[
@@ -593,7 +589,6 @@ function SiteModuleContent({
       <div className="grid gap-6 2xl:grid-cols-[1.15fr_0.85fr]">
         <Panel
           title="Historique RJC"
-          description="Les derniers rapports restent visibles avec leur completude, leur statut de signature et l'etat PDF."
         >
           <div className="space-y-3">
             {reports.map((report) => (

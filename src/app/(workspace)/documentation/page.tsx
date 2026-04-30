@@ -1,4 +1,12 @@
-import { BookOpenText, FileCheck2, Receipt, ShieldCheck, SquarePen } from "lucide-react";
+import {
+  BellRing,
+  BookOpenText,
+  FileCheck2,
+  FolderKanban,
+  Receipt,
+  ShieldCheck,
+  SquarePen,
+} from "lucide-react";
 
 import { Panel, SectionHeading, StatusBadge } from "@/components/ui";
 
@@ -10,6 +18,15 @@ const documentationSections = [
       "Le tableau de bord sert a reperer les priorites du jour en moins de 30 secondes.",
       "Le projet actif et les actions visibles s'adaptent au role de l'utilisateur connecte.",
       "La recherche globale, les notifications et le changement de projet restent accessibles depuis le shell principal.",
+    ],
+  },
+  {
+    title: "Projets",
+    icon: FolderKanban,
+    points: [
+      "Utiliser la vue projets pour comparer rapidement sante, budget et prochain jalon.",
+      "Ouvrir un projet depuis sa carte quand une action immediate est necessaire.",
+      "Le portefeuille sert de point de bascule entre plusieurs chantiers actifs.",
     ],
   },
   {
@@ -40,12 +57,30 @@ const documentationSections = [
     ],
   },
   {
+    title: "Notifications",
+    icon: BellRing,
+    points: [
+      "Traiter les priorites du jour avant les notifications secondaires.",
+      "Verifier les delais, validations et lectures sans ouvrir chaque module.",
+      "Utiliser les canaux comme support de suivi, pas comme page de demonstration.",
+    ],
+  },
+  {
     title: "Roles et acces",
     icon: ShieldCheck,
     points: [
       "Chaque role voit uniquement les projets qui lui sont affectes.",
       "Les actions sensibles comme publier un plan, valider une facture ou cloturer une NC sont limitees par permission.",
       "Le menu lateral et les boutons d'action s'adaptent automatiquement au role de l'utilisateur.",
+    ],
+  },
+  {
+    title: "Administration",
+    icon: ShieldCheck,
+    points: [
+      "Gerer les utilisateurs, les roles et les traces d'audit depuis une seule vue.",
+      "Verifier les acces projet avant d'ouvrir de nouveaux modules a une equipe.",
+      "Conserver la page admin centree sur le controle et la tracabilite.",
     ],
   },
 ];

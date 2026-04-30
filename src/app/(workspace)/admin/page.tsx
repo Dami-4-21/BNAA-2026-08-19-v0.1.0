@@ -9,12 +9,11 @@ export default function AdminPage() {
       <SectionHeading
         eyebrow="Tenant Admin"
         title="Une administration lisible, meme sans equipe IT dediee"
-        description="Le MVP admin doit rester simple: utilisateurs, roles, acces projet, traces d'audit. Pas de complexite gratuite, mais suffisamment de controle pour rassurer un client BTP."
         action={<StatusBadge tone="success">Audit trail active</StatusBadge>}
       />
 
       <div className="grid gap-6 2xl:grid-cols-[0.95fr_1.05fr]">
-        <Panel title="Equipe active" description="Base de travail pour les invitations et la future gestion fine des permissions.">
+        <Panel title="Equipe active">
           <AvatarStack
             people={teamMembers.map((member) => ({
               initials: member.initials,
@@ -24,7 +23,7 @@ export default function AdminPage() {
           />
         </Panel>
 
-        <Panel title="Matrice des roles" description="Vue synthese des acces MVP par persona.">
+        <Panel title="Matrice des roles">
           <div className="space-y-3">
             {roleMatrix.map((role) => (
               <div
@@ -44,7 +43,7 @@ export default function AdminPage() {
         </Panel>
       </div>
 
-      <Panel title="Journal d'audit" description="Les actions sensibles du MVP remontent ici pour renforcer la confiance et la tracabilite.">
+      <Panel title="Journal d'audit">
         <div className="space-y-3">
           {auditTrail.map((entry) => (
             <div

@@ -77,8 +77,6 @@ type DocumentTreeRoot = {
   nodes: Array<{ label: string; phases: string[] }>;
 };
 
-type WorkspaceProject = ReturnType<typeof useWorkspace>["activeProject"];
-
 const tabs: Array<{ key: DocumentsTab; label: string; helper: string }> = [
   {
     key: "library",
@@ -122,7 +120,6 @@ export function DocumentsModule() {
   return (
     <DocumentsModuleContent
       key={activeProject.id}
-      activeProject={activeProject}
       canDistribute={canDistribute}
       canMarkObsolete={canMarkObsolete}
       canPublishVersion={canPublishVersion}
@@ -133,14 +130,12 @@ export function DocumentsModule() {
 }
 
 function DocumentsModuleContent({
-  activeProject,
   canDistribute,
   canMarkObsolete,
   canPublishVersion,
   currentUserRole,
   projectData,
 }: {
-  activeProject: WorkspaceProject;
   canDistribute: boolean;
   canMarkObsolete: boolean;
   canPublishVersion: boolean;
@@ -348,7 +343,6 @@ function DocumentsModuleContent({
       <SectionHeading
         eyebrow="Documents"
         title="Controle documentaire et diffusion des plans"
-        description={`Retrouvez pour ${activeProject.name} les versions en vigueur, les listes de diffusion et l'acces offline pour le terrain.`}
         action={
           <button
             onClick={() => (canPublishVersion ? setActiveTab("versions") : null)}
@@ -458,7 +452,6 @@ function DocumentsModuleContent({
           <div className="space-y-4">
             <Panel
               title="Preview & comparaison"
-              description="Previsualisez la revision courante et comparez-la rapidement avec la version precedente."
             >
               {selectedDocument ? (
                 <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
@@ -513,7 +506,6 @@ function DocumentsModuleContent({
 
             <Panel
               title="Arborescence projet"
-              description="Le classement suit projet, lot et phase pour retrouver rapidement les bons plans."
             >
               <div className="space-y-3">
                 {projectData.tree.map((root: DocumentTreeRoot) => (

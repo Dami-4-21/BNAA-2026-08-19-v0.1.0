@@ -30,7 +30,6 @@ type NavItem = {
   href: string;
   label: string;
   shortLabel: string;
-  description: string;
   icon: LucideIcon;
   permission: AppPermission;
 };
@@ -40,7 +39,6 @@ const navItems: NavItem[] = [
     href: "/",
     label: "Tableau de bord",
     shortLabel: "Accueil",
-    description: "Vue synthese des operations, documents et encaissements.",
     icon: LayoutDashboard,
     permission: "dashboard.view",
   },
@@ -48,7 +46,6 @@ const navItems: NavItem[] = [
     href: "/projects",
     label: "Projets",
     shortLabel: "Projets",
-    description: "Portefeuille actif, sante projet et jalons a venir.",
     icon: FolderKanban,
     permission: "projects.view",
   },
@@ -56,7 +53,6 @@ const navItems: NavItem[] = [
     href: "/documentation",
     label: "Documentation",
     shortLabel: "Docs",
-    description: "Guides d'usage, roles et bonnes pratiques centralises.",
     icon: BookOpenText,
     permission: "documentation.view",
   },
@@ -64,7 +60,6 @@ const navItems: NavItem[] = [
     href: "/site",
     label: "Suivi chantier",
     shortLabel: "Site",
-    description: "Rapports journaliers, photos terrain et non-conformites.",
     icon: SquarePen,
     permission: "site.view",
   },
@@ -72,7 +67,6 @@ const navItems: NavItem[] = [
     href: "/documents",
     label: "GED & Plans",
     shortLabel: "Docs",
-    description: "Bibliotheque, revisions courantes et diffusion controlee.",
     icon: FileStack,
     permission: "documents.view",
   },
@@ -80,7 +74,6 @@ const navItems: NavItem[] = [
     href: "/finance",
     label: "Finance",
     shortLabel: "Finance",
-    description: "Factures, paiements, tresorerie et point de marge.",
     icon: CircleDollarSign,
     permission: "finance.view",
   },
@@ -88,7 +81,6 @@ const navItems: NavItem[] = [
     href: "/notifications",
     label: "Notifications",
     shortLabel: "Alertes",
-    description: "Alertes critiques, validations attendues et suivi lecture.",
     icon: Bell,
     permission: "notifications.view",
   },
@@ -96,7 +88,6 @@ const navItems: NavItem[] = [
     href: "/admin",
     label: "Admin",
     shortLabel: "Admin",
-    description: "Utilisateurs, roles, traces d'audit et configuration tenant.",
     icon: ShieldCheck,
     permission: "admin.view",
   },
@@ -352,9 +343,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <h2 className="font-display text-2xl font-semibold text-stone-950 md:text-3xl">
                       {activeProject.name}
                     </h2>
-                    <p className="mt-1 max-w-2xl text-sm text-stone-600">
-                      {currentNav.description}
-                    </p>
                   </div>
                 </div>
 

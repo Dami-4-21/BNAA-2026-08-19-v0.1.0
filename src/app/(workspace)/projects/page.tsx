@@ -12,7 +12,6 @@ export default function ProjectsPage() {
       <SectionHeading
         eyebrow="Portfolio"
         title="Un portefeuille clair des projets actifs"
-        description="Les cartes projet condensent sante, progression, budget et prochain jalon. Cette page sert de hub pour que la direction et les chefs de projet basculent rapidement vers le bon chantier."
         action={
           <div className="flex gap-2">
             <button className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8">
@@ -83,59 +82,6 @@ export default function ProjectsPage() {
         })}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <Panel
-          title="Ce que la page doit permettre"
-          description="Le design vise un arbitrage rapide entre priorites terrain, diffusion documentaire et cash. Chaque bloc repond a une question operationnelle concrete."
-        >
-          <div className="grid gap-3 md:grid-cols-3">
-            {[
-              {
-                title: "Quel projet appelle une action immediate ?",
-                text: "Les statuts de sante sont exposes sans ouvrir le detail.",
-              },
-              {
-                title: "Ou en est le budget ?",
-                text: "Le cout global reste visible des la carte projet.",
-              },
-              {
-                title: "Quel jalon arrive ensuite ?",
-                text: "Le prochain point dur est mis en avant pour rythmer les relances.",
-              },
-            ].map((item) => (
-              <div
-                key={item.title}
-                className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-              >
-                <p className="text-sm font-semibold text-white">{item.title}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-300">{item.text}</p>
-              </div>
-            ))}
-          </div>
-        </Panel>
-
-        <Panel
-          title="Pipeline d'onboarding MVP"
-          description="Un nouveau client doit pouvoir comprendre la valeur en une semaine."
-        >
-          <div className="space-y-3">
-            {[
-              "Jour 1 - creation du tenant et import du projet pilote",
-              "Jour 2 - activation des roles conducteur, BE, compta",
-              "Jour 3 - diffusion du premier jeu de plans",
-              "Jour 4 - premier RJC avec photos terrain",
-              "Jour 5 - generation de la premiere facture PDF",
-            ].map((step) => (
-              <div
-                key={step}
-                className="rounded-[20px] border border-white/8 bg-white/4 px-4 py-3 text-sm text-slate-200"
-              >
-                {step}
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
     </div>
   );
 }
