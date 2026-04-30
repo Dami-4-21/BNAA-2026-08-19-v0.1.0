@@ -1,9 +1,35 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { BellRing, Clock3, SendHorizontal } from "lucide-react";
 
 import { Panel, SectionHeading, StatusBadge } from "@/components/ui";
-import { alerts, notifications } from "@/lib/mock-data";
+import { apiFetch } from "@/lib/api";
+import type { NotificationsPageData } from "@/lib/backend/types";
 
 export default function NotificationsPage() {
+  const [data, setData] = useState<NotificationsPageData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNotifications() {
+      const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
+        method: "GET",
+      });
+
+      if (!cancelled) {
+        setData(payload);
+      }
+    }
+
+    void loadNotifications();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
       <SectionHeading
@@ -15,7 +41,7 @@ export default function NotificationsPage() {
       <div className="grid gap-6 2xl:grid-cols-[1fr_1fr]">
         <Panel title="Priorites du jour">
           <div className="space-y-3">
-            {alerts.map((alert) => (
+            {(data?.alerts ?? []).map((alert) => (
               <div
                 key={alert.title}
                 className="rounded-[22px] border border-white/8 bg-white/4 p-4"
@@ -35,7 +61,7 @@ export default function NotificationsPage() {
 
         <Panel title="Canaux et formats">
           <div className="space-y-3">
-            {notifications.map((notification) => (
+            {(data?.notifications ?? []).map((notification) => (
               <div
                 key={`${notification.title}-${notification.when}`}
                 className="rounded-[22px] border border-white/8 bg-white/4 p-4"

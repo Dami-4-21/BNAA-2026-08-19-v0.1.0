@@ -1,9 +1,35 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { ShieldCheck, Users2 } from "lucide-react";
 
 import { AvatarStack, Panel, SectionHeading, StatusBadge } from "@/components/ui";
-import { auditTrail, roleMatrix, teamMembers } from "@/lib/mock-data";
+import { apiFetch } from "@/lib/api";
+import type { AdminPageData } from "@/lib/backend/types";
 
 export default function AdminPage() {
+  const [data, setData] = useState<AdminPageData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAdmin() {
+      const payload = await apiFetch<AdminPageData>("/api/admin", {
+        method: "GET",
+      });
+
+      if (!cancelled) {
+        setData(payload);
+      }
+    }
+
+    void loadAdmin();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
       <SectionHeading
@@ -15,7 +41,7 @@ export default function AdminPage() {
       <div className="grid gap-6 2xl:grid-cols-[0.95fr_1.05fr]">
         <Panel title="Equipe active">
           <AvatarStack
-            people={teamMembers.map((member) => ({
+            people={(data?.teamMembers ?? []).map((member) => ({
               initials: member.initials,
               name: member.name,
               role: member.role,
@@ -25,7 +51,7 @@ export default function AdminPage() {
 
         <Panel title="Matrice des roles">
           <div className="space-y-3">
-            {roleMatrix.map((role) => (
+            {(data?.roleMatrix ?? []).map((role) => (
               <div
                 key={role.role}
                 className="rounded-[22px] border border-white/8 bg-white/4 p-4"
@@ -45,7 +71,7 @@ export default function AdminPage() {
 
       <Panel title="Journal d'audit">
         <div className="space-y-3">
-          {auditTrail.map((entry) => (
+          {(data?.auditTrail ?? []).map((entry) => (
             <div
               key={`${entry.actor}-${entry.at}`}
               className="rounded-[22px] border border-white/8 bg-white/4 p-4"

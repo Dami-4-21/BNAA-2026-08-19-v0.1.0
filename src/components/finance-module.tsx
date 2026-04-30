@@ -2,6 +2,7 @@
 
 import {
   startTransition,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -28,9 +29,10 @@ import {
 } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/format";
 import {
-  getFinanceModuleData,
   financeVatRegimes,
 } from "@/lib/mock-data";
+import { apiFetch } from "@/lib/api";
+import type { FinanceModuleData as FinancePayload } from "@/lib/backend/types";
 import { useWorkspace } from "@/components/workspace-context";
 
 type FinanceTab = "dm" | "invoices" | "vat" | "cashflow";
@@ -67,8 +69,6 @@ type PaymentItem = {
   paidAt: string;
 };
 
-type WorkspaceProject = ReturnType<typeof useWorkspace>["activeProject"];
-
 const tabs: Array<{ key: FinanceTab; label: string; helper: string }> = [
   {
     key: "dm",
@@ -94,30 +94,66 @@ const tabs: Array<{ key: FinanceTab; label: string; helper: string }> = [
 
 const metricIcons = [Wallet, Receipt, CircleDollarSign, BadgePercent];
 
-function nextInvoiceNumber(items: InvoiceItem[]) {
-  const max = items.reduce((current, item) => {
-    const numeric = Number(item.invoiceNumber.split("-").pop());
-    return Number.isFinite(numeric) ? Math.max(current, numeric) : current;
-  }, 42);
-
-  return `FAC-2026-${String(max + 1).padStart(3, "0")}`;
-}
-
 export function FinanceModule() {
   const { activeProject, can, currentUser } = useWorkspace();
-  const projectData = useMemo(
-    () => getFinanceModuleData(activeProject.id),
-    [activeProject.id],
-  );
+  const [projectData, setProjectData] = useState<FinancePayload | null>(null);
+  const [error, setError] = useState("");
   const canCreateInvoice = can("finance.invoice.create");
   const canSendInvoice = can("finance.invoice.send");
   const canValidateInvoice = can("finance.invoice.validate");
   const canRecordPayment = can("finance.payment.record");
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFinance() {
+      try {
+        setError("");
+        const payload = await apiFetch<FinancePayload>(
+          `/api/projects/${activeProject.id}/finance`,
+          { method: "GET" },
+        );
+
+        if (!cancelled) {
+          setProjectData(payload);
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(
+            nextError instanceof Error ? nextError.message : "Impossible de charger la finance.",
+          );
+        }
+      }
+    }
+
+    void loadFinance();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProject.id]);
+
+  if (!projectData && !error) {
+    return (
+      <div className="space-y-6">
+        <SectionHeading eyebrow="Finance" title="Chargement de la finance projet" />
+      </div>
+    );
+  }
+
+  if (!projectData) {
+    return (
+      <div className="space-y-6">
+        <SectionHeading eyebrow="Finance" title="La finance est indisponible" />
+        <Panel>{error}</Panel>
+      </div>
+    );
+  }
+
   return (
     <FinanceModuleContent
       key={activeProject.id}
-      activeProject={activeProject}
+      activeProjectId={activeProject.id}
       canCreateInvoice={canCreateInvoice}
       canRecordPayment={canRecordPayment}
       canSendInvoice={canSendInvoice}
@@ -129,7 +165,7 @@ export function FinanceModule() {
 }
 
 function FinanceModuleContent({
-  activeProject,
+  activeProjectId,
   canCreateInvoice,
   canRecordPayment,
   canSendInvoice,
@@ -137,15 +173,16 @@ function FinanceModuleContent({
   currentUserRole,
   projectData,
 }: {
-  activeProject: WorkspaceProject;
+  activeProjectId: string;
   canCreateInvoice: boolean;
   canRecordPayment: boolean;
   canSendInvoice: boolean;
   canValidateInvoice: boolean;
   currentUserRole: string;
-  projectData: ReturnType<typeof getFinanceModuleData>;
+  projectData: FinancePayload;
 }) {
   const [activeTab, setActiveTab] = useState<FinanceTab>("dm");
+  const [overview, setOverview] = useState(projectData.overview);
   const [invoices, setInvoices] = useState<InvoiceItem[]>(projectData.invoices);
   const [payments, setPayments] = useState<PaymentItem[]>(projectData.payments);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState(
@@ -157,6 +194,9 @@ function FinanceModuleContent({
   );
   const [dmDraft, setDmDraft] = useState(projectData.dmDraft);
   const [paymentDraft, setPaymentDraft] = useState(projectData.paymentDraft);
+  const [cashflowData, setCashflowData] = useState(projectData.cashflow);
+  const [declaration, setDeclaration] = useState(projectData.declaration);
+  const [mutationError, setMutationError] = useState("");
 
   const selectedInvoice =
     invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? invoices[0];
@@ -187,101 +227,78 @@ function FinanceModuleContent({
       )
     : 0;
 
-  function generateMonthlyStatement() {
-    const newInvoice: InvoiceItem = {
-      id: `INV-${Date.now()}`,
-      projectId: activeProject.id,
-      invoiceNumber: nextInvoiceNumber(invoices),
-      project: activeProject.name,
-      periodMonth: dmDraft.periodMonth,
-      amountHt: draftValues.amountAfterRetention,
-      tvaRate: vatRegime.rate,
-      tvaAmount: draftValues.tvaAmount,
-      amountTtc: draftValues.amountTtc,
-      dueDate: "2026-05-10",
-      paidAt: "",
-      status: "Brouillon",
-      tone: "warning",
-      retentionAmount: draftValues.retentionAmount,
-      advanceDeduction: dmDraft.advanceDeduction,
-      sourceProgress: dmDraft.progressPct,
-      validatedByMoe: false,
-      validatedByMo: false,
-    };
-
+  function applyProjectData(nextData: FinancePayload) {
     startTransition(() => {
-      setInvoices((current) => [newInvoice, ...current]);
-      setSelectedInvoiceId(newInvoice.id);
+      setOverview(nextData.overview);
+      setInvoices(nextData.invoices);
+      setPayments(nextData.payments);
+      setCashflowData(nextData.cashflow);
+      setDeclaration(nextData.declaration);
+      setDmDraft(nextData.dmDraft);
+      setPaymentDraft(nextData.paymentDraft);
+      setSelectedInvoiceId((current) =>
+        nextData.invoices.some((invoice) => invoice.id === current)
+          ? current
+          : (nextData.invoices[0]?.id ?? ""),
+      );
+    });
+  }
+
+  async function runFinanceAction(action: string, payload: Record<string, unknown>) {
+    const nextData = await apiFetch<FinancePayload>(`/api/projects/${activeProjectId}/finance`, {
+      method: "POST",
+      body: {
+        action,
+        payload,
+      },
+    });
+    setMutationError("");
+    applyProjectData(nextData);
+    return nextData;
+  }
+
+  async function generateMonthlyStatement() {
+    try {
+      const nextData = await runFinanceAction("create-invoice", {
+        dmDraft,
+        vatRegimeId: vatRegime.id,
+      });
+      setSelectedInvoiceId(nextData.invoices[0]?.id ?? "");
       setActiveTab("invoices");
-    });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Generation impossible.");
+    }
   }
 
-  function validateInvoice(invoiceId: string) {
-    startTransition(() => {
-      setInvoices((current) =>
-        current.map((invoice) =>
-          invoice.id === invoiceId
-            ? {
-                ...invoice,
-                status: invoice.validatedByMoe ? "Validee" : "Envoyee",
-                tone: invoice.validatedByMoe ? "primary" : "warning",
-                validatedByMoe: true,
-                validatedByMo: invoice.validatedByMoe ? true : invoice.validatedByMo,
-              }
-            : invoice,
-        ),
-      );
-    });
+  async function validateInvoice(invoiceId: string) {
+    try {
+      await runFinanceAction("validate-invoice", { invoiceId });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Validation impossible.");
+    }
   }
 
-  function sendInvoice(invoiceId: string) {
-    startTransition(() => {
-      setInvoices((current) =>
-        current.map((invoice) =>
-          invoice.id === invoiceId
-            ? {
-                ...invoice,
-                status: "Envoyee",
-                tone: "primary",
-              }
-            : invoice,
-        ),
-      );
-    });
+  async function sendInvoice(invoiceId: string) {
+    try {
+      await runFinanceAction("send-invoice", { invoiceId });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Envoi impossible.");
+    }
   }
 
-  function registerPayment(invoiceId: string) {
-    const amount = Number(paymentDraft.amount);
-    if (!Number.isFinite(amount) || !selectedInvoice) {
+  async function registerPayment(invoiceId: string) {
+    if (!selectedInvoice) {
       return;
     }
-
-    const payment: PaymentItem = {
-      id: `PAY-${Date.now()}`,
-      invoiceId,
-      invoiceNumber: selectedInvoice.invoiceNumber,
-      amount,
-      method: paymentDraft.method,
-      reference: paymentDraft.reference,
-      paidAt: "2026-04-30T17:20:00",
-    };
-
-    startTransition(() => {
-      setPayments((current) => [payment, ...current]);
-      setInvoices((current) =>
-        current.map((invoice) =>
-          invoice.id === invoiceId
-            ? {
-                ...invoice,
-                paidAt: payment.paidAt,
-                status: amount >= invoice.amountTtc ? "Payee" : "Validee",
-                tone: amount >= invoice.amountTtc ? "success" : "primary",
-              }
-            : invoice,
-        ),
-      );
+    try {
+      await runFinanceAction("register-payment", {
+        invoiceId,
+        paymentDraft,
+      });
       setActiveTab("cashflow");
-    });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Paiement impossible.");
+    }
   }
 
   return (
@@ -306,7 +323,7 @@ function FinanceModuleContent({
       />
 
       <div className="grid gap-4 xl:grid-cols-4">
-        {projectData.overview.kpis.map((metric, index) => (
+        {overview.kpis.map((metric, index) => (
           <MetricCard
             key={metric.label}
             label={metric.label}
@@ -323,6 +340,12 @@ function FinanceModuleContent({
           Votre role <span className="font-semibold text-stone-950">{currentUserRole}</span> peut
           consulter la finance, avec des droits adaptes pour creer, valider ou enregistrer les
           paiements.
+        </div>
+      ) : null}
+
+      {mutationError ? (
+        <div className="rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-4 text-sm leading-6 text-rose-700">
+          {mutationError}
         </div>
       ) : null}
 
@@ -382,7 +405,7 @@ function FinanceModuleContent({
                   vatRegime={vatRegime}
                   setVatRegime={setVatRegime}
                   selectedInvoice={selectedInvoice}
-                  declaration={projectData.declaration}
+                  declaration={declaration}
                 />
               ) : null}
 
@@ -390,7 +413,7 @@ function FinanceModuleContent({
                 <CashflowTab
                   invoices={invoices}
                   payments={payments}
-                  cashflowData={projectData.cashflow}
+                  cashflowData={cashflowData}
                 />
               ) : null}
             </div>
@@ -444,7 +467,7 @@ function FinanceModuleContent({
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="mt-1 size-4 text-amber-300" />
                   <p className="text-sm leading-6 text-slate-200">
-                    {projectData.overview.treasuryAlert}
+                    {overview.treasuryAlert}
                   </p>
                 </div>
               </div>

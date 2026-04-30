@@ -2,6 +2,7 @@
 
 import {
   startTransition,
+  useEffect,
   useDeferredValue,
   useMemo,
   useState,
@@ -30,9 +31,8 @@ import {
   cx,
 } from "@/components/ui";
 import { formatDate } from "@/lib/format";
-import {
-  getDocumentsModuleData,
-} from "@/lib/mock-data";
+import { apiFetch } from "@/lib/api";
+import type { DocumentsModuleData as DocumentsPayload } from "@/lib/backend/types";
 import { useWorkspace } from "@/components/workspace-context";
 
 type DocumentsTab = "library" | "versions" | "distribution" | "offline";
@@ -109,16 +109,62 @@ const toneByReadStatus: Record<string, ActiveTone> = {
 
 export function DocumentsModule() {
   const { activeProject, can, currentUser } = useWorkspace();
-  const projectData = useMemo(
-    () => getDocumentsModuleData(activeProject.id),
-    [activeProject.id],
-  );
+  const [projectData, setProjectData] = useState<DocumentsPayload | null>(null);
+  const [error, setError] = useState("");
   const canPublishVersion = can("documents.version.publish");
   const canDistribute = can("documents.distribute");
   const canMarkObsolete = can("documents.obsolete.mark");
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDocuments() {
+      try {
+        setError("");
+        const payload = await apiFetch<DocumentsPayload>(
+          `/api/projects/${activeProject.id}/documents`,
+          { method: "GET" },
+        );
+
+        if (!cancelled) {
+          setProjectData(payload);
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(
+            nextError instanceof Error ? nextError.message : "Impossible de charger les documents.",
+          );
+        }
+      }
+    }
+
+    void loadDocuments();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProject.id]);
+
+  if (!projectData && !error) {
+    return (
+      <div className="space-y-6">
+        <SectionHeading eyebrow="Documents" title="Chargement de la GED" />
+      </div>
+    );
+  }
+
+  if (!projectData) {
+    return (
+      <div className="space-y-6">
+        <SectionHeading eyebrow="Documents" title="La GED est indisponible" />
+        <Panel>{error}</Panel>
+      </div>
+    );
+  }
+
   return (
     <DocumentsModuleContent
+      activeProjectId={activeProject.id}
       key={activeProject.id}
       canDistribute={canDistribute}
       canMarkObsolete={canMarkObsolete}
@@ -130,19 +176,22 @@ export function DocumentsModule() {
 }
 
 function DocumentsModuleContent({
+  activeProjectId,
   canDistribute,
   canMarkObsolete,
   canPublishVersion,
   currentUserRole,
   projectData,
 }: {
+  activeProjectId: string;
   canDistribute: boolean;
   canMarkObsolete: boolean;
   canPublishVersion: boolean;
   currentUserRole: string;
-  projectData: ReturnType<typeof getDocumentsModuleData>;
+  projectData: DocumentsPayload;
 }) {
   const [activeTab, setActiveTab] = useState<DocumentsTab>("library");
+  const [overview, setOverview] = useState(projectData.overview);
   const [documents, setDocuments] = useState<DocumentFile[]>(projectData.files);
   const [recipients, setRecipients] = useState<Recipient[]>(projectData.recipients);
   const [selectedDocumentId, setSelectedDocumentId] = useState(
@@ -151,8 +200,34 @@ function DocumentsModuleContent({
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Tous");
   const [draftVersion, setDraftVersion] = useState(projectData.draftVersion);
+  const [mutationError, setMutationError] = useState("");
 
   const deferredSearch = useDeferredValue(search);
+
+  function applyProjectData(nextData: DocumentsPayload) {
+    startTransition(() => {
+      setOverview(nextData.overview);
+      setDocuments(nextData.files);
+      setRecipients(nextData.recipients);
+      setDraftVersion(nextData.draftVersion);
+      setSelectedDocumentId((current) =>
+        nextData.files.some((item) => item.id === current) ? current : (nextData.files[0]?.id ?? ""),
+      );
+    });
+  }
+
+  async function runDocumentsAction(action: string, payload: Record<string, unknown>) {
+    const nextData = await apiFetch<DocumentsPayload>(`/api/projects/${activeProjectId}/documents`, {
+      method: "POST",
+      body: {
+        action,
+        payload,
+      },
+    });
+    setMutationError("");
+    applyProjectData(nextData);
+    return nextData;
+  }
 
   const selectedDocument =
     documents.find((item) => item.id === selectedDocumentId) ?? documents[0];
@@ -192,150 +267,63 @@ function DocumentsModuleContent({
     [documents],
   );
 
-  function publishNewVersion() {
+  async function publishNewVersion() {
     if (!selectedDocument) {
       return;
     }
-
-    const currentRevision = draftVersion.revision;
-
-    startTransition(() => {
-      setDocuments((current) =>
-        current.map((item) =>
-          item.id === selectedDocument.id
-            ? {
-                ...item,
-                revision: currentRevision,
-                format: draftVersion.format,
-                publishedAt: "2026-04-30",
-                status: "Diffusion",
-                tone: "primary",
-                isCurrent: true,
-                offlineReady: true,
-                compareWith: item.revision,
-                versions: [
-                  ...item.versions.map((version) =>
-                    version.status === "Courante"
-                      ? { ...version, status: "Archive" }
-                      : version,
-                  ),
-                  {
-                    version: currentRevision,
-                    publishedAt: "2026-04-30",
-                    status: "Courante",
-                  },
-                ],
-              }
-            : item,
-        ),
-      );
-    });
-  }
-
-  function markObsolete(documentId: string) {
-    startTransition(() => {
-      setDocuments((current) =>
-        current.map((item) =>
-          item.id === documentId
-            ? {
-                ...item,
-                status: "Obsolete",
-                tone: "warning",
-                isCurrent: false,
-              }
-            : item,
-        ),
-      );
-    });
-  }
-
-  function distributeSelected() {
-    if (!selectedDocument) {
-      return;
-    }
-
-    startTransition(() => {
-      setDocuments((current) =>
-        current.map((item) =>
-          item.id === selectedDocument.id
-            ? {
-                ...item,
-                status: "Diffusion",
-                tone: "primary",
-                lastDistributedAt: "2026-04-30",
-                recipients: Math.max(item.recipients, 18),
-                readCount: Math.min(item.readCount, 15),
-              }
-            : item,
-        ),
-      );
-
-      setRecipients((current) => {
-        const exists = current.some(
-          (recipient) =>
-            recipient.documentId === selectedDocument.id &&
-            recipient.role === draftVersion.audience,
-        );
-
-        if (exists) {
-          return current;
-        }
-
-        return [
-          ...current,
-          {
-            id: `REC-${Date.now()}`,
-            documentId: selectedDocument.id,
-            name: draftVersion.audience,
-            role: "Liste de diffusion",
-            status: "Non lu",
-            acknowledgedAt: "",
-          },
-        ];
+    try {
+      await runDocumentsAction("publish-version", {
+        documentId: selectedDocument.id,
+        revision: draftVersion.revision,
+        format: draftVersion.format,
       });
-    });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Publication impossible.");
+    }
   }
 
-  function acknowledgeRecipient(recipientId: string) {
-    startTransition(() => {
-      setRecipients((current) =>
-        current.map((item) =>
-          item.id === recipientId
-            ? {
-                ...item,
-                status: "Lu",
-                acknowledgedAt: "2026-04-30 17:08",
-              }
-            : item,
-        ),
-      );
-
-      if (selectedDocument) {
-        setDocuments((current) =>
-          current.map((item) =>
-            item.id === selectedDocument.id
-              ? {
-                  ...item,
-                  readCount: Math.min(item.readCount + 1, item.recipients || item.readCount + 1),
-                  tone: item.status === "Courante" ? "success" : item.tone,
-                }
-              : item,
-          ),
-        );
-      }
-    });
+  async function markObsolete(documentId: string) {
+    try {
+      await runDocumentsAction("mark-obsolete", { documentId });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Operation impossible.");
+    }
   }
 
-  function toggleOffline(documentId: string) {
-    startTransition(() => {
-      setDocuments((current) =>
-        current.map((item) =>
-          item.id === documentId
-            ? { ...item, offlineReady: !item.offlineReady }
-            : item,
-        ),
-      );
-    });
+  async function distributeSelected() {
+    if (!selectedDocument) {
+      return;
+    }
+    try {
+      await runDocumentsAction("distribute", {
+        documentId: selectedDocument.id,
+        audience: draftVersion.audience,
+      });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Diffusion impossible.");
+    }
+  }
+
+  async function acknowledgeRecipient(recipientId: string) {
+    if (!selectedDocument) {
+      return;
+    }
+    try {
+      await runDocumentsAction("acknowledge", {
+        documentId: selectedDocument.id,
+        recipientId,
+      });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Accuse impossible.");
+    }
+  }
+
+  async function toggleOffline(documentId: string) {
+    try {
+      await runDocumentsAction("toggle-offline", { documentId });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Sync offline impossible.");
+    }
   }
 
   return (
@@ -360,7 +348,7 @@ function DocumentsModuleContent({
       />
 
       <div className="grid gap-4 xl:grid-cols-4">
-        {projectData.overview.kpis.map((item, index) => (
+        {overview.kpis.map((item, index) => (
           <MetricCard
             key={item.label}
             label={item.label}
@@ -377,6 +365,12 @@ function DocumentsModuleContent({
           Votre role <span className="font-semibold text-stone-950">{currentUserRole}</span> peut
           consulter la documentation, avec des actions de publication et de diffusion selon les
           droits attribues.
+        </div>
+      ) : null}
+
+      {mutationError ? (
+        <div className="rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-4 text-sm leading-6 text-rose-700">
+          {mutationError}
         </div>
       ) : null}
 
@@ -442,7 +436,7 @@ function DocumentsModuleContent({
               {activeTab === "offline" ? (
                 <OfflineTab
                   documents={documents}
-                  offlineSummary={projectData.overview.offline}
+                  offlineSummary={overview.offline}
                   toggleOffline={toggleOffline}
                 />
               ) : null}

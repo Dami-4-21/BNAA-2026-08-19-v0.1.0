@@ -22,7 +22,6 @@ import {
 
 import { useAuth } from "@/components/auth-context";
 import { type AppPermission } from "@/lib/auth";
-import { tenant } from "@/lib/mock-data";
 import { cx } from "@/components/ui";
 import { useWorkspace } from "@/components/workspace-context";
 
@@ -105,7 +104,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { signOut } = useAuth();
-  const { activeProject, availableProjects, can, currentUser, setActiveProjectId } =
+  const { activeProject, availableProjects, can, currentUser, setActiveProjectId, tenant } =
     useWorkspace();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") {
@@ -131,8 +130,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     visibleNavItems[0] ??
     navItems[0];
 
-  function handleSignOut() {
-    signOut();
+  async function handleSignOut() {
+    await signOut();
     router.replace("/login");
   }
 

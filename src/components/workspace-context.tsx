@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useEffect,
   useCallback,
   createContext,
   useContext,
@@ -9,15 +10,13 @@ import {
 } from "react";
 
 import { useAuth } from "@/components/auth-context";
-import {
-  canAccessProject,
-  type AppPermission,
-} from "@/lib/auth";
-import { workspaceProjects } from "@/lib/mock-data";
-
-type WorkspaceProject = (typeof workspaceProjects)[number];
+import { type AppPermission } from "@/lib/auth";
+import { apiFetch } from "@/lib/api";
+import type { TenantRecord, WorkspacePayload, WorkspaceProject } from "@/lib/backend/types";
 
 type WorkspaceContextValue = {
+  isReady: boolean;
+  tenant: TenantRecord;
   currentUser: NonNullable<ReturnType<typeof useAuth>["currentUser"]>;
   availableProjects: WorkspaceProject[];
   activeProject: WorkspaceProject;
@@ -28,6 +27,28 @@ type WorkspaceContextValue = {
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
+const placeholderTenant: TenantRecord = {
+  name: "BnaaSaaS",
+  sector: "",
+  users: 0,
+  activeProjects: 0,
+};
+
+const placeholderProject: WorkspaceProject = {
+  id: "",
+  name: "",
+  code: "",
+  client: "",
+  location: "",
+  status: "",
+  progress: 0,
+  budgetTnd: 0,
+  spentTnd: 0,
+  invoicesDue: 0,
+  nextMilestone: "",
+  allowedRoles: [],
+};
+
 export function WorkspaceProvider({
   children,
 }: {
@@ -37,41 +58,86 @@ export function WorkspaceProvider({
   if (!currentUser) {
     throw new Error("WorkspaceProvider requires an authenticated user");
   }
+  const currentUserId = currentUser.id;
+
+  const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadWorkspace() {
+      const payload = await apiFetch<WorkspacePayload>("/api/workspace", {
+        method: "GET",
+      });
+
+      if (cancelled) {
+        return;
+      }
+
+      const storedProjectId = window.localStorage.getItem(
+        `bnaasaas-active-project:${currentUserId}`,
+      );
+
+      setWorkspace(payload);
+      setSelectedProjectId(
+        payload.availableProjects.some((project) => project.id === storedProjectId)
+          ? (storedProjectId ?? "")
+          : (payload.availableProjects[0]?.id ?? ""),
+      );
+    }
+
+    void loadWorkspace();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId]);
 
   const availableProjects = useMemo(
-    () =>
-      workspaceProjects.filter((project) =>
-        project.allowedRoles.includes(currentUser.role) &&
-        canAccessProject(currentUser, project.id),
-      ),
-    [currentUser],
+    () => workspace?.availableProjects ?? [],
+    [workspace],
   );
-
-  const [selectedProjectId, setSelectedProjectId] = useState(availableProjects[0]?.id ?? "");
-
-  const fallbackProject = availableProjects[0] ?? workspaceProjects[0];
+  const fallbackProject = availableProjects[0] ?? null;
   const activeProjectId = availableProjects.some((project) => project.id === selectedProjectId)
     ? selectedProjectId
-    : fallbackProject.id;
+    : fallbackProject?.id ?? "";
   const activeProject =
-    availableProjects.find((project) => project.id === activeProjectId) ??
-    fallbackProject;
+    availableProjects.find((project) => project.id === activeProjectId) ?? fallbackProject;
 
   const hasPermission = useCallback(
     (permission: AppPermission) => can(permission),
     [can],
   );
 
+  const setActiveProjectId = useCallback(
+    (projectId: string) => {
+      setSelectedProjectId(projectId);
+      window.localStorage.setItem(`bnaasaas-active-project:${currentUserId}`, projectId);
+    },
+    [currentUserId],
+  );
+
   const value = useMemo(
     () => ({
+      isReady: Boolean(workspace && activeProject),
+      tenant: workspace?.tenant ?? placeholderTenant,
       currentUser,
       availableProjects,
-      activeProject,
-      setActiveProjectId: setSelectedProjectId,
+      activeProject: activeProject ?? placeholderProject,
+      setActiveProjectId,
       permissions,
       can: hasPermission,
     }),
-    [activeProject, availableProjects, currentUser, hasPermission, permissions],
+    [
+      activeProject,
+      availableProjects,
+      currentUser,
+      hasPermission,
+      permissions,
+      setActiveProjectId,
+      workspace,
+    ],
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

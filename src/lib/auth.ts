@@ -38,6 +38,8 @@ export type AppUser = {
   projectIds: string[];
 };
 
+export type SafeUser = Omit<AppUser, "password">;
+
 export const sessionStorageKey = "bnaasaas-session-user-id";
 
 const allPermissions: AppPermission[] = [
@@ -206,6 +208,12 @@ export function getUserById(userId: string | null | undefined) {
   }
 
   return appUsers.find((user) => user.id === userId) ?? null;
+}
+
+export function sanitizeUser(user: AppUser): SafeUser {
+  const { password, ...safeUser } = user;
+  void password;
+  return safeUser;
 }
 
 export function getPermissionsForRole(role: UserRole) {

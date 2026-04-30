@@ -10,15 +10,13 @@ import {
 } from "react";
 
 import {
-  findUserByCredentials,
   getHomePathForRole,
   getPermissionsForRole,
-  getUserById,
   hasPermission,
-  sessionStorageKey,
   type AppPermission,
-  type AppUser,
+  type SafeUser,
 } from "@/lib/auth";
+import { apiFetch } from "@/lib/api";
 
 type SignInInput = {
   email: string;
@@ -26,18 +24,18 @@ type SignInInput = {
 };
 
 type SignInResult =
-  | { ok: true; user: AppUser }
+  | { ok: true; user: SafeUser }
   | { ok: false; error: string };
 
 type AuthContextValue = {
-  currentUser: AppUser | null;
+  currentUser: SafeUser | null;
   isAuthenticated: boolean;
   isReady: boolean;
   permissions: AppPermission[];
   homePath: string;
   can: (permission: AppPermission) => boolean;
-  signIn: (input: SignInInput) => SignInResult;
-  signOut: () => void;
+  signIn: (input: SignInInput) => Promise<SignInResult>;
+  signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -47,35 +45,71 @@ export function AuthProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [currentUser, setCurrentUser] = useState<SafeUser | null>(null);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      const sessionUserId = window.localStorage.getItem(sessionStorageKey);
-      setCurrentUser(getUserById(sessionUserId));
-      setIsReady(true);
-    });
-  }, []);
+    let cancelled = false;
 
-  const signIn = useCallback(({ email, password }: SignInInput): SignInResult => {
-    const user = findUserByCredentials(email, password);
+    async function loadSession() {
+      try {
+        const session = await apiFetch<{
+          user: SafeUser | null;
+        }>("/api/auth/session", {
+          method: "GET",
+        });
 
-    if (!user) {
-      return {
-        ok: false,
-        error: "Identifiants invalides. Verifiez votre email et votre mot de passe.",
-      };
+        if (!cancelled) {
+          setCurrentUser(session.user);
+        }
+      } catch {
+        if (!cancelled) {
+          setCurrentUser(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsReady(true);
+        }
+      }
     }
 
-    window.localStorage.setItem(sessionStorageKey, user.id);
-    setCurrentUser(user);
+    void loadSession();
 
-    return { ok: true, user };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const signOut = useCallback(() => {
-    window.localStorage.removeItem(sessionStorageKey);
+  const signIn = useCallback(async ({ email, password }: SignInInput): Promise<SignInResult> => {
+    try {
+      const payload = await apiFetch<{
+        user: SafeUser;
+      }>("/api/auth/login", {
+        method: "POST",
+        body: { email, password },
+      });
+
+      setCurrentUser(payload.user);
+
+      return {
+        ok: true,
+        user: payload.user,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Identifiants invalides. Verifiez votre email et votre mot de passe.",
+      };
+    }
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await apiFetch<{ ok: true }>("/api/auth/session", {
+      method: "DELETE",
+    });
     setCurrentUser(null);
   }, []);
 

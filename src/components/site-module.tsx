@@ -2,6 +2,7 @@
 
 import {
   startTransition,
+  useEffect,
   useDeferredValue,
   useMemo,
   useState,
@@ -31,9 +32,8 @@ import {
   cx,
 } from "@/components/ui";
 import { formatDate } from "@/lib/format";
-import {
-  getSiteModuleData,
-} from "@/lib/mock-data";
+import { apiFetch } from "@/lib/api";
+import type { SiteModuleData as SitePayload } from "@/lib/backend/types";
 import { useWorkspace } from "@/components/workspace-context";
 
 type TabKey = "overview" | "rjc" | "photos" | "ncr";
@@ -129,12 +129,6 @@ const tabs: Array<{ key: TabKey; label: string; helper: string }> = [
 
 const kpiIcons = [ClipboardCheck, ShieldAlert, TimerReset, Radio];
 
-const toneBySeverity: Record<string, "primary" | "warning" | "danger"> = {
-  Critique: "danger",
-  Majeure: "warning",
-  Mineure: "primary",
-};
-
 const toneByStatus: Record<string, Tone> = {
   "En cours": "danger",
   Planifiee: "warning",
@@ -158,7 +152,7 @@ function percentComplete({
   return Math.min(score, 100);
 }
 
-function createFormState(projectData: ReturnType<typeof getSiteModuleData>): FormState {
+function createFormState(projectData: SitePayload): FormState {
   return {
     reportDate: projectData.reportDraft.reportDate,
     weather: projectData.reportDraft.weather,
@@ -177,14 +171,60 @@ function createFormState(projectData: ReturnType<typeof getSiteModuleData>): For
 
 export function SiteModule() {
   const { activeProject, can, currentUser } = useWorkspace();
-  const projectData = useMemo(
-    () => getSiteModuleData(activeProject.id),
-    [activeProject.id],
-  );
+  const [projectData, setProjectData] = useState<SitePayload | null>(null);
+  const [error, setError] = useState("");
   const canCreateReport = can("site.report.create");
   const canAddPhoto = can("site.photo.create");
   const canCreateNcr = can("site.ncr.create");
   const canCloseNcr = can("site.ncr.close");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProjectData() {
+      try {
+        setError("");
+        const payload = await apiFetch<SitePayload>(`/api/projects/${activeProject.id}/site`, {
+          method: "GET",
+        });
+
+        if (!cancelled) {
+          setProjectData(payload);
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(
+            nextError instanceof Error
+              ? nextError.message
+              : "Impossible de charger le suivi chantier.",
+          );
+        }
+      }
+    }
+
+    void loadProjectData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProject.id]);
+
+  if (!projectData && !error) {
+    return (
+      <div className="space-y-6">
+        <SectionHeading eyebrow="Suivi chantier" title="Chargement du suivi chantier" />
+      </div>
+    );
+  }
+
+  if (!projectData) {
+    return (
+      <div className="space-y-6">
+        <SectionHeading eyebrow="Suivi chantier" title="Le suivi chantier est indisponible" />
+        <Panel>{error}</Panel>
+      </div>
+    );
+  }
 
   return (
     <SiteModuleContent
@@ -215,11 +255,14 @@ function SiteModuleContent({
   canCreateNcr: boolean;
   canCreateReport: boolean;
   currentUserRole: string;
-  projectData: ReturnType<typeof getSiteModuleData>;
+  projectData: SitePayload;
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [searchPhotos, setSearchPhotos] = useState("");
   const [photoLotFilter, setPhotoLotFilter] = useState("Tous");
+  const [overview, setOverview] = useState(projectData.overview);
+  const [lotProgress, setLotProgress] = useState(projectData.lotProgress);
+  const [signatureQueue, setSignatureQueue] = useState(projectData.signatureQueue);
   const [reports, setReports] = useState<ReportItem[]>(projectData.reports);
   const [photos, setPhotos] = useState<PhotoItem[]>(projectData.photoLibrary);
   const [ncrs, setNcrs] = useState<NcrItem[]>(projectData.ncrs);
@@ -228,8 +271,36 @@ function SiteModuleContent({
   );
   const [draftPhoto, setDraftPhoto] = useState(projectData.draftPhoto);
   const [draftNcr, setDraftNcr] = useState(projectData.draftNcr);
+  const [mutationError, setMutationError] = useState("");
 
   const deferredSearch = useDeferredValue(searchPhotos);
+
+  function applyProjectData(nextData: SitePayload) {
+    startTransition(() => {
+      setOverview(nextData.overview);
+      setLotProgress(nextData.lotProgress);
+      setSignatureQueue(nextData.signatureQueue);
+      setReports(nextData.reports);
+      setPhotos(nextData.photoLibrary);
+      setNcrs(nextData.ncrs);
+      setFormState(createFormState(nextData));
+      setDraftPhoto(nextData.draftPhoto);
+      setDraftNcr(nextData.draftNcr);
+    });
+  }
+
+  async function runSiteAction(action: string, payload: Record<string, unknown>) {
+    const nextData = await apiFetch<SitePayload>(`/api/projects/${activeProject.id}/site`, {
+      method: "POST",
+      body: {
+        action,
+        payload,
+      },
+    });
+    setMutationError("");
+    applyProjectData(nextData);
+    return nextData;
+  }
 
   const reportCompleteness = percentComplete({
     workforceCount: formState.workforceCount,
@@ -255,112 +326,64 @@ function SiteModuleContent({
 
   const latestReport = reports[0];
 
-  function submitDailyReport() {
-    const newReport: ReportItem = {
-      id: `RJC-${Date.now()}`,
-      date: "2026-04-30",
-      weather: formState.weather,
-      workforce: formState.workforceCount,
-      progress:
-        Math.round(
-          formState.progressByLot.reduce((total, item) => total + item.progress, 0) /
-            formState.progressByLot.length,
-        ) || 0,
-      author: "Nour Baccar",
-      status: reportCompleteness >= 95 ? "Soumis" : "A completer",
-      tone: reportCompleteness >= 95 ? "primary" : "warning",
-      summary: formState.activities.split("\n")[0] || "Rapport terrain soumis",
-      completeness: reportCompleteness,
-      pdfReady: false,
-      signedByCt: true,
-      signedByMoe: false,
-    };
-
-    startTransition(() => {
-      setReports((current) => [newReport, ...current]);
+  async function submitDailyReport() {
+    try {
+      await runSiteAction("create-report", {
+        formState: {
+          ...formState,
+          reportDate: formState.reportDate.includes("/")
+            ? formState.reportDate.split("/").reverse().join("-")
+            : formState.reportDate,
+        },
+      });
       setActiveTab("overview");
-    });
-  }
-
-  function markPdfReady(reportId: string) {
-    startTransition(() => {
-      setReports((current) =>
-        current.map((report) =>
-          report.id === reportId
-            ? { ...report, pdfReady: true, status: "Pret PDF", tone: "primary" }
-            : report,
-        ),
+    } catch (error) {
+      setMutationError(
+        error instanceof Error ? error.message : "Creation du rapport impossible.",
       );
-    });
+    }
   }
 
-  function signAsMoe(reportId: string) {
-    startTransition(() => {
-      setReports((current) =>
-        current.map((report) =>
-          report.id === reportId
-            ? {
-                ...report,
-                signedByMoe: true,
-                pdfReady: true,
-                status: "Signe",
-                tone: "success",
-              }
-            : report,
-        ),
-      );
-    });
+  async function markPdfReady(reportId: string) {
+    try {
+      await runSiteAction("mark-pdf-ready", { reportId });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "PDF indisponible.");
+    }
   }
 
-  function addPhoto() {
-    const newPhoto: PhotoItem = {
-      id: `PH-${Date.now()}`,
-      title: draftPhoto.title,
-      zone: draftPhoto.zone,
-      lot: draftPhoto.lot,
-      task: draftPhoto.task,
-      time: "16:24",
-      timestamp: "2026-04-30T16:24:00",
-      geo: draftPhoto.geo,
-      author: "Nour Baccar",
-      accent: "from-sky-500/55 to-violet-300/18",
-    };
+  async function signAsMoe(reportId: string) {
+    try {
+      await runSiteAction("sign-report", { reportId });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Signature impossible.");
+    }
+  }
 
-    startTransition(() => {
-      setPhotos((current) => [newPhoto, ...current]);
+  async function addPhoto() {
+    try {
+      await runSiteAction("add-photo", { draftPhoto });
       setActiveTab("photos");
-    });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Ajout photo impossible.");
+    }
   }
 
-  function createNcr() {
-    const newNcr: NcrItem = {
-      ref: `NC-${String(22 + ncrs.length).padStart(3, "0")}`,
-      title: draftNcr.title,
-      owner: draftNcr.owner,
-      dueDate: draftNcr.dueDate,
-      severity: draftNcr.severity,
-      status: "En cours",
-      tone: toneBySeverity[draftNcr.severity] ?? "warning",
-      photoAttached: draftNcr.photoAttached,
-      description: draftNcr.description,
-    };
-
-    startTransition(() => {
-      setNcrs((current) => [newNcr, ...current]);
+  async function createNcr() {
+    try {
+      await runSiteAction("create-ncr", { draftNcr });
       setActiveTab("ncr");
-    });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Creation NC impossible.");
+    }
   }
 
-  function closeNcr(ref: string) {
-    startTransition(() => {
-      setNcrs((current) =>
-        current.map((item) =>
-          item.ref === ref
-            ? { ...item, status: "Levee", tone: "success" as const }
-            : item,
-        ),
-      );
-    });
+  async function closeNcr(ref: string) {
+    try {
+      await runSiteAction("close-ncr", { ref });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Cloture NC impossible.");
+    }
   }
 
   return (
@@ -385,7 +408,7 @@ function SiteModuleContent({
       />
 
       <div className="grid gap-4 xl:grid-cols-4">
-        {projectData.overview.kpis.map((item, index) => (
+        {overview.kpis.map((item, index) => (
           <MetricCard
             key={item.label}
             label={item.label}
@@ -401,6 +424,12 @@ function SiteModuleContent({
         <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm leading-6 text-stone-600">
           Votre role <span className="font-semibold text-stone-950">{currentUserRole}</span> peut
           consulter le suivi chantier, avec des actions limitees selon les droits attribues.
+        </div>
+      ) : null}
+
+      {mutationError ? (
+        <div className="rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-4 text-sm leading-6 text-rose-700">
+          {mutationError}
         </div>
       ) : null}
 
@@ -431,7 +460,7 @@ function SiteModuleContent({
                   latestReport={latestReport}
                   reports={reports}
                   ncrs={ncrs}
-                  signatures={projectData.signatureQueue}
+                  signatures={signatureQueue}
                 />
               ) : null}
 
@@ -486,13 +515,13 @@ function SiteModuleContent({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <CloudSun className="size-5 text-sky-200" />
-                      <p className="font-display text-3xl font-semibold text-white">
-                        {projectData.overview.weather.temperature}
+                    <CloudSun className="size-5 text-sky-200" />
+                     <p className="font-display text-3xl font-semibold text-white">
+                        {overview.weather.temperature}
                       </p>
                     </div>
                     <p className="mt-2 text-sm text-slate-300">
-                      {projectData.overview.weather.label}
+                      {overview.weather.label}
                     </p>
                   </div>
                   <StatusBadge tone="primary">Live</StatusBadge>
@@ -503,7 +532,7 @@ function SiteModuleContent({
                       Vent
                     </p>
                     <p className="mt-1 text-sm text-white">
-                      {projectData.overview.weather.wind}
+                      {overview.weather.wind}
                     </p>
                   </div>
                   <div>
@@ -511,7 +540,7 @@ function SiteModuleContent({
                       Risque pluie
                     </p>
                     <p className="mt-1 text-sm text-white">
-                      {projectData.overview.weather.rainRisk}
+                      {overview.weather.rainRisk}
                     </p>
                   </div>
                   <div>
@@ -522,7 +551,7 @@ function SiteModuleContent({
                   </div>
                 </div>
                 <p className="mt-4 text-xs text-slate-500">
-                  {projectData.overview.weather.source}
+                  {overview.weather.source}
                 </p>
               </div>
             </Panel>
@@ -532,7 +561,7 @@ function SiteModuleContent({
             >
               <div className="space-y-4">
                 {formState.progressByLot.map((item, index) => {
-                  const planned = projectData.lotProgress[index]?.planned ?? item.progress;
+                  const planned = lotProgress[index]?.planned ?? item.progress;
                   const delta = item.progress - planned;
                   const deltaTone: Tone =
                     delta >= 0 ? "success" : Math.abs(delta) >= 5 ? "danger" : "warning";

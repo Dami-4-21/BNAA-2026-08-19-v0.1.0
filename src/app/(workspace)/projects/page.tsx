@@ -1,12 +1,35 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { ArrowUpRight, Building2, ClipboardList, Landmark, Layers3 } from "lucide-react";
 
 import { Panel, ProgressBar, SectionHeading, StatusBadge } from "@/components/ui";
-import { projects } from "@/lib/mock-data";
 import { formatCurrency } from "@/lib/format";
+import { apiFetch } from "@/lib/api";
+import type { ProjectsPageData } from "@/lib/backend/types";
 
 const healthIcons = [Building2, Landmark, Layers3];
 
 export default function ProjectsPage() {
+  const [data, setData] = useState<ProjectsPageData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProjects() {
+      const payload = await apiFetch<ProjectsPageData>("/api/projects", { method: "GET" });
+      if (!cancelled) {
+        setData(payload);
+      }
+    }
+
+    void loadProjects();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
       <SectionHeading
@@ -25,7 +48,7 @@ export default function ProjectsPage() {
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        {projects.map((project, index) => {
+        {(data?.projects ?? []).map((project, index) => {
           const Icon = healthIcons[index] ?? ClipboardList;
 
           return (

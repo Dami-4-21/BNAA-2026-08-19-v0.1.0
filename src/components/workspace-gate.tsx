@@ -7,7 +7,7 @@ import { LockKeyhole, ShieldAlert } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
 import { Panel, StatusBadge } from "@/components/ui";
-import { WorkspaceProvider } from "@/components/workspace-context";
+import { WorkspaceProvider, useWorkspace } from "@/components/workspace-context";
 import { useAuth } from "@/components/auth-context";
 import { getRequiredPermissionForPath } from "@/lib/auth";
 
@@ -87,7 +87,35 @@ export function WorkspaceGate({
 
   return (
     <WorkspaceProvider>
-      <AppShell>{children}</AppShell>
+      <WorkspaceReadyShell>{children}</WorkspaceReadyShell>
     </WorkspaceProvider>
   );
+}
+
+function WorkspaceReadyShell({ children }: { children: React.ReactNode }) {
+  const workspace = useWorkspace();
+
+  if (!workspace.isReady) {
+    return (
+      <div className="workspace-light flex min-h-screen items-center justify-center px-4">
+        <Panel className="w-full max-w-lg">
+          <div className="flex items-start gap-4">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-black text-white">
+              <LockKeyhole className="size-5" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="font-display text-2xl font-semibold text-stone-950">
+                Chargement des projets accessibles
+              </h1>
+              <p className="text-sm leading-6 text-stone-600">
+                Synchronisation de votre espace de travail et des permissions projet.
+              </p>
+            </div>
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+
+  return <AppShell>{children}</AppShell>;
 }

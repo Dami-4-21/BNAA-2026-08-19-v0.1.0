@@ -10,4 +10,10 @@ services:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
       PORT: 3000
+      BNAASAAS_DATA_FILE: /data/database.json
+    volumes:
+      - bnaasaas_data:/data
     restart: unless-stopped
+
+volumes:
+  bnaasaas_data:

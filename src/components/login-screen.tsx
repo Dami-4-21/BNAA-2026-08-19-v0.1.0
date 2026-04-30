@@ -16,6 +16,7 @@ export function LoginScreen() {
   const [email, setEmail] = useState(appUsers[0]?.email ?? "");
   const [password, setPassword] = useState("bnaasaas2026");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const nextPath = useMemo(() => searchParams.get("next") ?? homePath, [homePath, searchParams]);
 
@@ -27,14 +28,18 @@ export function LoginScreen() {
     router.replace(nextPath);
   }, [isAuthenticated, isReady, nextPath, router]);
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const result = signIn({ email, password });
+    setIsSubmitting(true);
+    const result = await signIn({ email, password });
+    setIsSubmitting(false);
 
     if (!result.ok) {
       setError(result.error);
       return;
     }
+
+    setError("");
 
     router.replace(searchParams.get("next") ?? homePath);
   }
@@ -179,9 +184,10 @@ export function LoginScreen() {
 
             <button
               type="submit"
+              disabled={isSubmitting}
               className="flex w-full items-center justify-center gap-2 rounded-[22px] bg-black px-4 py-4 text-sm font-semibold text-white hover:bg-stone-800"
             >
-              Continuer
+              {isSubmitting ? "Connexion..." : "Continuer"}
               <ArrowRight className="size-4" />
             </button>
           </form>

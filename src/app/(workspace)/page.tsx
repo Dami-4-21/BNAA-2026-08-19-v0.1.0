@@ -7,6 +7,7 @@ import {
   FileCheck2,
   ShieldAlert,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import {
   AvatarStack,
@@ -16,24 +17,70 @@ import {
   SectionHeading,
   StatusBadge,
 } from "@/components/ui";
-import {
-  alerts,
-  dashboardMetrics,
-  distributionQueue,
-  documentVersions,
-  invoiceMetrics,
-  invoices,
-  siteReports,
-  tenant,
-  teamMembers,
-} from "@/lib/mock-data";
 import { useWorkspace } from "@/components/workspace-context";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { apiFetch } from "@/lib/api";
+import type { DashboardPageData } from "@/lib/backend/types";
 
 const metricIcons = [Activity, FileCheck2, CircleDollarSign, ShieldAlert];
 
 export default function DashboardPage() {
-  const { activeProject, availableProjects, currentUser } = useWorkspace();
+  const { activeProject, availableProjects, currentUser, tenant } = useWorkspace();
+  const [data, setData] = useState<DashboardPageData | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDashboard() {
+      try {
+        setError("");
+        const payload = await apiFetch<DashboardPageData>(
+          `/api/projects/${activeProject.id}/dashboard`,
+          { method: "GET" },
+        );
+
+        if (!cancelled) {
+          setData(payload);
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(nextError instanceof Error ? nextError.message : "Erreur tableau de bord.");
+        }
+      }
+    }
+
+    void loadDashboard();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProject.id]);
+
+  if (!data && !error) {
+    return (
+      <div className="space-y-6">
+        <SectionHeading
+          eyebrow="Vue d'ensemble"
+          title="Chargement du tableau de bord"
+          action={<StatusBadge tone="neutral">Synchronisation</StatusBadge>}
+        />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="space-y-6">
+        <SectionHeading
+          eyebrow="Vue d'ensemble"
+          title="Le tableau de bord n'est pas disponible"
+          action={<StatusBadge tone="danger">Erreur</StatusBadge>}
+        />
+        <Panel>{error}</Panel>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -47,9 +94,9 @@ export default function DashboardPage() {
         <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="space-y-5">
             <div className="flex flex-wrap gap-2">
-              <StatusBadge tone="primary">{activeProject.status}</StatusBadge>
+              <StatusBadge tone="primary">{data.hero.projectStatus}</StatusBadge>
               <StatusBadge tone="warning">
-                {activeProject.invoicesDue} validations client en attente
+                {data.hero.invoicesDue} validations client en attente
               </StatusBadge>
               <StatusBadge tone="success">
                 Site reporting en direct
@@ -61,10 +108,10 @@ export default function DashboardPage() {
                   Budget projet
                 </p>
                 <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  {formatCurrency(activeProject.budgetTnd)}
+                  {formatCurrency(data.hero.budgetTnd)}
                 </p>
                 <p className="mt-2 text-sm text-slate-300">
-                  Depense a ce jour: {formatCurrency(activeProject.spentTnd)}
+                  Depense a ce jour: {formatCurrency(data.hero.spentTnd)}
                 </p>
               </div>
               <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
@@ -75,7 +122,7 @@ export default function DashboardPage() {
                   03/05
                 </p>
                 <p className="mt-2 text-sm text-slate-300">
-                  {activeProject.nextMilestone}
+                  {data.hero.nextMilestone}
                 </p>
               </div>
               <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
@@ -135,30 +182,14 @@ export default function DashboardPage() {
                   Cadence du jour
                 </p>
                 <h3 className="mt-2 font-display text-2xl font-semibold text-white">
-                  07:42 - rapport terrain soumis
+                  {data.hero.cadenceTitle}
                 </h3>
               </div>
               <ArrowUpRight className="size-5 text-slate-400" />
             </div>
 
             <div className="mt-6 space-y-4">
-              {[
-                {
-                  step: "Rapport journalier",
-                  detail: "Soumis avec 12 photos et 1 incident mineur.",
-                  tone: "success" as const,
-                },
-                {
-                  step: "Diffusion plan structure",
-                  detail: "Rev.C lue par 15/18 destinataires.",
-                  tone: "primary" as const,
-                },
-                {
-                  step: "Validation facture",
-                  detail: "Maitre d'ouvrage relance automatique dans 3 h.",
-                  tone: "warning" as const,
-                },
-              ].map((item) => (
+              {data.hero.cadenceSteps.map((item) => (
                 <div
                   key={item.step}
                   className="rounded-[22px] border border-white/8 bg-white/4 p-4"
@@ -178,7 +209,7 @@ export default function DashboardPage() {
       </Panel>
 
       <div className="grid gap-4 xl:grid-cols-4">
-        {dashboardMetrics.map((metric, index) => (
+        {data.dashboardMetrics.map((metric, index) => (
           <MetricCard
             key={metric.label}
             label={metric.label}
@@ -196,7 +227,7 @@ export default function DashboardPage() {
           title="Rythme chantier"
         >
           <div className="space-y-4">
-            {siteReports.map((report) => (
+            {data.siteReports.map((report) => (
               <div
                 key={report.date}
                 className="rounded-[24px] border border-white/8 bg-white/4 p-4"
@@ -249,7 +280,7 @@ export default function DashboardPage() {
             title="Equipe projet"
           >
             <AvatarStack
-              people={teamMembers.map((member) => ({
+              people={data.teamMembers.map((member) => ({
                 initials: member.initials,
                 name: member.name,
                 role: member.role,
@@ -261,7 +292,7 @@ export default function DashboardPage() {
             title="Alertes prioritaires"
           >
             <div className="space-y-3">
-              {alerts.map((alert) => (
+              {data.alerts.map((alert) => (
                 <div
                   key={alert.title}
                   className="rounded-[22px] border border-white/8 bg-white/4 p-4"
@@ -283,10 +314,10 @@ export default function DashboardPage() {
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <Panel
           title="Controle documentaire"
-          action={<StatusBadge tone="success">24 plans courants</StatusBadge>}
+          action={<StatusBadge tone="success">{data.documentVersions.length} plans suivis</StatusBadge>}
         >
           <div className="space-y-4">
-            {documentVersions.map((document) => (
+            {data.documentVersions.map((document) => (
               <div
                 key={`${document.name}-${document.revision}`}
                 className="rounded-[24px] border border-white/8 bg-white/4 p-4"
@@ -310,7 +341,7 @@ export default function DashboardPage() {
             ))}
 
             <div className="grid gap-3 md:grid-cols-3">
-              {distributionQueue.map((item) => (
+              {data.distributionQueue.map((item) => (
                 <div
                   key={item.file}
                   className="rounded-[22px] border border-white/8 bg-white/4 p-4"
@@ -334,7 +365,7 @@ export default function DashboardPage() {
           title="Point finance"
         >
           <div className="grid gap-3 sm:grid-cols-2">
-            {invoiceMetrics.map((metric) => (
+            {data.invoiceMetrics.map((metric) => (
               <div
                 key={metric.label}
                 className="rounded-[22px] border border-white/8 bg-white/4 p-4"
@@ -349,7 +380,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="mt-5 space-y-3">
-            {invoices.slice(0, 3).map((invoice) => (
+            {data.invoices.map((invoice) => (
               <div
                 key={invoice.number}
                 className="rounded-[22px] border border-white/8 bg-white/4 p-4"
