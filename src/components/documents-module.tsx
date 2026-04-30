@@ -203,6 +203,12 @@ function DocumentsModuleContent({
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Tous");
   const [draftVersion, setDraftVersion] = useState(projectData.draftVersion);
+  const [metadataDraft, setMetadataDraft] = useState({
+    title: projectData.files[0]?.title ?? "",
+    discipline: projectData.files[0]?.discipline ?? "",
+    lot: projectData.files[0]?.lot ?? "",
+    phase: projectData.files[0]?.phase ?? "",
+  });
   const [versionFile, setVersionFile] = useState<File | null>(null);
   const [mutationError, setMutationError] = useState("");
 
@@ -215,6 +221,14 @@ function DocumentsModuleContent({
       setRecipients(nextData.recipients);
       setDraftVersion(nextData.draftVersion);
       setVersionFile(null);
+      const nextSelectedDocument =
+        nextData.files.find((item) => item.id === selectedDocumentId) ?? nextData.files[0];
+      setMetadataDraft({
+        title: nextSelectedDocument?.title ?? "",
+        discipline: nextSelectedDocument?.discipline ?? "",
+        lot: nextSelectedDocument?.lot ?? "",
+        phase: nextSelectedDocument?.phase ?? "",
+      });
       setSelectedDocumentId((current) =>
         nextData.files.some((item) => item.id === current) ? current : (nextData.files[0]?.id ?? ""),
       );
@@ -236,6 +250,19 @@ function DocumentsModuleContent({
 
   const selectedDocument =
     documents.find((item) => item.id === selectedDocumentId) ?? documents[0];
+
+  function handleSelectDocument(documentId: string) {
+    const nextDocument = documents.find((item) => item.id === documentId);
+    setSelectedDocumentId(documentId);
+    if (nextDocument) {
+      setMetadataDraft({
+        title: nextDocument.title,
+        discipline: nextDocument.discipline,
+        lot: nextDocument.lot,
+        phase: nextDocument.phase,
+      });
+    }
+  }
 
   const filteredDocuments = useMemo(() => {
     return documents.filter((document) => {
@@ -346,6 +373,21 @@ function DocumentsModuleContent({
     }
   }
 
+  async function updateMetadata() {
+    if (!selectedDocument) {
+      return;
+    }
+
+    try {
+      await runDocumentsAction("update-metadata", {
+        documentId: selectedDocument.id,
+        ...metadataDraft,
+      });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Mise a jour impossible.");
+    }
+  }
+
   return (
     <div className="space-y-6">
       <SectionHeading
@@ -420,7 +462,7 @@ function DocumentsModuleContent({
                 <LibraryTab
                   documents={filteredDocuments}
                   selectedDocumentId={selectedDocumentId}
-                  setSelectedDocumentId={setSelectedDocumentId}
+                  setSelectedDocumentId={handleSelectDocument}
                   search={search}
                   setSearch={setSearch}
                   filter={filter}
@@ -470,7 +512,7 @@ function DocumentsModuleContent({
               title="Preview & comparaison"
             >
               {selectedDocument ? (
-                <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+                <div className="space-y-4 rounded-[24px] border border-white/8 bg-white/4 p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="font-display text-2xl font-semibold text-white">
@@ -490,7 +532,48 @@ function DocumentsModuleContent({
                     </div>
                   </div>
 
-                    <div className="mt-6 rounded-[22px] border border-dashed border-sky-400/20 bg-sky-400/8 p-5">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field
+                      label="Titre"
+                      value={metadataDraft.title}
+                      onChange={(value) =>
+                        setMetadataDraft((current) => ({ ...current, title: value }))
+                      }
+                    />
+                    <Field
+                      label="Discipline"
+                      value={metadataDraft.discipline}
+                      onChange={(value) =>
+                        setMetadataDraft((current) => ({ ...current, discipline: value }))
+                      }
+                    />
+                    <Field
+                      label="Lot"
+                      value={metadataDraft.lot}
+                      onChange={(value) =>
+                        setMetadataDraft((current) => ({ ...current, lot: value }))
+                      }
+                    />
+                    <Field
+                      label="Phase"
+                      value={metadataDraft.phase}
+                      onChange={(value) =>
+                        setMetadataDraft((current) => ({ ...current, phase: value }))
+                      }
+                    />
+                  </div>
+
+                  {canPublishVersion ? (
+                    <button
+                      onClick={() => void updateMetadata()}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8"
+                    >
+                      <CheckCheck className="size-4" />
+                      Mettre a jour les metadonnees
+                    </button>
+                  ) : null}
+
+                  <div className="rounded-[22px] border border-dashed border-sky-400/20 bg-sky-400/8 p-5">
                     <div className="aspect-[4/3] rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4">
                       <div className="flex h-full items-end justify-between rounded-[14px] border border-white/6 bg-[#08111f]/65 p-4">
                         <div>
@@ -591,7 +674,7 @@ function LibraryTab({
 }: {
   documents: DocumentFile[];
   selectedDocumentId: string;
-  setSelectedDocumentId: React.Dispatch<React.SetStateAction<string>>;
+  setSelectedDocumentId: (documentId: string) => void;
   search: string;
   setSearch: React.Dispatch<React.SetStateAction<string>>;
   filter: string;

@@ -369,6 +369,19 @@ function searchIncludes(haystack: string, needle: string) {
   return haystack.includes(needle);
 }
 
+function toInvoiceTone(status: string) {
+  switch (status) {
+    case "Payee":
+      return "success" as const;
+    case "Litigieuse":
+      return "danger" as const;
+    case "Brouillon":
+      return "warning" as const;
+    default:
+      return "primary" as const;
+  }
+}
+
 function getUserAccessibleProjects(database: DatabaseState, user: AppUser | SafeUser) {
   return Object.values(database.projects)
     .map((project) => project.summary)
@@ -454,13 +467,18 @@ function recomputeProjectSummary(project: ProjectRecord) {
   const unreadDocs = project.documents.files.filter(
     (file) => file.readCount < file.recipients,
   ).length;
-  const health = toProjectHealth(project.summary.progress, invoicesDue, unreadDocs);
+  const health =
+    project.summary.status === "Cloture"
+      ? { health: "Projet cloture", tone: "success" as const }
+      : toProjectHealth(project.summary.progress, invoicesDue, unreadDocs);
 
   project.summary.progress = latestReport?.progress ?? project.summary.progress;
   project.summary.spentTnd = spentTnd;
   project.summary.invoicesDue = invoicesDue;
-  project.summary.status =
-    project.summary.progress >= 75 ? "Phase encaissement" : "En execution";
+  if (project.summary.status !== "Cloture") {
+    project.summary.status =
+      project.summary.progress >= 75 ? "Phase encaissement" : "En execution";
+  }
   project.summary.nextMilestone =
     latestReport?.summary ?? project.summary.nextMilestone;
 
@@ -1338,6 +1356,37 @@ export async function createAdminProject(
   });
 }
 
+export async function archiveAdminProject(
+  token: string,
+  payload: {
+    projectId: string;
+  },
+) {
+  return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
+    const actor = getUserForSession(database, token);
+    assert(actor, 401, "Session invalide ou expiree.");
+    ensurePermission(actor, "admin.manage");
+
+    const project = getProjectRecord(database, payload.projectId);
+    project.summary.status = "Cloture";
+    project.summary.nextMilestone = "Projet cloture";
+    const { portfolioEntry } = recomputeProjectSummary(project);
+    database.portfolio = database.portfolio.map((entry) =>
+      entry.code === portfolioEntry.code ? portfolioEntry : entry,
+    );
+
+    appendAudit(
+      database,
+      actor.name,
+      "a cloture un projet",
+      `${project.summary.name} - ${project.summary.code}`,
+    );
+
+    return buildAdminPayload(database);
+  });
+}
+
 export async function getSitePayload(token: string, projectId: string) {
   const database = await readDatabase();
   ensureSystemUsers(database);
@@ -1489,9 +1538,10 @@ export async function mutateSitePayload(
             (formState.activities.trim().length > 20 ? 25 : 0) +
             (formState.incidents.trim().length > 5 ? 15 : 0),
         );
+        const reportId = `RJC-${randomUUID().slice(0, 8)}`;
 
         project.site.reports.unshift({
-          id: `RJC-${randomUUID().slice(0, 8)}`,
+          id: reportId,
           date: formState.reportDate,
           weather: formState.weather,
           workforce: formState.workforceCount,
@@ -1504,7 +1554,11 @@ export async function mutateSitePayload(
           pdfReady: false,
           signedByCt: true,
           signedByMoe: false,
-        });
+          activities: formState.activities,
+          incidents: formState.incidents,
+          note: formState.note,
+          progressByLot: formState.progressByLot,
+        } as unknown as (typeof project.site.reports)[number]);
 
         project.site.lotProgress = formState.progressByLot;
         project.site.reportDraft = {
@@ -1523,7 +1577,76 @@ export async function mutateSitePayload(
           database,
           user.name,
           "a soumis un rapport chantier",
-          `${project.summary.code} - ${project.site.reports[0].summary}`,
+          `${project.summary.code} - ${reportId}`,
+        );
+        break;
+      }
+      case "update-report": {
+        ensurePermission(user, "site.report.create");
+        const reportId = String(payload.reportId ?? "");
+        const formState = payload.formState as SiteModuleData["reportDraft"] & {
+          workforceCount: number;
+          activities: string;
+          incidents: string;
+          progressByLot: SiteModuleData["lotProgress"];
+          note: string;
+          reportDate: string;
+          weather: string;
+        };
+        const report = project.site.reports.find((item) => item.id === reportId) as
+          | ((typeof project.site.reports)[number] & {
+              activities?: string;
+              incidents?: string;
+              note?: string;
+              progressByLot?: SiteModuleData["lotProgress"];
+            })
+          | undefined;
+        assert(report, 404, "Rapport chantier introuvable.");
+        const progress = Math.round(
+          formState.progressByLot.reduce((total, item) => total + item.progress, 0) /
+            Math.max(formState.progressByLot.length, 1),
+        );
+        const completeness = Math.min(
+          100,
+          40 +
+            (formState.workforceCount > 0 ? 20 : 0) +
+            (formState.activities.trim().length > 20 ? 25 : 0) +
+            (formState.incidents.trim().length > 5 ? 15 : 0),
+        );
+
+        report.date = formState.reportDate;
+        report.weather = formState.weather;
+        report.workforce = formState.workforceCount;
+        report.progress = progress;
+        report.summary = formState.activities.split("\n")[0] || report.summary;
+        report.completeness = completeness;
+        report.status = completeness >= 95 ? "Soumis" : "A completer";
+        report.tone = completeness >= 95 ? "primary" : "warning";
+        report.activities = formState.activities;
+        report.incidents = formState.incidents;
+        report.note = formState.note;
+        report.progressByLot = formState.progressByLot;
+        project.site.reports = [
+          report as unknown as (typeof project.site.reports)[number],
+          ...project.site.reports.filter((item) => item.id !== reportId),
+        ];
+        project.site.lotProgress = formState.progressByLot;
+        project.site.reportDraft = {
+          reportDate: toDayMonth(formState.reportDate),
+          weather: formState.weather,
+          workforce: formState.workforceCount,
+          completedLots: formState.activities
+            .split("\n")
+            .map((item) => item.trim())
+            .filter(Boolean),
+          blockers: formState.incidents,
+          note: formState.note,
+        };
+        appendAudit(
+          database,
+          user.name,
+          "a mis a jour un rapport chantier",
+          `${project.summary.code} - ${reportId}`,
         );
         break;
       }
@@ -1788,6 +1911,28 @@ export async function mutateDocumentsPayload(
         appendAudit(database, user.name, "a marque un plan obsolete", document.code);
         break;
       }
+      case "update-metadata": {
+        ensurePermission(user, "documents.version.publish");
+        const title = String(payload.title ?? "").trim();
+        const discipline = String(payload.discipline ?? "").trim();
+        const lot = String(payload.lot ?? "").trim();
+        const phase = String(payload.phase ?? "").trim();
+        assert(title.length >= 3, 400, "Titre document requis.");
+        assert(discipline.length >= 2, 400, "Discipline requise.");
+        assert(lot.length >= 2, 400, "Lot requis.");
+        assert(phase.length >= 2, 400, "Phase requise.");
+        document.title = title;
+        document.discipline = discipline;
+        document.lot = lot;
+        document.phase = phase;
+        appendAudit(
+          database,
+          user.name,
+          "a mis a jour les metadonnees d'un document",
+          `${document.code} - ${title}`,
+        );
+        break;
+      }
       case "distribute": {
         ensurePermission(user, "documents.distribute");
         const audience = String(payload.audience ?? "").trim();
@@ -1939,6 +2084,59 @@ export async function mutateFinancePayload(
             : invoice,
         );
         appendAudit(database, user.name, "a valide une facture", invoiceId);
+        break;
+      }
+      case "update-invoice-status": {
+        const invoiceId = String(payload.invoiceId ?? "");
+        const nextStatus = String(payload.status ?? "").trim();
+        const invoice = project.finance.invoices.find((item) => item.id === invoiceId);
+        assert(
+          hasPermission(user, "finance.invoice.create") ||
+            hasPermission(user, "finance.invoice.send") ||
+            hasPermission(user, "finance.invoice.validate") ||
+            hasPermission(user, "finance.payment.record"),
+          403,
+          "Action non autorisee pour ce role.",
+        );
+        assert(invoice, 404, "Facture introuvable.");
+        assert(
+          ["Brouillon", "Envoyee", "Validee", "Payee", "Litigieuse"].includes(nextStatus),
+          400,
+          "Statut facture invalide.",
+        );
+        project.finance.invoices = project.finance.invoices.map((invoice) =>
+          invoice.id === invoiceId
+            ? {
+                ...invoice,
+                status: nextStatus,
+                tone: toInvoiceTone(nextStatus),
+                paidAt:
+                  nextStatus === "Payee"
+                    ? invoice.paidAt || nowTimestamp
+                    : nextStatus === "Brouillon" || nextStatus === "Envoyee" || nextStatus === "Litigieuse"
+                      ? ""
+                      : invoice.paidAt,
+                validatedByMoe:
+                  nextStatus === "Validee" || nextStatus === "Payee"
+                    ? true
+                    : nextStatus === "Brouillon"
+                      ? false
+                      : invoice.validatedByMoe,
+                validatedByMo:
+                  nextStatus === "Validee" || nextStatus === "Payee"
+                    ? true
+                    : nextStatus === "Brouillon" || nextStatus === "Envoyee" || nextStatus === "Litigieuse"
+                      ? false
+                      : invoice.validatedByMo,
+              }
+            : invoice,
+        );
+        appendAudit(
+          database,
+          user.name,
+          "a mis a jour le statut d'une facture",
+          `${invoiceId} - ${nextStatus}`,
+        );
         break;
       }
       case "register-payment": {

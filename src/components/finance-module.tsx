@@ -194,6 +194,7 @@ function FinanceModuleContent({
   );
   const [dmDraft, setDmDraft] = useState(projectData.dmDraft);
   const [paymentDraft, setPaymentDraft] = useState(projectData.paymentDraft);
+  const [statusDraft, setStatusDraft] = useState(projectData.invoices[0]?.status ?? "Brouillon");
   const [cashflowData, setCashflowData] = useState(projectData.cashflow);
   const [declaration, setDeclaration] = useState(projectData.declaration);
   const [mutationError, setMutationError] = useState("");
@@ -236,6 +237,9 @@ function FinanceModuleContent({
       setDeclaration(nextData.declaration);
       setDmDraft(nextData.dmDraft);
       setPaymentDraft(nextData.paymentDraft);
+      const nextSelectedInvoice =
+        nextData.invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? nextData.invoices[0];
+      setStatusDraft(nextSelectedInvoice?.status ?? "Brouillon");
       setSelectedInvoiceId((current) =>
         nextData.invoices.some((invoice) => invoice.id === current)
           ? current
@@ -298,6 +302,25 @@ function FinanceModuleContent({
       setActiveTab("cashflow");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Paiement impossible.");
+    }
+  }
+
+  async function updateInvoiceStatus(invoiceId: string) {
+    try {
+      await runFinanceAction("update-invoice-status", {
+        invoiceId,
+        status: statusDraft,
+      });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Statut impossible.");
+    }
+  }
+
+  function handleSelectInvoice(invoiceId: string) {
+    const nextInvoice = invoices.find((invoice) => invoice.id === invoiceId);
+    setSelectedInvoiceId(invoiceId);
+    if (nextInvoice) {
+      setStatusDraft(nextInvoice.status);
     }
   }
 
@@ -387,12 +410,16 @@ function FinanceModuleContent({
                   canRecordPayment={canRecordPayment}
                   canSendInvoice={canSendInvoice}
                   canValidateInvoice={canValidateInvoice}
+                  canUpdateStatus={canCreateInvoice || canSendInvoice || canValidateInvoice || canRecordPayment}
                   invoices={invoices}
                   selectedInvoiceId={selectedInvoiceId}
-                  setSelectedInvoiceId={setSelectedInvoiceId}
+                  setSelectedInvoiceId={handleSelectInvoice}
                   selectedInvoice={selectedInvoice}
                   paymentCoverage={paymentCoverage}
                   sendInvoice={sendInvoice}
+                  statusDraft={statusDraft}
+                  setStatusDraft={setStatusDraft}
+                  updateInvoiceStatus={updateInvoiceStatus}
                   validateInvoice={validateInvoice}
                   paymentDraft={paymentDraft}
                   setPaymentDraft={setPaymentDraft}
@@ -614,12 +641,16 @@ function InvoicesTab({
   canRecordPayment,
   canSendInvoice,
   canValidateInvoice,
+  canUpdateStatus,
   invoices,
   selectedInvoiceId,
   setSelectedInvoiceId,
   selectedInvoice,
   paymentCoverage,
   sendInvoice,
+  statusDraft,
+  setStatusDraft,
+  updateInvoiceStatus,
   validateInvoice,
   paymentDraft,
   setPaymentDraft,
@@ -628,12 +659,16 @@ function InvoicesTab({
   canRecordPayment: boolean;
   canSendInvoice: boolean;
   canValidateInvoice: boolean;
+  canUpdateStatus: boolean;
   invoices: InvoiceItem[];
   selectedInvoiceId: string;
-  setSelectedInvoiceId: React.Dispatch<React.SetStateAction<string>>;
+  setSelectedInvoiceId: (invoiceId: string) => void;
   selectedInvoice: InvoiceItem | undefined;
   paymentCoverage: number;
   sendInvoice: (invoiceId: string) => void;
+  statusDraft: string;
+  setStatusDraft: React.Dispatch<React.SetStateAction<string>>;
+  updateInvoiceStatus: (invoiceId: string) => void;
   validateInvoice: (invoiceId: string) => void;
   paymentDraft: {
     amount: string;
@@ -712,6 +747,36 @@ function InvoicesTab({
                   {selectedInvoice.validatedByMo ? "Validee" : "En attente"}
                 </p>
               </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+              <label className="rounded-[20px] border border-white/8 bg-white/4 p-4">
+                <span className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                  Statut facture
+                </span>
+                <select
+                  value={statusDraft}
+                  onChange={(event) => setStatusDraft(event.target.value)}
+                  className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
+                >
+                  {["Brouillon", "Envoyee", "Validee", "Payee", "Litigieuse"].map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                onClick={() => (canUpdateStatus ? updateInvoiceStatus(selectedInvoice.id) : null)}
+                disabled={!canUpdateStatus}
+                className={cx(
+                  "self-end rounded-2xl px-4 py-3 text-sm font-semibold",
+                  canUpdateStatus
+                    ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
+                    : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
+                )}
+              >
+                Mettre a jour
+              </button>
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
               <button

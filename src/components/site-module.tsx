@@ -53,6 +53,10 @@ type ReportItem = {
   pdfReady: boolean;
   signedByCt: boolean;
   signedByMoe: boolean;
+  activities?: string;
+  incidents?: string;
+  note?: string;
+  progressByLot?: FormState["progressByLot"];
 };
 
 type PhotoItem = {
@@ -270,6 +274,7 @@ function SiteModuleContent({
   const [photos, setPhotos] = useState<PhotoItem[]>(projectData.photoLibrary);
   const [ncrs, setNcrs] = useState<NcrItem[]>(projectData.ncrs);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [editingReportId, setEditingReportId] = useState("");
   const [formState, setFormState] = useState<FormState>(() =>
     createFormState(projectData),
   );
@@ -288,6 +293,7 @@ function SiteModuleContent({
       setPhotos(nextData.photoLibrary);
       setNcrs(nextData.ncrs);
       setPhotoFile(null);
+      setEditingReportId("");
       setFormState(createFormState(nextData));
       setDraftPhoto(nextData.draftPhoto);
       setDraftNcr(nextData.draftNcr);
@@ -333,7 +339,8 @@ function SiteModuleContent({
 
   async function submitDailyReport() {
     try {
-      await runSiteAction("create-report", {
+      await runSiteAction(editingReportId ? "update-report" : "create-report", {
+        reportId: editingReportId,
         formState: {
           ...formState,
           reportDate: formState.reportDate.includes("/")
@@ -347,6 +354,32 @@ function SiteModuleContent({
         error instanceof Error ? error.message : "Creation du rapport impossible.",
       );
     }
+  }
+
+  function editReport(report: ReportItem) {
+    setEditingReportId(report.id);
+    setFormState({
+      reportDate: report.date,
+      weather: report.weather,
+      workforceCount: report.workforce,
+      activities: report.activities ?? report.summary,
+      incidents: report.incidents ?? "",
+      note: report.note ?? "",
+      progressByLot:
+        report.progressByLot ??
+        lotProgress.map((item) => ({
+          lot: item.lot,
+          task: item.task,
+          progress: item.progress,
+          tone: item.tone,
+        })),
+    });
+    setActiveTab("rjc");
+  }
+
+  function resetReportComposer() {
+    setEditingReportId("");
+    setFormState(createFormState(projectData));
   }
 
   async function markPdfReady(reportId: string) {
@@ -493,10 +526,12 @@ function SiteModuleContent({
               {activeTab === "rjc" ? (
                 <RjcTab
                   canCreateReport={canCreateReport}
+                  editingReportId={editingReportId}
                   formState={formState}
                   setFormState={setFormState}
                   reportCompleteness={reportCompleteness}
                   incidentTemplates={projectData.incidentTemplates}
+                  resetReportComposer={resetReportComposer}
                   submitDailyReport={submitDailyReport}
                 />
               ) : null}
@@ -690,6 +725,14 @@ function SiteModuleContent({
                       )}
                     </div>
                     <div className="flex flex-wrap gap-2">
+                      {canCreateReport ? (
+                        <button
+                          onClick={() => editReport(report)}
+                          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+                        >
+                          Modifier
+                        </button>
+                      ) : null}
                       {!report.pdfReady ? (
                         <button
                           onClick={() => (canCreateReport ? markPdfReady(report.id) : null)}
@@ -888,17 +931,21 @@ function OverviewTab({
 
 function RjcTab({
   canCreateReport,
+  editingReportId,
   formState,
   setFormState,
   reportCompleteness,
   incidentTemplates,
+  resetReportComposer,
   submitDailyReport,
 }: {
   canCreateReport: boolean;
+  editingReportId: string;
   formState: FormState;
   setFormState: React.Dispatch<React.SetStateAction<FormState>>;
   reportCompleteness: number;
   incidentTemplates: string[];
+  resetReportComposer: () => void;
   submitDailyReport: () => void;
 }) {
   return (
@@ -1093,6 +1140,15 @@ function RjcTab({
             <ActionButton icon={FileOutput} label="Preparer PDF" />
           </div>
 
+          {editingReportId ? (
+            <button
+              onClick={resetReportComposer}
+              className="flex w-full items-center justify-center gap-2 rounded-[22px] border border-white/10 bg-white/5 px-4 py-4 text-sm font-semibold text-white hover:bg-white/8"
+            >
+              Revenir au nouveau RJC
+            </button>
+          ) : null}
+
           <button
             onClick={() => (canCreateReport ? submitDailyReport() : null)}
             disabled={!canCreateReport}
@@ -1104,7 +1160,11 @@ function RjcTab({
             )}
           >
             <CheckCheck className="size-4" />
-            {canCreateReport ? "Soumettre le RJC du jour" : "Lecture seule sur le RJC"}
+            {canCreateReport
+              ? editingReportId
+                ? "Mettre a jour le RJC"
+                : "Soumettre le RJC du jour"
+              : "Lecture seule sur le RJC"}
           </button>
         </div>
       </div>

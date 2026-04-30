@@ -61,6 +61,7 @@ export default function AdminPage() {
   const [success, setSuccess] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [closingProjectId, setClosingProjectId] = useState("");
   const [savingUserId, setSavingUserId] = useState("");
   const [userDrafts, setUserDrafts] = useState<UserDrafts>({});
   const [form, setForm] = useState({
@@ -263,6 +264,32 @@ export default function AdminPage() {
       setError(nextError instanceof Error ? nextError.message : "Mise a jour utilisateur impossible.");
     } finally {
       setSavingUserId("");
+    }
+  }
+
+  async function archiveProject(projectId: string) {
+    setClosingProjectId(projectId);
+    setError("");
+    setSuccess("");
+
+    try {
+      const payload = await apiFetch<AdminPageData>("/api/admin", {
+        method: "POST",
+        body: {
+          action: "archive-project",
+          payload: {
+            projectId,
+          },
+        },
+      });
+
+      applyAdminPayload(payload);
+      await refreshWorkspace();
+      setSuccess("Projet cloture avec succes.");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Cloture projet impossible.");
+    } finally {
+      setClosingProjectId("");
     }
   }
 
@@ -541,8 +568,24 @@ export default function AdminPage() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <StatusBadge tone="primary">{project.status}</StatusBadge>
+                    <StatusBadge tone={project.status === "Cloture" ? "success" : "primary"}>
+                      {project.status}
+                    </StatusBadge>
                     <StatusBadge tone="neutral">{project.progress}%</StatusBadge>
+                    {project.status !== "Cloture" ? (
+                      <button
+                        onClick={() => void archiveProject(project.id)}
+                        disabled={closingProjectId === project.id}
+                        className={cx(
+                          "rounded-full px-4 py-1.5 text-xs font-semibold",
+                          closingProjectId === project.id
+                            ? "cursor-not-allowed bg-stone-200 text-stone-500"
+                            : "bg-black text-white hover:bg-stone-800",
+                        )}
+                      >
+                        {closingProjectId === project.id ? "Cloture..." : "Cloturer"}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </div>

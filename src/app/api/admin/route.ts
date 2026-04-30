@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { sessionCookieName } from "@/lib/backend/session";
 import {
+  archiveAdminProject,
   createAdminProject,
   createAdminUser,
   getAdminPayload,
@@ -27,13 +28,18 @@ export async function POST(request: NextRequest) {
   try {
     const token = request.cookies.get(sessionCookieName)?.value ?? "";
     const body = (await request.json()) as {
-      action?: "create-project" | "create-user" | "update-user";
+      action?: "archive-project" | "create-project" | "create-user" | "update-user";
       payload?: Record<string, unknown>;
     };
     const payloadBody = body.payload ?? {};
     let payload;
 
     switch (body.action) {
+      case "archive-project":
+        payload = await archiveAdminProject(token, {
+          projectId: String(payloadBody.projectId ?? ""),
+        });
+        break;
       case "create-project":
         payload = await createAdminProject(token, {
           budgetTnd: Number(payloadBody.budgetTnd ?? 0),
