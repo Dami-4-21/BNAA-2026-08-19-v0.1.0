@@ -144,3 +144,18 @@ export type AdminPageData = {
   availableProjects: WorkspaceProject[];
   tenant: TenantRecord;
 };
+
+export type GlobalSearchResult = {
+  href: string;
+  id: string;
+  label: string;
+  meta: string;
+  projectCode?: string;
+  projectId?: string;
+  section: "document" | "invoice" | "project" | "report" | "user";
+};
+
+export type GlobalSearchPayload = {
+  query: string;
+  results: GlobalSearchResult[];
+};

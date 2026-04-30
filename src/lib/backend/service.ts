@@ -22,6 +22,8 @@ import type {
   DocumentFileRecord,
   DocumentsModuleData,
   FinanceModuleData,
+  GlobalSearchPayload,
+  GlobalSearchResult,
   NotificationsPageData,
   ProjectsPageData,
   ProjectRecord,
@@ -354,6 +356,17 @@ function buildAdminPayload(database: DatabaseState): AdminPageData {
     availableProjects: Object.values(database.projects).map((project) => clone(project.summary)),
     tenant: clone(database.tenant),
   };
+}
+
+function buildSearchText(parts: Array<string | number | undefined | null>) {
+  return parts
+    .filter((part) => part !== undefined && part !== null)
+    .join(" ")
+    .toLowerCase();
+}
+
+function searchIncludes(haystack: string, needle: string) {
+  return haystack.includes(needle);
 }
 
 function getUserAccessibleProjects(database: DatabaseState, user: AppUser | SafeUser) {
@@ -966,6 +979,166 @@ export async function getProjectsPayload(token: string): Promise<ProjectsPageDat
 
   return {
     projects: clone(database.portfolio).filter((project) => accessibleCodes.has(project.code)),
+  };
+}
+
+export async function getGlobalSearchPayload(
+  token: string,
+  query: string,
+): Promise<GlobalSearchPayload> {
+  const database = await readDatabase();
+  ensureSystemUsers(database);
+  const user = getUserForSession(database, token);
+  assert(user, 401, "Session invalide ou expiree.");
+
+  const needle = query.trim().toLowerCase();
+  if (needle.length < 2) {
+    return {
+      query: query.trim(),
+      results: [],
+    };
+  }
+
+  const results: GlobalSearchResult[] = [];
+  const accessibleProjects = getUserAccessibleProjects(database, user);
+
+  if (hasPermission(user, "projects.view")) {
+    accessibleProjects.forEach((project) => {
+      const haystack = buildSearchText([
+        project.name,
+        project.code,
+        project.client,
+        project.location,
+        project.nextMilestone,
+      ]);
+
+      if (searchIncludes(haystack, needle)) {
+        results.push({
+          id: `project-${project.id}`,
+          label: project.name,
+          meta: `${project.code} · ${project.client} · ${project.location}`,
+          href: "/",
+          projectId: project.id,
+          projectCode: project.code,
+          section: "project",
+        });
+      }
+    });
+  }
+
+  accessibleProjects.forEach((summary) => {
+    const project = getProjectRecord(database, summary.id);
+
+    if (hasPermission(user, "site.view")) {
+      project.site.reports.forEach((report) => {
+        const haystack = buildSearchText([
+          report.id,
+          report.summary,
+          report.author,
+          report.status,
+          report.date,
+          report.weather,
+        ]);
+
+        if (searchIncludes(haystack, needle)) {
+          results.push({
+            id: `report-${project.summary.id}-${report.id}`,
+            label: `${report.id} · ${report.summary}`,
+            meta: `${project.summary.code} · ${toDayMonth(report.date)} · ${report.status}`,
+            href: "/site",
+            projectId: project.summary.id,
+            projectCode: project.summary.code,
+            section: "report",
+          });
+        }
+      });
+    }
+
+    if (hasPermission(user, "documents.view")) {
+      project.documents.files.forEach((document) => {
+        const haystack = buildSearchText([
+          document.code,
+          document.title,
+          document.discipline,
+          document.phase,
+          document.revision,
+          document.lot,
+        ]);
+
+        if (searchIncludes(haystack, needle)) {
+          results.push({
+            id: `document-${project.summary.id}-${document.id}`,
+            label: `${document.code} · ${document.title}`,
+            meta: `${project.summary.code} · ${document.discipline} · ${document.revision}`,
+            href: "/documents",
+            projectId: project.summary.id,
+            projectCode: project.summary.code,
+            section: "document",
+          });
+        }
+      });
+    }
+
+    if (hasPermission(user, "finance.view")) {
+      project.finance.invoices.forEach((invoice) => {
+        const haystack = buildSearchText([
+          invoice.invoiceNumber,
+          invoice.project,
+          invoice.status,
+          invoice.periodMonth,
+          invoice.amountTtc,
+        ]);
+
+        if (searchIncludes(haystack, needle)) {
+          results.push({
+            id: `invoice-${project.summary.id}-${invoice.id}`,
+            label: `${invoice.invoiceNumber} · ${invoice.status}`,
+            meta: `${project.summary.code} · ${invoice.amountTtc.toLocaleString("fr-FR")} TND · echeance ${toDayMonth(invoice.dueDate)}`,
+            href: "/finance",
+            projectId: project.summary.id,
+            projectCode: project.summary.code,
+            section: "invoice",
+          });
+        }
+      });
+    }
+  });
+
+  if (hasPermission(user, "admin.view")) {
+    database.users.forEach((entry) => {
+      const haystack = buildSearchText([entry.name, entry.email, entry.role, entry.projectIds.join(" ")]);
+      if (searchIncludes(haystack, needle)) {
+        results.push({
+          id: `user-${entry.id}`,
+          label: entry.name,
+          meta: `${entry.role} · ${entry.email}`,
+          href: "/admin",
+          section: "user",
+        });
+      }
+    });
+  }
+
+  const sectionOrder: Record<GlobalSearchResult["section"], number> = {
+    project: 0,
+    report: 1,
+    document: 2,
+    invoice: 3,
+    user: 4,
+  };
+
+  return {
+    query: query.trim(),
+    results: results
+      .sort((left, right) => {
+        const sectionGap = sectionOrder[left.section] - sectionOrder[right.section];
+        if (sectionGap !== 0) {
+          return sectionGap;
+        }
+
+        return left.label.localeCompare(right.label, "fr");
+      })
+      .slice(0, 12),
   };
 }
 

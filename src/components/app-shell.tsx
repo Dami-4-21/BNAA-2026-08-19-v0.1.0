@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
+  Building2,
   ChevronRight,
   CircleDollarSign,
   BookOpenText,
@@ -23,6 +24,8 @@ import {
 import { useAuth } from "@/components/auth-context";
 import { type AppPermission } from "@/lib/auth";
 import { cx } from "@/components/ui";
+import { apiFetch } from "@/lib/api";
+import type { GlobalSearchPayload, GlobalSearchResult } from "@/lib/backend/types";
 import { useWorkspace } from "@/components/workspace-context";
 
 type NavItem = {
@@ -31,6 +34,14 @@ type NavItem = {
   shortLabel: string;
   icon: LucideIcon;
   permission: AppPermission;
+};
+
+const searchSectionLabel: Record<GlobalSearchResult["section"], string> = {
+  document: "Document",
+  invoice: "Facture",
+  project: "Projet",
+  report: "Rapport",
+  user: "Utilisateur",
 };
 
 const navItems: NavItem[] = [
@@ -100,6 +111,23 @@ function isActive(pathname: string, href: string) {
   return pathname.startsWith(href);
 }
 
+function SearchResultIcon({ section }: { section: GlobalSearchResult["section"] }) {
+  switch (section) {
+    case "project":
+      return <Building2 className="size-4" />;
+    case "report":
+      return <SquarePen className="size-4" />;
+    case "document":
+      return <FileStack className="size-4" />;
+    case "invoice":
+      return <CircleDollarSign className="size-4" />;
+    case "user":
+      return <ShieldCheck className="size-4" />;
+    default:
+      return <Search className="size-4" />;
+  }
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -114,6 +142,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return window.localStorage.getItem("bnaasaas-sidebar-collapsed") === "true";
   });
   const [profileOpen, setProfileOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -122,7 +155,81 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }, [sidebarCollapsed]);
 
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!searchBoxRef.current?.contains(event.target as Node)) {
+        setSearchOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+
+  useEffect(() => {
+    const needle = searchQuery.trim();
+    if (needle.length < 2) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const payload = await apiFetch<GlobalSearchPayload>(
+          `/api/search?q=${encodeURIComponent(needle)}`,
+          {
+            method: "GET",
+          },
+        );
+
+        if (!cancelled) {
+          setSearchResults(payload.results);
+          setSearchOpen(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setSearchResults([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setSearchLoading(false);
+        }
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
   const visibleNavItems = navItems.filter((item) => can(item.permission));
+  const searchSummary = useMemo(() => {
+    const counts = searchResults.reduce<Record<GlobalSearchResult["section"], number>>(
+      (summary, result) => ({
+        ...summary,
+        [result.section]: (summary[result.section] ?? 0) + 1,
+      }),
+      {
+        project: 0,
+        report: 0,
+        document: 0,
+        invoice: 0,
+        user: 0,
+      },
+    );
+
+    return [
+      counts.project ? `${counts.project} projet(s)` : null,
+      counts.report ? `${counts.report} rapport(s)` : null,
+      counts.document ? `${counts.document} document(s)` : null,
+      counts.invoice ? `${counts.invoice} facture(s)` : null,
+      counts.user ? `${counts.user} utilisateur(s)` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }, [searchResults]);
 
   const currentNav =
     visibleNavItems.find((item) => item.href !== "/" && pathname.startsWith(item.href)) ??
@@ -133,6 +240,35 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   async function handleSignOut() {
     await signOut();
     router.replace("/login");
+  }
+
+  function handleSearchSelect(result: GlobalSearchResult) {
+    if (result.projectId) {
+      setActiveProjectId(result.projectId);
+    }
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchResults([]);
+    router.push(result.href);
+  }
+
+  function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (searchResults[0]) {
+      handleSearchSelect(searchResults[0]);
+    }
+  }
+
+  function handleSearchChange(value: string) {
+    setSearchQuery(value);
+    if (value.trim().length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      setSearchOpen(false);
+      return;
+    }
+
+    setSearchLoading(true);
   }
 
   return (
@@ -347,14 +483,74 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
                 <div className="flex flex-col gap-3 lg:min-w-[520px] xl:items-end">
                   <div className="flex w-full flex-col gap-3 md:flex-row xl:justify-end">
-                    <label className="flex min-w-[300px] flex-1 items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
-                      <Search className="size-4 text-stone-400" />
-                      <input
-                        aria-label="Recherche globale"
-                        className="w-full bg-transparent text-stone-950 outline-none placeholder:text-stone-400"
-                        placeholder="Recherche globale: plan, facture, rapport, NC..."
-                      />
-                    </label>
+                    <div ref={searchBoxRef} className="relative min-w-[300px] flex-1">
+                      <form
+                        onSubmit={handleSearchSubmit}
+                        className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600"
+                      >
+                        <Search className="size-4 text-stone-400" />
+                        <input
+                          aria-label="Recherche globale"
+                          value={searchQuery}
+                          onChange={(event) => handleSearchChange(event.target.value)}
+                          onFocus={() => {
+                            if (searchResults.length > 0 || searchQuery.trim().length >= 2) {
+                              setSearchOpen(true);
+                            }
+                          }}
+                          className="w-full bg-transparent text-stone-950 outline-none placeholder:text-stone-400"
+                          placeholder="Recherche globale: plan, facture, rapport, utilisateur..."
+                        />
+                      </form>
+
+                      {searchOpen || searchLoading || searchQuery.trim().length >= 2 ? (
+                        <div className="absolute left-0 right-0 top-[calc(100%+0.75rem)] z-30 overflow-hidden rounded-[24px] border border-stone-200 bg-white shadow-xl">
+                          <div className="border-b border-stone-200 px-4 py-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">
+                              Recherche globale
+                            </p>
+                            <p className="mt-1 text-sm text-stone-600">
+                              {searchLoading
+                                ? "Recherche en cours..."
+                                : searchResults.length > 0
+                                  ? searchSummary
+                                  : searchQuery.trim().length >= 2
+                                    ? "Aucun resultat pour cette recherche"
+                                    : "Commencez a taper pour rechercher"}
+                            </p>
+                          </div>
+                          <div className="max-h-[420px] overflow-y-auto p-2">
+                            {searchResults.map((result) => (
+                              <button
+                                key={result.id}
+                                onClick={() => handleSearchSelect(result)}
+                                className="flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left hover:bg-stone-50"
+                              >
+                                <div className="mt-0.5 flex size-10 items-center justify-center rounded-2xl border border-stone-200 bg-stone-50 text-stone-700">
+                                  <SearchResultIcon section={result.section} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="truncate text-sm font-semibold text-stone-950">
+                                      {result.label}
+                                    </p>
+                                    <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                                      {searchSectionLabel[result.section]}
+                                    </span>
+                                    {result.projectCode ? (
+                                      <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                                        {result.projectCode}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-1 text-sm text-stone-600">{result.meta}</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
 
                     <div className="flex items-center gap-2">
                       <button className="relative flex size-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-100">
