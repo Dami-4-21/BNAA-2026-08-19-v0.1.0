@@ -33,6 +33,7 @@ import type {
 
 const todayIso = "2026-04-30";
 const nowTimestamp = "2026-04-30T18:00:00.000Z";
+const defaultProjectRoles = Array.from(new Set(appUsers.map((user) => user.role))) as AppUser["role"][];
 
 class ApiError extends Error {
   constructor(
@@ -99,6 +100,260 @@ function getPhotoAccent(index: number) {
   ];
 
   return accents[index % accents.length] ?? accents[0];
+}
+
+function normalizeProjectCode(value: string) {
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]+/g, "-")
+    .replace(/--+/g, "-");
+}
+
+function parseSetupList(value: string, fallback: string) {
+  const entries = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return entries.length > 0 ? entries : [fallback];
+}
+
+function createEmptySiteModule(setup: {
+  lots: string[];
+  projectName: string;
+  zones: string[];
+}): SiteModuleData {
+  return {
+    overview: {
+      weather: {
+        label: "A configurer",
+        temperature: "--",
+        wind: "--",
+        rainRisk: "--",
+        source: "API meteo Tunisie - en attente de configuration",
+      },
+      kpis: [
+        {
+          label: "Conformite RJC",
+          value: "0%",
+          helper: "Aucun rapport journalier soumis pour le moment",
+          tone: "neutral",
+        },
+        {
+          label: "FNC ouvertes",
+          value: "0",
+          helper: "Le registre qualite demarrera avec les premieres saisies terrain",
+          tone: "success",
+        },
+        {
+          label: "Delai moyen de levee",
+          value: "0 j",
+          helper: "Aucune non-conformite en suivi",
+          tone: "neutral",
+        },
+        {
+          label: "Derive planning",
+          value: "0 j",
+          helper: "Planning initial a parametrer par lot",
+          tone: "primary",
+        },
+      ],
+    },
+    lotProgress: setup.lots.map((lot, index) => ({
+      lot,
+      task: `Preparation ${lot.toLowerCase()}`,
+      progress: 0,
+      planned: 0,
+      owner: "A affecter",
+      tone: (index === 0 ? "primary" : "neutral") as "primary" | "success" | "warning" | "danger",
+    })),
+    signatureQueue: [
+      {
+        role: "Conducteur de travaux",
+        state: "En attente",
+        note: "Aucun rapport terrain n'a encore ete soumis",
+        tone: "warning",
+      },
+      {
+        role: "Maitre d'oeuvre",
+        state: "En attente",
+        note: "La boucle de validation sera activee au premier RJC",
+        tone: "warning",
+      },
+      {
+        role: "Archivage PDF",
+        state: "En attente",
+        note: "Generation automatique disponible des la premiere saisie",
+        tone: "neutral",
+      },
+    ],
+    incidentTemplates: [
+      "Retard livraison materiaux",
+      "Panne equipement",
+      "Validation plan en attente",
+      "Acces zone chantier",
+    ],
+    photoLibrary: [],
+    ncrs: [],
+    reports: [],
+    reportDraft: {
+      reportDate: toDayMonth(todayIso),
+      weather: "Ensoleille",
+      workforce: 0,
+      completedLots: [],
+      blockers: "",
+      note: `Initialisation chantier ${setup.projectName}`,
+    },
+    draftPhoto: {
+      title: `Etat initial ${setup.projectName}`,
+      zone: setup.zones[0] ?? "Zone principale",
+      lot: setup.lots[0] ?? "General",
+      task: "Etat initial",
+      geo: "",
+    },
+    draftNcr: {
+      title: "",
+      owner: setup.lots[0] ?? "General",
+      dueDate: todayIso,
+      severity: "Mineure",
+      description: "",
+      photoAttached: false,
+    },
+  } as unknown as SiteModuleData;
+}
+
+function createEmptyDocumentsModule(setup: {
+  formats?: string[];
+  lots: string[];
+  phases: string[];
+  projectName: string;
+}): DocumentsModuleData {
+  return {
+    overview: {
+      kpis: [
+        {
+          label: "Volume documentaire",
+          value: "0.0 Go",
+          helper: "Aucun fichier publie dans la bibliotheque",
+          tone: "neutral",
+        },
+        {
+          label: "Lecture < 48h",
+          value: "0%",
+          helper: "Les diffusions demarreront avec les premieres revisions",
+          tone: "neutral",
+        },
+        {
+          label: "Versions actives",
+          value: "0",
+          helper: "Bibliotheque en cours de parametrage",
+          tone: "neutral",
+        },
+        {
+          label: "Docs non diffuses > 5j",
+          value: "0",
+          helper: "Aucune diffusion en attente",
+          tone: "success",
+        },
+      ],
+      offline: {
+        syncedAt: toDateTimeLabel(nowTimestamp),
+        cachedFiles: 0,
+        coverage: "Cache mobile en attente des premieres revisions",
+      },
+    },
+    tree: [
+      {
+        title: setup.projectName,
+        nodes: setup.lots.map((lot) => ({
+          label: lot,
+          phases: setup.phases,
+        })),
+      },
+    ],
+    files: [],
+    recipients: [],
+    draftVersion: {
+      revision: "Rev.A",
+      format: "PDF",
+      audience: setup.lots[0] ?? "Equipe projet",
+    },
+  } as unknown as DocumentsModuleData;
+}
+
+function createEmptyFinanceModule(): FinanceModuleData {
+  return {
+    overview: {
+      kpis: [
+        {
+          label: "DSO",
+          value: "0 j",
+          helper: "Aucun encaissement client enregistre",
+          tone: "neutral",
+        },
+        {
+          label: "Facturation dans les delais",
+          value: "0%",
+          helper: "Le cycle de facturation commencera apres le premier decompte",
+          tone: "neutral",
+        },
+        {
+          label: "Ecart budget / reel",
+          value: "0%",
+          helper: "Le budget initial sera compare aux couts reels saisis",
+          tone: "neutral",
+        },
+        {
+          label: "TVA collectee / declaree",
+          value: "0%",
+          helper: "Aucune declaration generee pour le moment",
+          tone: "neutral",
+        },
+      ],
+      treasuryAlert: "Tresorerie previsionnelle en attente de la premiere facturation.",
+    },
+    invoices: [],
+    payments: [],
+    cashflow: [
+      { label: "Jan", plannedReceipts: 0, actualReceipts: 0, actualCosts: 0 },
+      { label: "Fev", plannedReceipts: 0, actualReceipts: 0, actualCosts: 0 },
+      { label: "Mar", plannedReceipts: 0, actualReceipts: 0, actualCosts: 0 },
+      { label: "Avr", plannedReceipts: 0, actualReceipts: 0, actualCosts: 0 },
+      { label: "Mai", plannedReceipts: 0, actualReceipts: 0, actualCosts: 0 },
+    ],
+    declaration: {
+      month: "Avril 2026",
+      collectedTva: 0,
+      declaredTva: 0,
+      variance: 0,
+      status: "En attente",
+    },
+    defaultVatRegimeId: "standard",
+    dmDraft: {
+      periodMonth: "2026-04-01",
+      progressPct: 0,
+      baseAmountHt: 0,
+      retentionPct: 5,
+      advanceDeduction: 0,
+    },
+    paymentDraft: {
+      amount: "",
+      method: "Virement",
+      reference: "",
+    },
+  } as unknown as FinanceModuleData;
+}
+
+function buildAdminPayload(database: DatabaseState): AdminPageData {
+  return {
+    teamMembers: clone(database.teamMembers),
+    roleMatrix: clone(database.roleMatrix),
+    auditTrail: clone(database.auditTrail),
+    users: clone(database.users.map((entry) => sanitizeUser(entry))),
+    availableProjects: Object.values(database.projects).map((project) => clone(project.summary)),
+    tenant: clone(database.tenant),
+  };
 }
 
 function getUserAccessibleProjects(database: DatabaseState, user: AppUser | SafeUser) {
@@ -703,6 +958,7 @@ export async function getProjectsPayload(token: string): Promise<ProjectsPageDat
   ensureSystemUsers(database);
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
+  ensurePermission(user, "projects.view");
 
   const accessibleCodes = new Set(
     getUserAccessibleProjects(database, user).map((project) => project.code),
@@ -732,15 +988,7 @@ export async function getAdminPayload(token: string): Promise<AdminPageData> {
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
   ensurePermission(user, "admin.view");
-
-  return {
-    teamMembers: clone(database.teamMembers),
-    roleMatrix: clone(database.roleMatrix),
-    auditTrail: clone(database.auditTrail),
-    users: clone(database.users.map((entry) => sanitizeUser(entry))),
-    availableProjects: Object.values(database.projects).map((project) => clone(project.summary)),
-    tenant: clone(database.tenant),
-  };
+  return buildAdminPayload(database);
 }
 
 export async function createAdminUser(
@@ -791,12 +1039,129 @@ export async function createAdminUser(
       "a cree un nouvel utilisateur",
       `${nextUser.name} - ${nextUser.role} - ${projectIds.includes("*") ? "Tous projets" : projectIds.join(", ")}`,
     );
+    return buildAdminPayload(database);
+  });
+}
 
-    return {
-      users: clone(database.users.map((entry) => sanitizeUser(entry))),
-      auditTrail: clone(database.auditTrail),
-      tenant: clone(database.tenant),
+export async function updateAdminUser(
+  token: string,
+  payload: {
+    projectIds: string[];
+    role: AppUser["role"];
+    userId: string;
+  },
+) {
+  return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
+    const actor = getUserForSession(database, token);
+    assert(actor, 401, "Session invalide ou expiree.");
+    ensurePermission(actor, "admin.manage");
+
+    const user = database.users.find((entry) => entry.id === payload.userId);
+    assert(user, 404, "Utilisateur introuvable.");
+
+    const nextRole = payload.role;
+    const nextProjectIds =
+      nextRole === "Super Admin" ? ["*"] : payload.projectIds.filter(Boolean);
+
+    assert(nextRole, 400, "Role requis.");
+    assert(nextProjectIds.length > 0, 400, "Choisissez au moins un projet pour cet utilisateur.");
+
+    user.role = nextRole;
+    user.projectIds = nextProjectIds;
+
+    appendAudit(
+      database,
+      actor.name,
+      "a mis a jour un utilisateur",
+      `${user.name} - ${user.role} - ${nextProjectIds.includes("*") ? "Tous projets" : nextProjectIds.join(", ")}`,
+    );
+
+    return buildAdminPayload(database);
+  });
+}
+
+export async function createAdminProject(
+  token: string,
+  payload: {
+    budgetTnd: number;
+    client: string;
+    code: string;
+    location: string;
+    lots: string;
+    name: string;
+    nextMilestone: string;
+    phases: string;
+    status: string;
+    zones: string;
+  },
+) {
+  return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
+    const actor = getUserForSession(database, token);
+    assert(actor, 401, "Session invalide ou expiree.");
+    ensurePermission(actor, "admin.manage");
+
+    const name = payload.name.trim();
+    const code = normalizeProjectCode(payload.code);
+    const client = payload.client.trim();
+    const location = payload.location.trim();
+    const status = payload.status.trim() || "Configuration";
+    const nextMilestone = payload.nextMilestone.trim() || "Parametrage initial";
+    const budgetTnd = Number(payload.budgetTnd);
+    const lots = parseSetupList(payload.lots, "General");
+    const phases = parseSetupList(payload.phases, "EXE");
+    const zones = parseSetupList(payload.zones, "Zone principale");
+
+    assert(name.length >= 3, 400, "Nom projet trop court.");
+    assert(code.length >= 3, 400, "Code projet invalide.");
+    assert(client.length >= 2, 400, "Client requis.");
+    assert(location.length >= 2, 400, "Localisation requise.");
+    assert(Number.isFinite(budgetTnd) && budgetTnd >= 0, 400, "Budget projet invalide.");
+    assert(!database.projects[code], 409, "Ce code projet existe deja.");
+
+    const summary: ProjectRecord["summary"] = {
+      id: code,
+      name,
+      code,
+      client,
+      location,
+      status,
+      progress: 0,
+      budgetTnd,
+      spentTnd: 0,
+      invoicesDue: 0,
+      nextMilestone,
+      allowedRoles: defaultProjectRoles,
     };
+
+    database.projects[code] = {
+      summary,
+      site: createEmptySiteModule({ lots, projectName: name, zones }),
+      documents: createEmptyDocumentsModule({ lots, phases, projectName: name }),
+      finance: createEmptyFinanceModule(),
+    };
+
+    database.portfolio.unshift({
+      name,
+      code,
+      location: location.split(",")[0] ?? location,
+      progress: 0,
+      budget: budgetTnd,
+      health: "Configuration",
+      tone: "warning",
+      nextMilestone,
+    });
+    syncTenantStats(database);
+
+    appendAudit(
+      database,
+      actor.name,
+      "a cree un projet",
+      `${name} - ${code} - ${lots.length} lot(s) / ${zones.length} zone(s)`,
+    );
+
+    return buildAdminPayload(database);
   });
 }
 

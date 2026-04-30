@@ -22,6 +22,7 @@ type WorkspaceContextValue = {
   availableProjects: WorkspaceProject[];
   activeProject: WorkspaceProject;
   setActiveProjectId: (projectId: string) => void;
+  refreshWorkspace: () => Promise<void>;
   permissions: AppPermission[];
   can: (permission: AppPermission) => boolean;
 };
@@ -65,40 +66,41 @@ export function WorkspaceProvider({
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [error, setError] = useState("");
 
+  const refreshWorkspace = useCallback(async () => {
+    try {
+      setError("");
+      const payload = await apiFetch<WorkspacePayload>("/api/workspace", {
+        method: "GET",
+      });
+
+      const storedProjectId = window.localStorage.getItem(
+        `bnaasaas-active-project:${currentUserId}`,
+      );
+
+      setWorkspace(payload);
+      setSelectedProjectId(
+        payload.availableProjects.some((project) => project.id === storedProjectId)
+          ? (storedProjectId ?? "")
+          : (payload.availableProjects[0]?.id ?? ""),
+      );
+    } catch (nextError) {
+      setWorkspace(null);
+      setSelectedProjectId("");
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Impossible de charger les projets accessibles.",
+      );
+    }
+  }, [currentUserId]);
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadWorkspace() {
-      try {
-        setError("");
-        const payload = await apiFetch<WorkspacePayload>("/api/workspace", {
-          method: "GET",
-        });
-
-        if (cancelled) {
-          return;
-        }
-
-        const storedProjectId = window.localStorage.getItem(
-          `bnaasaas-active-project:${currentUserId}`,
-        );
-
-        setWorkspace(payload);
-        setSelectedProjectId(
-          payload.availableProjects.some((project) => project.id === storedProjectId)
-            ? (storedProjectId ?? "")
-            : (payload.availableProjects[0]?.id ?? ""),
-        );
-      } catch (nextError) {
-        if (!cancelled) {
-          setWorkspace(null);
-          setSelectedProjectId("");
-          setError(
-            nextError instanceof Error
-              ? nextError.message
-              : "Impossible de charger les projets accessibles.",
-          );
-        }
+      await refreshWorkspace();
+      if (cancelled) {
+        return;
       }
     }
 
@@ -107,7 +109,7 @@ export function WorkspaceProvider({
     return () => {
       cancelled = true;
     };
-  }, [currentUserId]);
+  }, [currentUserId, refreshWorkspace]);
 
   const availableProjects = useMemo(
     () => workspace?.availableProjects ?? [],
@@ -142,6 +144,7 @@ export function WorkspaceProvider({
       availableProjects,
       activeProject: activeProject ?? placeholderProject,
       setActiveProjectId,
+      refreshWorkspace,
       permissions,
       can: hasPermission,
     }),
@@ -152,6 +155,7 @@ export function WorkspaceProvider({
       error,
       hasPermission,
       permissions,
+      refreshWorkspace,
       setActiveProjectId,
       workspace,
     ],

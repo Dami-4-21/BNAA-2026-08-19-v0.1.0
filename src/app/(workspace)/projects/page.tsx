@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowUpRight, Building2, ClipboardList, Landmark, Layers3 } from "lucide-react";
 
 import { Panel, ProgressBar, SectionHeading, StatusBadge } from "@/components/ui";
 import { formatCurrency } from "@/lib/format";
 import { apiFetch } from "@/lib/api";
 import type { ProjectsPageData } from "@/lib/backend/types";
+import { useWorkspace } from "@/components/workspace-context";
 
 const healthIcons = [Building2, Landmark, Layers3];
 
 export default function ProjectsPage() {
+  const router = useRouter();
+  const { currentUser, setActiveProjectId } = useWorkspace();
   const [data, setData] = useState<ProjectsPageData | null>(null);
 
   useEffect(() => {
@@ -37,12 +41,14 @@ export default function ProjectsPage() {
         title="Un portefeuille clair des projets actifs"
         action={
           <div className="flex gap-2">
-            <button className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8">
-              Nouveau projet
-            </button>
-            <button className="rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-300">
-              Importer un pilote
-            </button>
+            {currentUser.role === "Super Admin" ? (
+              <button
+                onClick={() => router.push("/admin")}
+                className="rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+              >
+                Creer un projet
+              </button>
+            ) : null}
           </div>
         }
       />
@@ -95,7 +101,13 @@ export default function ProjectsPage() {
                     </p>
                   </div>
                 </div>
-                <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8">
+                <button
+                  onClick={() => {
+                    setActiveProjectId(project.code);
+                    router.push("/");
+                  }}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8"
+                >
                   Ouvrir le projet
                   <ArrowUpRight className="size-4" />
                 </button>
