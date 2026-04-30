@@ -34,7 +34,7 @@ const navItems = [
     href: "/projects",
     label: "Projets",
     shortLabel: "Projets",
-    description: "Portefeuille actif, sante projet et jalons du pilote.",
+    description: "Portefeuille actif, sante projet et jalons a venir.",
     icon: FolderKanban,
   },
   {

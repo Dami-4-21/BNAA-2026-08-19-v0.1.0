@@ -19,9 +19,9 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BnaaSaaS MVP",
+  title: "BnaaSaaS",
   description:
-    "MVP SaaS de gestion de projets genie civil pour suivi de chantier, GED & plans, et facturation.",
+    "Plateforme de gestion de projets genie civil pour suivi de chantier, documents et finance.",
 };
 
 export default function RootLayout({

@@ -347,19 +347,16 @@ function SiteModuleContent({
   return (
     <div className="space-y-6">
       <SectionHeading
-        eyebrow="Module 5 - Suivi de chantier"
-        title="Oui, il est dans le MVP, et je viens de le pousser vers une vraie version produit"
-        description="La premiere iteration etait surtout visuelle. Cette version couvre maintenant le coeur du module : RJC mobile-first, progression par lot, journal photo geolocalise, non-conformites, signatures et tableau de bord chantier temps reel."
+        eyebrow="Suivi chantier"
+        title="Pilotage terrain en temps reel"
+        description={`Centralisez les rapports journaliers, l'avancement, les photos geolocalisees et les non-conformites pour ${activeProject.name}.`}
         action={
-          <div className="flex flex-wrap gap-2">
-            <StatusBadge tone="success">Module 5 in progress - concret</StatusBadge>
-            <button
-              onClick={() => setActiveTab("rjc")}
-              className="rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
-            >
-              Nouveau rapport
-            </button>
-          </div>
+          <button
+            onClick={() => setActiveTab("rjc")}
+            className="rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
+          >
+            Nouveau rapport
+          </button>
         }
       />
 
@@ -536,7 +533,7 @@ function SiteModuleContent({
 
             <Panel
               title="Actions critiques"
-              description="Les automatismes du module doivent surtout guider l'utilisateur vers l'action suivante."
+              description="Les automatismes doivent guider l'utilisateur vers l'action suivante."
             >
               <div className="space-y-3">
                 {[
@@ -560,7 +557,7 @@ function SiteModuleContent({
       <div className="grid gap-6 2xl:grid-cols-[1.15fr_0.85fr]">
         <Panel
           title="Historique RJC"
-          description="Les derniers rapports restent visibles en permanence avec leur niveau de completude, leur statut de signature et l'etat PDF."
+          description="Les derniers rapports restent visibles avec leur completude, leur statut de signature et l'etat PDF."
         >
           <div className="space-y-3">
             {reports.map((report) => (
@@ -641,17 +638,14 @@ function SiteModuleContent({
         </Panel>
 
         <Panel
-          title="Mapping avec le cahier des charges"
-          description="Je te montre explicitement ce qui est deja couvert dans cette iteration du module 5."
+          title="Rappels terrain"
+          description="Les equipes chantier retrouvent ici les points de vigilance les plus frequents."
         >
           <div className="space-y-3">
             {[
-              "RJC mobile-first: oui, avec effectif, meteo, activites, incidents, progression lot par lot.",
-              "Generation PDF: oui, simulee dans l'interface avec etat de preparation.",
-              "Signature conducteur + maitre d'oeuvre: oui, statuts et actions prevus dans l'historique.",
-              "Journal photo geolocalise: oui, avec lot, zone, tache et coordonnees.",
-              "Fiches de non-conformite: oui, creation, assignation, echeance et cloture.",
-              "Dashboard chantier temps reel: oui, KPIs, derive planning, meteo et actions critiques.",
+              "Verifier la signature MOE avant l'archivage quotidien des rapports.",
+              "Associer chaque photo a une zone ou une tache pour simplifier les recherches.",
+              "Cloturer les non-conformites avec une preuve photo et une note de levee.",
             ].map((item) => (
               <div
                 key={item}
@@ -949,8 +943,8 @@ function RjcTab({
               />
             </div>
             <p className="mt-3 text-sm leading-6 text-slate-300">
-              L&apos;objectif produit est de faire remplir ce rapport en moins de 5 minutes sur
-              mobile tout en gardant une trace exploitable.
+              Completez le rapport rapidement depuis le terrain tout en gardant une trace claire
+              pour les validations et l&apos;archivage.
             </p>
           </div>
 

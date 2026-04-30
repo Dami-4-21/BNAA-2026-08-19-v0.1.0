@@ -1,5 +1,5 @@
 export const tenant = {
-  name: "BnaaSaaS Pilot",
+  name: "BnaaSaaS",
   sector: "Genie civil - Tunisie",
   users: 28,
   activeProjects: 4,

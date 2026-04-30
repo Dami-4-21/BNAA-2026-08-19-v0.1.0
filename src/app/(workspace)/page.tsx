@@ -38,10 +38,10 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <SectionHeading
-        eyebrow="MVP Ready"
+        eyebrow="Vue d'ensemble"
         title="Operations fluides du terrain jusqu'a l'encaissement"
-        description="Le tableau de bord donne une lecture unique des trois briques MVP : suivi chantier, controle documentaire et facturation. Chaque zone a ete pensee pour une prise en main rapide sur desktop comme sur mobile."
-        action={<StatusBadge tone="success">Pilot flow active</StatusBadge>}
+        description="Le tableau de bord rassemble le terrain, les documents et la finance dans une vue unique pour une prise en main rapide sur desktop comme sur mobile."
+        action={<StatusBadge tone="success">Plateforme active</StatusBadge>}
       />
 
       <Panel className="overflow-hidden">
@@ -69,7 +69,7 @@ export default function DashboardPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Budget pilote
+                  Budget projet
                 </p>
                 <p className="mt-3 font-display text-2xl font-semibold text-white">
                   {formatCurrency(activeProject.budgetTnd)}
@@ -91,13 +91,13 @@ export default function DashboardPage() {
               </div>
               <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Parcours MVP
+                  Vue prioritaire
                 </p>
                 <p className="mt-3 font-display text-2xl font-semibold text-white">
                   Terrain - Docs - Cash
                 </p>
                 <p className="mt-2 text-sm text-slate-300">
-                  Parcours principal assume pour la premiere vente.
+                  Terrain, documents et encaissements reunis dans le meme flux de travail.
                 </p>
               </div>
             </div>
@@ -347,7 +347,7 @@ export default function DashboardPage() {
 
         <Panel
           title="Point finance"
-          description="Le module finance garde le lien avec le terrain : l'avancement saisi nourrit les decomptes et les relances se voient immediatement."
+          description="La finance reste reliee au terrain : l'avancement saisi nourrit les decomptes et les relances restent visibles immediatement."
         >
           <div className="grid gap-3 sm:grid-cols-2">
             {invoiceMetrics.map((metric) => (

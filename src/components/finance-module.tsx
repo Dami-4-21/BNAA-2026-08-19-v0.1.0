@@ -268,19 +268,16 @@ function FinanceModuleContent({
   return (
     <div className="space-y-6">
       <SectionHeading
-        eyebrow="Module 9 - Facturation & Finance"
-        title="La finance passe du tableau de bord a un vrai poste de pilotage projet"
-        description="Le module couvre maintenant le coeur du spec : decompte mensuel calcule depuis l'avancement, circuit de validation, facture client, paiement, TVA et tresorerie previsionnelle / reelle."
+        eyebrow="Finance"
+        title="Facturation, encaissements et tresorerie"
+        description={`Suivez les decomptes, les validations et les paiements de ${activeProject.name} dans une vue unique.`}
         action={
-          <div className="flex flex-wrap gap-2">
-            <StatusBadge tone="success">Module 9 integrated</StatusBadge>
-            <button
-              onClick={() => setActiveTab("dm")}
-              className="rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
-            >
-              Creer une facture
-            </button>
-          </div>
+          <button
+            onClick={() => setActiveTab("dm")}
+            className="rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
+          >
+            Creer une facture
+          </button>
         }
       />
 
@@ -420,16 +417,14 @@ function FinanceModuleContent({
             </Panel>
 
             <Panel
-              title="Mapping spec Module 9"
-              description="Ce qui est maintenant couvre dans l'iteration MVP."
+              title="Reperes de pilotage"
+              description="Les points a surveiller pour garder un cycle de facturation fluide."
             >
               <div className="space-y-3">
                 {[
-                  "Decompte mensuel: oui, calcul depuis avancement, retenue et avance.",
-                  "Validation MOE -> MO: oui, statut facture et actions de validation.",
-                  "Facturation client: oui, numerotation, PDF logique et suivi des paiements.",
-                  "Gestion TVA: oui, regime selectionnable et declaration mensuelle.",
-                  "Tresorerie previsionnelle: oui, courbe prevue / reelle et alerte de tension.",
+                  "Valider rapidement les decomptes pour limiter le decalage entre terrain et facturation.",
+                  "Suivre les echeances clients avant qu'une facture ne passe en retard.",
+                  "Comparer chaque mois les recettes prevues, les encaissements reels et les couts engages.",
                 ].map((item) => (
                   <div
                     key={item}

@@ -331,19 +331,16 @@ function DocumentsModuleContent({
   return (
     <div className="space-y-6">
       <SectionHeading
-        eyebrow="Module 6 - GED & Plans"
-        title="La GED devient un vrai poste de controle documentaire"
-        description={`Le workspace documentaire de ${activeProject.name} suit le cahier des charges : bibliotheque centralisee, versionning, diffusion controlee, lecture, plans obsoletes et acces mobile offline.`}
+        eyebrow="Documents"
+        title="Controle documentaire et diffusion des plans"
+        description={`Retrouvez pour ${activeProject.name} les versions en vigueur, les listes de diffusion et l'acces offline pour le terrain.`}
         action={
-          <div className="flex flex-wrap gap-2">
-            <StatusBadge tone="success">Module 6 integrated</StatusBadge>
-            <button
-              onClick={() => setActiveTab("versions")}
-              className="rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
-            >
-              Publier un plan
-            </button>
-          </div>
+          <button
+            onClick={() => setActiveTab("versions")}
+            className="rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
+          >
+            Publier un plan
+          </button>
         }
       />
 
@@ -429,7 +426,7 @@ function DocumentsModuleContent({
           <div className="space-y-4">
             <Panel
               title="Preview & comparaison"
-              description="Le MVP garde une vue de previsualisation en ligne et une comparaison visuelle simplifiee entre revision courante et precedente."
+              description="Previsualisez la revision courante et comparez-la rapidement avec la version precedente."
             >
               {selectedDocument ? (
                 <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
@@ -457,7 +454,7 @@ function DocumentsModuleContent({
                       <div className="flex h-full items-end justify-between rounded-[14px] border border-white/6 bg-[#08111f]/65 p-4">
                         <div>
                           <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                            Overlay compare
+                            Comparaison
                           </p>
                           <p className="mt-2 text-sm text-white">
                             {selectedDocument.compareWith} vs {selectedDocument.revision}
@@ -484,7 +481,7 @@ function DocumentsModuleContent({
 
             <Panel
               title="Arborescence projet"
-              description="Le classement suit projet -> lot -> phase pour coller au cahier des charges."
+              description="Le classement suit projet, lot et phase pour retrouver rapidement les bons plans."
             >
               <div className="space-y-3">
                 {projectData.tree.map((root: DocumentTreeRoot) => (
@@ -515,16 +512,15 @@ function DocumentsModuleContent({
             </Panel>
 
             <Panel
-              title="Mapping spec Module 6"
-              description="Ce bloc montre ce qui est deja couvert dans cette iteration."
+              title="Bonnes pratiques de diffusion"
+              description="Des reperes simples pour garder une circulation claire des plans sur le chantier."
             >
               <div className="space-y-3">
                 {[
-                  "Bibliotheque centralisee: oui, avec arborescence projet / lot / phase et formats supportes.",
-                  "Versionning & comparaison: oui, avec historique complet et vue overlay logique.",
-                  "Distribution controlee: oui, avec liste de diffusion, lecture et accusés.",
-                  "Plans obsoletes: oui, action de marquage et signal fort dans l'UI.",
-                  "Acces offline mobile: oui, avec statut de sync et cache des revisions utiles.",
+                  "Diffuser les revisions critiques le jour de publication pour eviter les doublons terrain.",
+                  "Suivre les accuses de lecture sur les lots sensibles avant le demarrage d'une tache.",
+                  "Diffuser en priorite les plans structures, fluides et execution avant le demarrage d'une equipe.",
+                  "Retirer du cache les versions obsoletes apres validation de la nouvelle revision.",
                 ].map((item) => (
                   <div
                     key={item}
