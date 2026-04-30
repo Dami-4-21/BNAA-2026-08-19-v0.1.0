@@ -32,7 +32,7 @@ import {
   cx,
 } from "@/components/ui";
 import { formatDate } from "@/lib/format";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUpload } from "@/lib/api";
 import type { SiteModuleData as SitePayload } from "@/lib/backend/types";
 import { useWorkspace } from "@/components/workspace-context";
 
@@ -66,6 +66,9 @@ type PhotoItem = {
   geo: string;
   author: string;
   accent: string;
+  fileName?: string;
+  fileUrl?: string;
+  mimeType?: string;
 };
 
 type SignatureItem = {
@@ -266,6 +269,7 @@ function SiteModuleContent({
   const [reports, setReports] = useState<ReportItem[]>(projectData.reports);
   const [photos, setPhotos] = useState<PhotoItem[]>(projectData.photoLibrary);
   const [ncrs, setNcrs] = useState<NcrItem[]>(projectData.ncrs);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [formState, setFormState] = useState<FormState>(() =>
     createFormState(projectData),
   );
@@ -283,6 +287,7 @@ function SiteModuleContent({
       setReports(nextData.reports);
       setPhotos(nextData.photoLibrary);
       setNcrs(nextData.ncrs);
+      setPhotoFile(null);
       setFormState(createFormState(nextData));
       setDraftPhoto(nextData.draftPhoto);
       setDraftNcr(nextData.draftNcr);
@@ -362,7 +367,28 @@ function SiteModuleContent({
 
   async function addPhoto() {
     try {
-      await runSiteAction("add-photo", { draftPhoto });
+      if (!photoFile) {
+        throw new Error("Choisissez une photo a joindre au journal chantier.");
+      }
+
+      const formData = new FormData();
+      formData.set("title", draftPhoto.title);
+      formData.set("zone", draftPhoto.zone);
+      formData.set("lot", draftPhoto.lot);
+      formData.set("task", draftPhoto.task);
+      formData.set("geo", draftPhoto.geo);
+      formData.set("file", photoFile);
+
+      const nextData = await apiUpload<SitePayload>(
+        `/api/projects/${activeProject.id}/site`,
+        formData,
+        {
+          method: "POST",
+        },
+      );
+
+      setMutationError("");
+      applyProjectData(nextData);
       setActiveTab("photos");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Ajout photo impossible.");
@@ -479,6 +505,8 @@ function SiteModuleContent({
                 <PhotosTab
                   canAddPhoto={canAddPhoto}
                   draftPhoto={draftPhoto}
+                  photoFile={photoFile}
+                  setPhotoFile={setPhotoFile}
                   setDraftPhoto={setDraftPhoto}
                   photos={filteredPhotos}
                   searchPhotos={searchPhotos}
@@ -1087,6 +1115,8 @@ function RjcTab({
 function PhotosTab({
   canAddPhoto,
   draftPhoto,
+  photoFile,
+  setPhotoFile,
   setDraftPhoto,
   photos,
   searchPhotos,
@@ -1113,6 +1143,8 @@ function PhotosTab({
       geo: string;
     }>
   >;
+  photoFile: File | null;
+  setPhotoFile: React.Dispatch<React.SetStateAction<File | null>>;
   photos: PhotoItem[];
   searchPhotos: string;
   setSearchPhotos: React.Dispatch<React.SetStateAction<string>>;
@@ -1162,6 +1194,22 @@ function PhotosTab({
               setDraftPhoto((current) => ({ ...current, geo: value }))
             }
           />
+          <label className="block rounded-[22px] border border-white/8 bg-white/4 p-4">
+            <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              Photo terrain
+            </span>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)}
+              className="mt-3 block w-full text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-950"
+            />
+            <p className="mt-3 text-sm text-slate-400">
+              {photoFile
+                ? `${photoFile.name} - ${(photoFile.size / (1024 * 1024)).toFixed(2)} Mo`
+                : "Choisissez une image pour alimenter le journal photo geolocalise."}
+            </p>
+          </label>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <ActionButton icon={MapPin} label="Capturer GPS" />
@@ -1222,7 +1270,19 @@ function PhotosTab({
                 <StatusBadge tone="primary">{photo.lot}</StatusBadge>
                 <span className="font-mono text-xs text-slate-400">{photo.time}</span>
               </div>
-              <div className="mt-16">
+              {photo.fileUrl ? (
+                <div className="mt-4 overflow-hidden rounded-[18px] border border-white/8">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt={photo.title}
+                    className="h-40 w-full object-cover"
+                    src={photo.fileUrl}
+                  />
+                </div>
+              ) : (
+                <div className="mt-16" />
+              )}
+              <div className={photo.fileUrl ? "mt-4" : ""}>
                 <p className="text-sm font-semibold text-white">{photo.title}</p>
                 <p className="mt-1 text-sm text-slate-300">
                   {photo.zone} - {photo.task}
@@ -1234,6 +1294,7 @@ function PhotosTab({
                   {photo.geo}
                 </div>
                 <div>{photo.author}</div>
+                {photo.fileName ? <div>{photo.fileName}</div> : null}
               </div>
             </div>
           </div>

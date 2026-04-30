@@ -31,7 +31,7 @@ import {
   cx,
 } from "@/components/ui";
 import { formatDate } from "@/lib/format";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUpload } from "@/lib/api";
 import type { DocumentsModuleData as DocumentsPayload } from "@/lib/backend/types";
 import { useWorkspace } from "@/components/workspace-context";
 
@@ -61,6 +61,9 @@ type DocumentFile = {
   storage: string;
   versions: Array<{ version: string; publishedAt: string; status: string }>;
   compareWith: string;
+  downloadUrl?: string;
+  fileName?: string;
+  mimeType?: string;
 };
 
 type Recipient = {
@@ -200,6 +203,7 @@ function DocumentsModuleContent({
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Tous");
   const [draftVersion, setDraftVersion] = useState(projectData.draftVersion);
+  const [versionFile, setVersionFile] = useState<File | null>(null);
   const [mutationError, setMutationError] = useState("");
 
   const deferredSearch = useDeferredValue(search);
@@ -210,6 +214,7 @@ function DocumentsModuleContent({
       setDocuments(nextData.files);
       setRecipients(nextData.recipients);
       setDraftVersion(nextData.draftVersion);
+      setVersionFile(null);
       setSelectedDocumentId((current) =>
         nextData.files.some((item) => item.id === current) ? current : (nextData.files[0]?.id ?? ""),
       );
@@ -272,11 +277,26 @@ function DocumentsModuleContent({
       return;
     }
     try {
-      await runDocumentsAction("publish-version", {
-        documentId: selectedDocument.id,
-        revision: draftVersion.revision,
-        format: draftVersion.format,
-      });
+      if (!versionFile) {
+        throw new Error("Ajoutez un fichier avant de publier une nouvelle revision.");
+      }
+
+      const formData = new FormData();
+      formData.set("documentId", selectedDocument.id);
+      formData.set("revision", draftVersion.revision);
+      formData.set("format", draftVersion.format);
+      formData.set("file", versionFile);
+
+      const nextData = await apiUpload<DocumentsPayload>(
+        `/api/projects/${activeProjectId}/documents`,
+        formData,
+        {
+          method: "POST",
+        },
+      );
+
+      setMutationError("");
+      applyProjectData(nextData);
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Publication impossible.");
     }
@@ -415,6 +435,8 @@ function DocumentsModuleContent({
                   canPublishVersion={canPublishVersion}
                   selectedDocument={selectedDocument}
                   draftVersion={draftVersion}
+                  versionFile={versionFile}
+                  setVersionFile={setVersionFile}
                   setDraftVersion={setDraftVersion}
                   publishNewVersion={publishNewVersion}
                   markObsolete={markObsolete}
@@ -468,7 +490,7 @@ function DocumentsModuleContent({
                     </div>
                   </div>
 
-                  <div className="mt-6 rounded-[22px] border border-dashed border-sky-400/20 bg-sky-400/8 p-5">
+                    <div className="mt-6 rounded-[22px] border border-dashed border-sky-400/20 bg-sky-400/8 p-5">
                     <div className="aspect-[4/3] rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4">
                       <div className="flex h-full items-end justify-between rounded-[14px] border border-white/6 bg-[#08111f]/65 p-4">
                         <div>
@@ -492,6 +514,27 @@ function DocumentsModuleContent({
                       <StatusBadge tone={selectedDocument.offlineReady ? "success" : "warning"}>
                         {selectedDocument.offlineReady ? "Offline pret" : "Non synchronise"}
                       </StatusBadge>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      {selectedDocument.downloadUrl ? (
+                        <a
+                          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/8"
+                          href={selectedDocument.downloadUrl}
+                          target="_blank"
+                        >
+                          <CloudDownload className="size-4" />
+                          Telecharger la version courante
+                        </a>
+                      ) : (
+                        <div className="rounded-full border border-white/8 bg-white/4 px-4 py-2 text-sm text-slate-400">
+                          Aucun fichier televerse pour cette revision
+                        </div>
+                      )}
+                      {selectedDocument.fileName ? (
+                        <div className="rounded-full border border-white/8 bg-white/4 px-4 py-2 text-sm text-slate-300">
+                          {selectedDocument.fileName}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -629,6 +672,8 @@ function VersionsTab({
   canPublishVersion,
   selectedDocument,
   draftVersion,
+  versionFile,
+  setVersionFile,
   setDraftVersion,
   publishNewVersion,
   markObsolete,
@@ -641,6 +686,8 @@ function VersionsTab({
     format: string;
     audience: string;
   };
+  versionFile: File | null;
+  setVersionFile: React.Dispatch<React.SetStateAction<File | null>>;
   setDraftVersion: React.Dispatch<
     React.SetStateAction<{
       revision: string;
@@ -669,6 +716,22 @@ function VersionsTab({
               setDraftVersion((current) => ({ ...current, format: value }))
             }
           />
+          <label className="block rounded-[22px] border border-white/8 bg-white/4 p-4">
+            <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              Fichier de revision
+            </span>
+            <input
+              type="file"
+              accept=".pdf,.dwg,.ifc,.xlsx,.xls,.doc,.docx,.mp4"
+              onChange={(event) => setVersionFile(event.target.files?.[0] ?? null)}
+              className="mt-3 block w-full text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-950"
+            />
+            <p className="mt-3 text-sm text-slate-400">
+              {versionFile
+                ? `${versionFile.name} - ${(versionFile.size / (1024 * 1024)).toFixed(2)} Mo`
+                : "Ajoutez le PDF, DWG, IFC ou document a publier comme version courante."}
+            </p>
+          </label>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <button

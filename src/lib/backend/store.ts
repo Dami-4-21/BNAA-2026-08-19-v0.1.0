@@ -10,12 +10,13 @@ const defaultDataFile = path.join(
   "database.json",
 );
 const databaseFile = process.env.BNAASAAS_DATA_FILE ?? defaultDataFile;
+const dataDirectory = path.dirname(databaseFile);
 
 let initPromise: Promise<void> | null = null;
 let writeQueue = Promise.resolve();
 
 async function ensureDatabaseFile() {
-  await mkdir(path.dirname(databaseFile), { recursive: true });
+  await mkdir(dataDirectory, { recursive: true });
 
   try {
     await readFile(databaseFile, "utf-8");
@@ -63,4 +64,8 @@ export async function updateDatabase<T>(
   );
 
   return nextOperation;
+}
+
+export function getDataDirectory() {
+  return dataDirectory;
 }

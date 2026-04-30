@@ -25,6 +25,18 @@ export type AuditTrailItem = (typeof auditTrail)[number];
 export type SiteModuleData = ReturnType<typeof getSiteModuleData>;
 export type DocumentsModuleData = ReturnType<typeof getDocumentsModuleData>;
 export type FinanceModuleData = ReturnType<typeof getFinanceModuleData>;
+export type SitePhotoRecord = SiteModuleData["photoLibrary"][number] & {
+  fileName?: string;
+  filePath?: string;
+  fileUrl?: string;
+  mimeType?: string;
+};
+export type DocumentFileRecord = DocumentsModuleData["files"][number] & {
+  downloadUrl?: string;
+  fileName?: string;
+  filePath?: string;
+  mimeType?: string;
+};
 
 export type SessionRecord = {
   token: string;

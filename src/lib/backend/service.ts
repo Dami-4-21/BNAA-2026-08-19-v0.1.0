@@ -11,6 +11,7 @@ import {
   type AppUser,
   type SafeUser,
 } from "@/lib/auth";
+import { saveUploadedFile } from "@/lib/backend/files";
 import { financeVatRegimes } from "@/lib/mock-data";
 import { createSessionExpiry, createSessionToken } from "@/lib/backend/session";
 import { readDatabase, updateDatabase } from "@/lib/backend/store";
@@ -18,12 +19,14 @@ import type {
   AdminPageData,
   DashboardPageData,
   DatabaseState,
+  DocumentFileRecord,
   DocumentsModuleData,
   FinanceModuleData,
   NotificationsPageData,
   ProjectsPageData,
   ProjectRecord,
   SessionRecord,
+  SitePhotoRecord,
   SiteModuleData,
   WorkspacePayload,
 } from "@/lib/backend/types";
@@ -77,6 +80,25 @@ function toProjectHealth(progress: number, overdueInvoices: number, unreadDocs: 
   }
 
   return { health: "Sous controle", tone: "success" as const };
+}
+
+function getSitePhotoUrl(projectId: string, photoId: string) {
+  return `/api/projects/${projectId}/site/photos/${photoId}/file`;
+}
+
+function getDocumentDownloadUrl(projectId: string, documentId: string) {
+  return `/api/projects/${projectId}/documents/${documentId}/file`;
+}
+
+function getPhotoAccent(index: number) {
+  const accents = [
+    "from-sky-500/55 to-violet-300/18",
+    "from-amber-400/55 to-orange-300/20",
+    "from-emerald-400/55 to-teal-300/20",
+    "from-fuchsia-500/45 to-rose-300/20",
+  ];
+
+  return accents[index % accents.length] ?? accents[0];
 }
 
 function getUserAccessibleProjects(database: DatabaseState, user: AppUser | SafeUser) {
@@ -190,6 +212,15 @@ function recomputeProjectSummary(project: ProjectRecord) {
 
 function deriveSiteData(project: ProjectRecord): SiteModuleData {
   const site = clone(project.site);
+  site.photoLibrary = site.photoLibrary.map((photo) => {
+    const asset = photo as SitePhotoRecord;
+    return asset.filePath
+      ? ({
+          ...asset,
+          fileUrl: getSitePhotoUrl(project.summary.id, asset.id),
+        } as unknown as SiteModuleData["photoLibrary"][number])
+      : photo;
+  });
   const totalReports = site.reports.length;
   const averageCompleteness = totalReports
     ? Math.round(
@@ -273,6 +304,15 @@ function deriveSiteData(project: ProjectRecord): SiteModuleData {
 
 function deriveDocumentsData(project: ProjectRecord): DocumentsModuleData {
   const documents = clone(project.documents);
+  documents.files = documents.files.map((file) => {
+    const asset = file as DocumentFileRecord;
+    return asset.filePath
+      ? ({
+          ...asset,
+          downloadUrl: getDocumentDownloadUrl(project.summary.id, asset.id),
+        } as unknown as DocumentsModuleData["files"][number])
+      : file;
+  });
   const totalSizeMb = documents.files.reduce(
     (total, file) => total + file.fileSizeMb,
     0,
@@ -770,6 +810,110 @@ export async function getSitePayload(token: string, projectId: string) {
   return deriveSiteData(getProjectRecord(database, projectId));
 }
 
+export async function getSitePhotoFile(token: string, projectId: string, photoId: string) {
+  const database = await readDatabase();
+  ensureSystemUsers(database);
+  const user = getUserForSession(database, token);
+  assert(user, 401, "Session invalide ou expiree.");
+  ensurePermission(user, "site.view");
+  ensureProjectAccess(user, projectId);
+  const project = getProjectRecord(database, projectId);
+  const photo = project.site.photoLibrary.find((item) => item.id === photoId) as
+    | SitePhotoRecord
+    | undefined;
+
+  assert(photo, 404, "Photo introuvable.");
+  assert(photo.filePath, 404, "Aucun fichier disponible pour cette photo.");
+
+  return {
+    fileName: photo.fileName ?? `${photo.title}.jpg`,
+    filePath: photo.filePath,
+    mimeType: photo.mimeType ?? "image/jpeg",
+  };
+}
+
+export async function uploadSitePhoto(
+  token: string,
+  projectId: string,
+  payload: {
+    file: File;
+    geo: string;
+    lot: string;
+    task: string;
+    title: string;
+    zone: string;
+  },
+) {
+  return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
+    const user = getUserForSession(database, token);
+    assert(user, 401, "Session invalide ou expiree.");
+    ensurePermission(user, "site.photo.create");
+    ensureProjectAccess(user, projectId);
+    const project = getProjectRecord(database, projectId);
+    const title = payload.title.trim();
+    const zone = payload.zone.trim();
+    const lot = payload.lot.trim();
+    const task = payload.task.trim();
+    const geo = payload.geo.trim();
+
+    assert(title.length >= 3, 400, "Titre photo requis.");
+    assert(zone.length >= 2, 400, "Zone requise.");
+    assert(lot.length >= 2, 400, "Lot requis.");
+    assert(task.length >= 2, 400, "Tache requise.");
+    assert(geo.length >= 3, 400, "Coordonnees geo requises.");
+    assert(payload.file.size > 0, 400, "Fichier photo requis.");
+
+    const photoId = `PH-${randomUUID().slice(0, 8)}`;
+    const storedFile = await saveUploadedFile({
+      bytes: new Uint8Array(await payload.file.arrayBuffer()),
+      mimeType: payload.file.type,
+      originalName: payload.file.name,
+      projectId,
+      segments: ["site", "photos"],
+      storedName: `${photoId}-${title}`,
+    });
+
+    project.site.photoLibrary.unshift({
+      id: photoId,
+      title,
+      zone,
+      lot,
+      task,
+      time: "18:00",
+      timestamp: nowTimestamp,
+      geo,
+      author: user.name,
+      accent: getPhotoAccent(project.site.photoLibrary.length),
+      fileName: storedFile.fileName,
+      filePath: storedFile.relativePath,
+      mimeType: storedFile.mimeType,
+    } as SiteModuleData["photoLibrary"][number]);
+
+    project.site.draftPhoto = {
+      title,
+      zone,
+      lot,
+      task,
+      geo,
+    };
+
+    appendAudit(
+      database,
+      user.name,
+      "a ajoute une photo chantier",
+      `${project.summary.code} - ${title}`,
+    );
+
+    const { portfolioEntry } = recomputeProjectSummary(project);
+    database.portfolio = database.portfolio.map((entry) =>
+      entry.code === portfolioEntry.code ? portfolioEntry : entry,
+    );
+
+    return deriveSiteData(project);
+  });
+}
+
 export async function mutateSitePayload(
   token: string,
   projectId: string,
@@ -953,6 +1097,102 @@ export async function getDocumentsPayload(token: string, projectId: string) {
   ensurePermission(user, "documents.view");
   ensureProjectAccess(user, projectId);
   return deriveDocumentsData(getProjectRecord(database, projectId));
+}
+
+export async function getDocumentFile(token: string, projectId: string, documentId: string) {
+  const database = await readDatabase();
+  ensureSystemUsers(database);
+  const user = getUserForSession(database, token);
+  assert(user, 401, "Session invalide ou expiree.");
+  ensurePermission(user, "documents.view");
+  ensureProjectAccess(user, projectId);
+  const project = getProjectRecord(database, projectId);
+  const document = project.documents.files.find((item) => item.id === documentId) as
+    | DocumentFileRecord
+    | undefined;
+
+  assert(document, 404, "Document introuvable.");
+  assert(document.filePath, 404, "Aucun fichier disponible pour ce document.");
+
+  return {
+    fileName: document.fileName ?? `${document.code}-${document.revision}.${document.format.toLowerCase()}`,
+    filePath: document.filePath,
+    mimeType: document.mimeType ?? "application/octet-stream",
+  };
+}
+
+export async function uploadDocumentVersion(
+  token: string,
+  projectId: string,
+  payload: {
+    documentId: string;
+    file: File;
+    format: string;
+    revision: string;
+  },
+) {
+  return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
+    const user = getUserForSession(database, token);
+    assert(user, 401, "Session invalide ou expiree.");
+    ensurePermission(user, "documents.version.publish");
+    ensureProjectAccess(user, projectId);
+    const project = getProjectRecord(database, projectId);
+    const document = project.documents.files.find((item) => item.id === payload.documentId) as
+      | DocumentFileRecord
+      | undefined;
+
+    assert(document, 404, "Document introuvable.");
+    const revision = payload.revision.trim();
+    const format = payload.format.trim() || document.format;
+    assert(revision, 400, "Revision requise.");
+    assert(payload.file.size > 0, 400, "Fichier document requis.");
+
+    const storedFile = await saveUploadedFile({
+      bytes: new Uint8Array(await payload.file.arrayBuffer()),
+      mimeType: payload.file.type,
+      originalName: payload.file.name,
+      projectId,
+      segments: ["documents", document.id],
+      storedName: `${document.code}-${revision}`,
+    });
+
+    document.versions = document.versions.map((version) =>
+      version.status === "Courante" ? { ...version, status: "Archive" } : version,
+    );
+    document.versions.push({
+      version: revision,
+      publishedAt: todayIso,
+      status: "Courante",
+    });
+    document.revision = revision;
+    document.format = format;
+    document.publishedAt = todayIso;
+    document.status = "Diffusion";
+    document.tone = "primary";
+    document.isCurrent = true;
+    document.offlineReady = true;
+    document.compareWith = document.versions.at(-2)?.version ?? revision;
+    document.fileSizeMb = storedFile.fileSizeMb;
+    document.fileName = storedFile.fileName;
+    document.filePath = storedFile.relativePath;
+    document.mimeType = storedFile.mimeType;
+    document.storage = storedFile.relativePath;
+
+    appendAudit(
+      database,
+      user.name,
+      "a publie une nouvelle revision",
+      `${document.code} ${revision}`,
+    );
+
+    const { portfolioEntry } = recomputeProjectSummary(project);
+    database.portfolio = database.portfolio.map((entry) =>
+      entry.code === portfolioEntry.code ? portfolioEntry : entry,
+    );
+
+    return deriveDocumentsData(project);
+  });
 }
 
 export async function mutateDocumentsPayload(
