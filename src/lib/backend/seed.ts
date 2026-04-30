@@ -19,9 +19,15 @@ function clone<T>(value: T): T {
 }
 
 export function createSeedDatabase(): DatabaseState {
+  const users = clone(appUsers);
+
   return {
-    tenant: clone(tenant),
-    users: clone(appUsers),
+    tenant: {
+      ...clone(tenant),
+      users: users.length,
+      activeProjects: workspaceProjects.length,
+    },
+    users,
     projects: Object.fromEntries(
       workspaceProjects.map((project) => [
         project.id,

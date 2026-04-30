@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  appUsers,
   canAccessProject,
   getHomePathForRole,
   getPermissionsForRole,
@@ -82,6 +83,43 @@ function getUserAccessibleProjects(database: DatabaseState, user: AppUser | Safe
   return Object.values(database.projects)
     .map((project) => project.summary)
     .filter((project) => canAccessProject(user, project.id));
+}
+
+function buildInitials(name: string) {
+  return name
+    .split(" ")
+    .map((part) => part.trim()[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function syncTenantStats(database: DatabaseState) {
+  database.tenant.users = database.users.length;
+  database.tenant.activeProjects = Object.keys(database.projects).length;
+}
+
+function ensureSystemUsers(database: DatabaseState) {
+  for (const seededUser of appUsers) {
+    const existingUser = database.users.find(
+      (user) => user.email.toLowerCase() === seededUser.email.toLowerCase(),
+    );
+
+    if (!existingUser) {
+      database.users.unshift(clone(seededUser));
+      continue;
+    }
+
+    if (seededUser.email.toLowerCase() === "admin@bnaa.com") {
+      existingUser.name = seededUser.name;
+      existingUser.password = seededUser.password;
+      existingUser.role = "Super Admin";
+      existingUser.initials = seededUser.initials;
+      existingUser.projectIds = ["*"];
+    }
+  }
+
+  syncTenantStats(database);
 }
 
 function getProjectRecord(database: DatabaseState, projectId: string) {
@@ -538,6 +576,7 @@ export function isApiError(error: unknown): error is ApiError {
 
 export async function authenticateUser(email: string, password: string) {
   return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
     const user =
       database.users.find(
         (item) =>
@@ -574,6 +613,7 @@ export async function getAuthenticatedSession(token: string | null) {
   }
 
   return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
     const user = getUserForSession(database, token);
     if (!user) {
       return null;
@@ -599,6 +639,7 @@ export async function clearAuthenticatedSession(token: string | null) {
 
 export async function getWorkspacePayload(token: string): Promise<WorkspacePayload> {
   const database = await readDatabase();
+  ensureSystemUsers(database);
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
 
@@ -611,6 +652,7 @@ export async function getWorkspacePayload(token: string): Promise<WorkspacePaylo
 
 export async function getDashboardPayload(token: string, projectId: string) {
   const database = await readDatabase();
+  ensureSystemUsers(database);
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
   return buildDashboardData(database, user, projectId);
@@ -618,6 +660,7 @@ export async function getDashboardPayload(token: string, projectId: string) {
 
 export async function getProjectsPayload(token: string): Promise<ProjectsPageData> {
   const database = await readDatabase();
+  ensureSystemUsers(database);
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
 
@@ -632,6 +675,7 @@ export async function getProjectsPayload(token: string): Promise<ProjectsPageDat
 
 export async function getNotificationsPayload(token: string): Promise<NotificationsPageData> {
   const database = await readDatabase();
+  ensureSystemUsers(database);
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
   ensurePermission(user, "notifications.view");
@@ -644,6 +688,7 @@ export async function getNotificationsPayload(token: string): Promise<Notificati
 
 export async function getAdminPayload(token: string): Promise<AdminPageData> {
   const database = await readDatabase();
+  ensureSystemUsers(database);
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
   ensurePermission(user, "admin.view");
@@ -652,11 +697,72 @@ export async function getAdminPayload(token: string): Promise<AdminPageData> {
     teamMembers: clone(database.teamMembers),
     roleMatrix: clone(database.roleMatrix),
     auditTrail: clone(database.auditTrail),
+    users: clone(database.users.map((entry) => sanitizeUser(entry))),
+    availableProjects: Object.values(database.projects).map((project) => clone(project.summary)),
+    tenant: clone(database.tenant),
   };
+}
+
+export async function createAdminUser(
+  token: string,
+  payload: {
+    name: string;
+    email: string;
+    password: string;
+    role: AppUser["role"];
+    projectIds: string[];
+  },
+) {
+  return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
+    const actor = getUserForSession(database, token);
+    assert(actor, 401, "Session invalide ou expiree.");
+    ensurePermission(actor, "admin.manage");
+
+    const name = payload.name.trim();
+    const email = payload.email.trim().toLowerCase();
+    const password = payload.password.trim();
+    const role = payload.role;
+    const projectIds =
+      role === "Super Admin" ? ["*"] : payload.projectIds.filter(Boolean);
+
+    assert(name.length >= 3, 400, "Nom utilisateur trop court.");
+    assert(email.includes("@"), 400, "Email invalide.");
+    assert(password.length >= 6, 400, "Mot de passe trop court.");
+    assert(!database.users.some((user) => user.email.toLowerCase() === email), 409, "Cet email existe deja.");
+    assert(role, 400, "Role requis.");
+    assert(projectIds.length > 0, 400, "Choisissez au moins un projet pour cet utilisateur.");
+
+    const nextUser: AppUser = {
+      id: `USR-${randomUUID().slice(0, 8)}`,
+      name,
+      email,
+      password,
+      role,
+      initials: buildInitials(name),
+      projectIds,
+    };
+
+    database.users.push(nextUser);
+    syncTenantStats(database);
+    appendAudit(
+      database,
+      actor.name,
+      "a cree un nouvel utilisateur",
+      `${nextUser.name} - ${nextUser.role} - ${projectIds.includes("*") ? "Tous projets" : projectIds.join(", ")}`,
+    );
+
+    return {
+      users: clone(database.users.map((entry) => sanitizeUser(entry))),
+      auditTrail: clone(database.auditTrail),
+      tenant: clone(database.tenant),
+    };
+  });
 }
 
 export async function getSitePayload(token: string, projectId: string) {
   const database = await readDatabase();
+  ensureSystemUsers(database);
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
   ensurePermission(user, "site.view");
@@ -671,6 +777,7 @@ export async function mutateSitePayload(
   payload: Record<string, unknown>,
 ) {
   return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
     const user = getUserForSession(database, token);
     assert(user, 401, "Session invalide ou expiree.");
     ensurePermission(user, "site.view");
@@ -840,6 +947,7 @@ export async function mutateSitePayload(
 
 export async function getDocumentsPayload(token: string, projectId: string) {
   const database = await readDatabase();
+  ensureSystemUsers(database);
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
   ensurePermission(user, "documents.view");
@@ -854,6 +962,7 @@ export async function mutateDocumentsPayload(
   payload: Record<string, unknown>,
 ) {
   return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
     const user = getUserForSession(database, token);
     assert(user, 401, "Session invalide ou expiree.");
     ensurePermission(user, "documents.view");
@@ -960,6 +1069,7 @@ export async function mutateDocumentsPayload(
 
 export async function getFinancePayload(token: string, projectId: string) {
   const database = await readDatabase();
+  ensureSystemUsers(database);
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
   ensurePermission(user, "finance.view");
@@ -974,6 +1084,7 @@ export async function mutateFinancePayload(
   payload: Record<string, unknown>,
 ) {
   return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
     const user = getUserForSession(database, token);
     assert(user, 401, "Session invalide ou expiree.");
     ensurePermission(user, "finance.view");

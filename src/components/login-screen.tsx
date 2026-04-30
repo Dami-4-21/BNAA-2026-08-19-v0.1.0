@@ -14,7 +14,7 @@ export function LoginScreen() {
   const searchParams = useSearchParams();
   const { homePath, isAuthenticated, isReady, signIn } = useAuth();
   const [email, setEmail] = useState(appUsers[0]?.email ?? "");
-  const [password, setPassword] = useState("bnaasaas2026");
+  const [password, setPassword] = useState(appUsers[0]?.password ?? "");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -103,8 +103,30 @@ export function LoginScreen() {
                     Comptes disponibles sur cet environnement
                   </p>
                   <p className="text-sm text-stone-600">
-                    Mot de passe commun: <span className="font-semibold">bnaasaas2026</span>
+                    Inclut un acces administrateur complet pour piloter tous les utilisateurs.
                   </p>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-[20px] border border-black/10 bg-black px-4 py-4 text-white">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Acces administrateur</p>
+                    <p className="mt-1 text-sm text-white/70">
+                      Compte dedie pour la gestion globale du SaaS.
+                    </p>
+                  </div>
+                  <StatusBadge tone="neutral">Super Admin</StatusBadge>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-white/50">Email</p>
+                    <p className="mt-1 text-sm font-semibold">admin@bnaa.com</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-white/50">Mot de passe</p>
+                    <p className="mt-1 text-sm font-semibold">admin123</p>
+                  </div>
                 </div>
               </div>
 

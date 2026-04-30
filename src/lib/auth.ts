@@ -74,6 +74,15 @@ const basePermissions: AppPermission[] = [
 
 export const appUsers: AppUser[] = [
   {
+    id: "USR-000",
+    name: "Admin BNAA",
+    email: "admin@bnaa.com",
+    password: "admin123",
+    role: "Super Admin",
+    initials: "AD",
+    projectIds: ["*"],
+  },
+  {
     id: "USR-001",
     name: "Sara Ben Salah",
     email: "sara@bnaasaas.tn",
@@ -244,6 +253,8 @@ export function canAccessProject(
 
 export function getHomePathForRole(role: UserRole) {
   switch (role) {
+    case "Super Admin":
+      return "/admin";
     case "Comptable":
       return "/finance";
     case "Conductrice travaux":

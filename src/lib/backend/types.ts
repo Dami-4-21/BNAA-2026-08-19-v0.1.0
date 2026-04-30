@@ -128,4 +128,7 @@ export type AdminPageData = {
   teamMembers: TeamMember[];
   roleMatrix: RoleMatrixItem[];
   auditTrail: AuditTrailItem[];
+  users: SafeUser[];
+  availableProjects: WorkspaceProject[];
+  tenant: TenantRecord;
 };
