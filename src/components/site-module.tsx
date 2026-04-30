@@ -1,0 +1,1371 @@
+"use client";
+
+import {
+  startTransition,
+  useDeferredValue,
+  useMemo,
+  useState,
+} from "react";
+import {
+  Camera,
+  CheckCheck,
+  ClipboardCheck,
+  CloudSun,
+  FileOutput,
+  MapPin,
+  Radio,
+  Search,
+  ShieldAlert,
+  Signature,
+  TimerReset,
+  Waves,
+} from "lucide-react";
+
+import {
+  MetricCard,
+  Panel,
+  ProgressBar,
+  SectionHeading,
+  StatusBadge,
+  type Tone,
+  cx,
+} from "@/components/ui";
+import { formatDate } from "@/lib/format";
+import {
+  getSiteModuleData,
+} from "@/lib/mock-data";
+import { useWorkspace } from "@/components/workspace-context";
+
+type TabKey = "overview" | "rjc" | "photos" | "ncr";
+type ActiveTone = "primary" | "success" | "warning" | "danger";
+
+type ReportItem = {
+  id: string;
+  date: string;
+  weather: string;
+  workforce: number;
+  progress: number;
+  author: string;
+  status: string;
+  tone: Tone;
+  summary: string;
+  completeness: number;
+  pdfReady: boolean;
+  signedByCt: boolean;
+  signedByMoe: boolean;
+};
+
+type PhotoItem = {
+  id: string;
+  title: string;
+  zone: string;
+  lot: string;
+  task: string;
+  time: string;
+  timestamp: string;
+  geo: string;
+  author: string;
+  accent: string;
+};
+
+type SignatureItem = {
+  role: string;
+  state: string;
+  note: string;
+  tone: Tone;
+};
+
+type NcrItem = {
+  ref: string;
+  title: string;
+  owner: string;
+  dueDate: string;
+  severity: string;
+  status: string;
+  tone: Tone;
+  photoAttached: boolean;
+  description: string;
+};
+
+type FormState = {
+  reportDate: string;
+  weather: string;
+  workforceCount: number;
+  activities: string;
+  incidents: string;
+  note: string;
+  progressByLot: Array<{
+    lot: string;
+    task: string;
+    progress: number;
+    tone: ActiveTone;
+  }>;
+};
+
+type WorkspaceProject = ReturnType<typeof useWorkspace>["activeProject"];
+
+const tabs: Array<{ key: TabKey; label: string; helper: string }> = [
+  {
+    key: "overview",
+    label: "Temps reel",
+    helper: "KPIs, meteo, derive et signatures",
+  },
+  {
+    key: "rjc",
+    label: "Rapport journalier",
+    helper: "Creation, progression, PDF et signature",
+  },
+  {
+    key: "photos",
+    label: "Journal photo",
+    helper: "Galerie geo, lots et zones",
+  },
+  {
+    key: "ncr",
+    label: "Non-conformites",
+    helper: "Creation, assignation et cloture",
+  },
+];
+
+const kpiIcons = [ClipboardCheck, ShieldAlert, TimerReset, Radio];
+
+const toneBySeverity: Record<string, "primary" | "warning" | "danger"> = {
+  Critique: "danger",
+  Majeure: "warning",
+  Mineure: "primary",
+};
+
+const toneByStatus: Record<string, Tone> = {
+  "En cours": "danger",
+  Planifiee: "warning",
+  Validation: "primary",
+  Levee: "success",
+};
+
+function percentComplete({
+  workforceCount,
+  activities,
+  incidents,
+}: {
+  workforceCount: number;
+  activities: string;
+  incidents: string;
+}) {
+  let score = 40;
+  if (workforceCount > 0) score += 20;
+  if (activities.trim().length > 20) score += 25;
+  if (incidents.trim().length > 5) score += 15;
+  return Math.min(score, 100);
+}
+
+function createFormState(projectData: ReturnType<typeof getSiteModuleData>): FormState {
+  return {
+    reportDate: projectData.reportDraft.reportDate,
+    weather: projectData.reportDraft.weather,
+    workforceCount: projectData.reportDraft.workforce,
+    activities: projectData.reportDraft.completedLots.join("\n"),
+    incidents: projectData.reportDraft.blockers,
+    note: projectData.reportDraft.note,
+    progressByLot: projectData.lotProgress.map((item) => ({
+      lot: item.lot,
+      task: item.task,
+      progress: item.progress,
+      tone: item.tone,
+    })),
+  };
+}
+
+export function SiteModule() {
+  const { activeProject } = useWorkspace();
+  const projectData = useMemo(
+    () => getSiteModuleData(activeProject.id),
+    [activeProject.id],
+  );
+
+  return (
+    <SiteModuleContent
+      key={activeProject.id}
+      activeProject={activeProject}
+      projectData={projectData}
+    />
+  );
+}
+
+function SiteModuleContent({
+  activeProject,
+  projectData,
+}: {
+  activeProject: WorkspaceProject;
+  projectData: ReturnType<typeof getSiteModuleData>;
+}) {
+  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [searchPhotos, setSearchPhotos] = useState("");
+  const [photoLotFilter, setPhotoLotFilter] = useState("Tous");
+  const [reports, setReports] = useState<ReportItem[]>(projectData.reports);
+  const [photos, setPhotos] = useState<PhotoItem[]>(projectData.photoLibrary);
+  const [ncrs, setNcrs] = useState<NcrItem[]>(projectData.ncrs);
+  const [formState, setFormState] = useState<FormState>(() =>
+    createFormState(projectData),
+  );
+  const [draftPhoto, setDraftPhoto] = useState(projectData.draftPhoto);
+  const [draftNcr, setDraftNcr] = useState(projectData.draftNcr);
+
+  const deferredSearch = useDeferredValue(searchPhotos);
+
+  const reportCompleteness = percentComplete({
+    workforceCount: formState.workforceCount,
+    activities: formState.activities,
+    incidents: formState.incidents,
+  });
+
+  const filteredPhotos = useMemo(() => {
+    return photos.filter((photo) => {
+      const matchesLot = photoLotFilter === "Tous" || photo.lot === photoLotFilter;
+      const needle = deferredSearch.trim().toLowerCase();
+      const matchesSearch =
+        !needle ||
+        photo.title.toLowerCase().includes(needle) ||
+        photo.zone.toLowerCase().includes(needle) ||
+        photo.task.toLowerCase().includes(needle);
+
+      return matchesLot && matchesSearch;
+    });
+  }, [deferredSearch, photoLotFilter, photos]);
+
+  const openNcrCount = ncrs.filter((ncr) => ncr.status !== "Levee").length;
+
+  const latestReport = reports[0];
+
+  function submitDailyReport() {
+    const newReport: ReportItem = {
+      id: `RJC-${Date.now()}`,
+      date: "2026-04-30",
+      weather: formState.weather,
+      workforce: formState.workforceCount,
+      progress:
+        Math.round(
+          formState.progressByLot.reduce((total, item) => total + item.progress, 0) /
+            formState.progressByLot.length,
+        ) || 0,
+      author: "Nour Baccar",
+      status: reportCompleteness >= 95 ? "Soumis" : "A completer",
+      tone: reportCompleteness >= 95 ? "primary" : "warning",
+      summary: formState.activities.split("\n")[0] || "Rapport terrain soumis",
+      completeness: reportCompleteness,
+      pdfReady: false,
+      signedByCt: true,
+      signedByMoe: false,
+    };
+
+    startTransition(() => {
+      setReports((current) => [newReport, ...current]);
+      setActiveTab("overview");
+    });
+  }
+
+  function markPdfReady(reportId: string) {
+    startTransition(() => {
+      setReports((current) =>
+        current.map((report) =>
+          report.id === reportId
+            ? { ...report, pdfReady: true, status: "Pret PDF", tone: "primary" }
+            : report,
+        ),
+      );
+    });
+  }
+
+  function signAsMoe(reportId: string) {
+    startTransition(() => {
+      setReports((current) =>
+        current.map((report) =>
+          report.id === reportId
+            ? {
+                ...report,
+                signedByMoe: true,
+                pdfReady: true,
+                status: "Signe",
+                tone: "success",
+              }
+            : report,
+        ),
+      );
+    });
+  }
+
+  function addPhoto() {
+    const newPhoto: PhotoItem = {
+      id: `PH-${Date.now()}`,
+      title: draftPhoto.title,
+      zone: draftPhoto.zone,
+      lot: draftPhoto.lot,
+      task: draftPhoto.task,
+      time: "16:24",
+      timestamp: "2026-04-30T16:24:00",
+      geo: draftPhoto.geo,
+      author: "Nour Baccar",
+      accent: "from-sky-500/55 to-violet-300/18",
+    };
+
+    startTransition(() => {
+      setPhotos((current) => [newPhoto, ...current]);
+      setActiveTab("photos");
+    });
+  }
+
+  function createNcr() {
+    const newNcr: NcrItem = {
+      ref: `NC-${String(22 + ncrs.length).padStart(3, "0")}`,
+      title: draftNcr.title,
+      owner: draftNcr.owner,
+      dueDate: draftNcr.dueDate,
+      severity: draftNcr.severity,
+      status: "En cours",
+      tone: toneBySeverity[draftNcr.severity] ?? "warning",
+      photoAttached: draftNcr.photoAttached,
+      description: draftNcr.description,
+    };
+
+    startTransition(() => {
+      setNcrs((current) => [newNcr, ...current]);
+      setActiveTab("ncr");
+    });
+  }
+
+  function closeNcr(ref: string) {
+    startTransition(() => {
+      setNcrs((current) =>
+        current.map((item) =>
+          item.ref === ref
+            ? { ...item, status: "Levee", tone: "success" as const }
+            : item,
+        ),
+      );
+    });
+  }
+
+  return (
+    <div className="space-y-6">
+      <SectionHeading
+        eyebrow="Module 5 - Suivi de chantier"
+        title="Oui, il est dans le MVP, et je viens de le pousser vers une vraie version produit"
+        description="La premiere iteration etait surtout visuelle. Cette version couvre maintenant le coeur du module : RJC mobile-first, progression par lot, journal photo geolocalise, non-conformites, signatures et tableau de bord chantier temps reel."
+        action={
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge tone="success">Module 5 in progress - concret</StatusBadge>
+            <button
+              onClick={() => setActiveTab("rjc")}
+              className="rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
+            >
+              Nouveau rapport
+            </button>
+          </div>
+        }
+      />
+
+      <div className="grid gap-4 xl:grid-cols-4">
+        {projectData.overview.kpis.map((item, index) => (
+          <MetricCard
+            key={item.label}
+            label={item.label}
+            value={item.value}
+            helper={item.helper}
+            tone={item.tone}
+            icon={kpiIcons[index]}
+          />
+        ))}
+      </div>
+
+      <Panel className="overflow-hidden">
+        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={cx(
+                    "rounded-[20px] border px-4 py-3 text-left",
+                    activeTab === tab.key
+                      ? "border-sky-400/25 bg-sky-400/12 text-white"
+                      : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
+                  )}
+                >
+                  <div className="text-sm font-semibold">{tab.label}</div>
+                  <div className="mt-1 text-xs text-slate-400">{tab.helper}</div>
+                </button>
+              ))}
+            </div>
+
+            <div className="rounded-[28px] border border-white/8 bg-white/4 p-5">
+              {activeTab === "overview" ? (
+                <OverviewTab
+                  latestReport={latestReport}
+                  reports={reports}
+                  ncrs={ncrs}
+                  signatures={projectData.signatureQueue}
+                />
+              ) : null}
+
+              {activeTab === "rjc" ? (
+                <RjcTab
+                  formState={formState}
+                  setFormState={setFormState}
+                  reportCompleteness={reportCompleteness}
+                  incidentTemplates={projectData.incidentTemplates}
+                  submitDailyReport={submitDailyReport}
+                />
+              ) : null}
+
+              {activeTab === "photos" ? (
+                <PhotosTab
+                  draftPhoto={draftPhoto}
+                  setDraftPhoto={setDraftPhoto}
+                  photos={filteredPhotos}
+                  searchPhotos={searchPhotos}
+                  setSearchPhotos={setSearchPhotos}
+                  photoLotFilter={photoLotFilter}
+                  setPhotoLotFilter={setPhotoLotFilter}
+                  availableLots={[
+                    "Tous",
+                    ...new Set(projectData.photoLibrary.map((photo) => photo.lot)),
+                  ]}
+                  addPhoto={addPhoto}
+                />
+              ) : null}
+
+              {activeTab === "ncr" ? (
+                <NcrTab
+                  draftNcr={draftNcr}
+                  setDraftNcr={setDraftNcr}
+                  ncrs={ncrs}
+                  createNcr={createNcr}
+                  closeNcr={closeNcr}
+                />
+              ) : null}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <Panel
+              title="Meteo chantier"
+              description="Point live injecte dans le dashboard terrain."
+            >
+              <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <CloudSun className="size-5 text-sky-200" />
+                      <p className="font-display text-3xl font-semibold text-white">
+                        {projectData.overview.weather.temperature}
+                      </p>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-300">
+                      {projectData.overview.weather.label}
+                    </p>
+                  </div>
+                  <StatusBadge tone="primary">Live</StatusBadge>
+                </div>
+                <div className="mt-5 grid gap-3 sm:grid-cols-3 xl:grid-cols-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                      Vent
+                    </p>
+                    <p className="mt-1 text-sm text-white">
+                      {projectData.overview.weather.wind}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                      Risque pluie
+                    </p>
+                    <p className="mt-1 text-sm text-white">
+                      {projectData.overview.weather.rainRisk}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                      Source
+                    </p>
+                    <p className="mt-1 text-sm text-white">API TN</p>
+                  </div>
+                </div>
+                <p className="mt-4 text-xs text-slate-500">
+                  {projectData.overview.weather.source}
+                </p>
+              </div>
+            </Panel>
+
+            <Panel
+              title="Avancement par lot"
+              description="Lecture rapide des glissements et de l'etat reel par corps d'etat."
+            >
+              <div className="space-y-4">
+                {formState.progressByLot.map((item, index) => {
+                  const planned = projectData.lotProgress[index]?.planned ?? item.progress;
+                  const delta = item.progress - planned;
+                  const deltaTone: Tone =
+                    delta >= 0 ? "success" : Math.abs(delta) >= 5 ? "danger" : "warning";
+
+                  return (
+                    <div
+                      key={item.lot}
+                      className="rounded-[22px] border border-white/8 bg-white/4 p-4"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{item.lot}</p>
+                          <p className="mt-1 text-sm text-slate-300">{item.task}</p>
+                        </div>
+                        <StatusBadge tone={deltaTone}>
+                          {delta >= 0 ? `+${delta}` : delta} pts vs prevu
+                        </StatusBadge>
+                      </div>
+                      <div className="mt-4">
+                        <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-slate-500">
+                          <span>Reel</span>
+                          <span>{item.progress}%</span>
+                        </div>
+                        <ProgressBar value={item.progress} tone={item.tone} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Panel>
+
+            <Panel
+              title="Actions critiques"
+              description="Les automatismes du module doivent surtout guider l'utilisateur vers l'action suivante."
+            >
+              <div className="space-y-3">
+                {[
+                  "Le MOE doit signer le RJC du jour pour declencher l'archivage PDF.",
+                  `${openNcrCount} non-conformites restent ouvertes sur ${activeProject.name}.`,
+                  `${activeProject.nextMilestone} reste le prochain jalon a securiser.`,
+                ].map((item) => (
+                  <div
+                    key={item}
+                    className="rounded-[20px] border border-white/8 bg-white/4 px-4 py-3 text-sm leading-6 text-slate-200"
+                  >
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          </div>
+        </div>
+      </Panel>
+
+      <div className="grid gap-6 2xl:grid-cols-[1.15fr_0.85fr]">
+        <Panel
+          title="Historique RJC"
+          description="Les derniers rapports restent visibles en permanence avec leur niveau de completude, leur statut de signature et l'etat PDF."
+        >
+          <div className="space-y-3">
+            {reports.map((report) => (
+              <div
+                key={report.id}
+                className="rounded-[24px] border border-white/8 bg-white/4 p-4"
+              >
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-display text-xl font-semibold text-white">
+                        {report.id}
+                      </p>
+                      <StatusBadge tone={report.tone}>{report.status}</StatusBadge>
+                      {report.pdfReady ? (
+                        <StatusBadge tone="success">PDF pret</StatusBadge>
+                      ) : (
+                        <StatusBadge tone="warning">PDF attente</StatusBadge>
+                      )}
+                    </div>
+                    <p className="mt-2 text-sm text-slate-300">
+                      {formatDate(report.date)} - {report.summary}
+                    </p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <InfoStat label="Meteo" value={report.weather} />
+                      <InfoStat label="Effectif" value={`${report.workforce} ouvriers`} />
+                      <InfoStat label="Auteur" value={report.author} />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 lg:items-end">
+                    <div className="flex flex-wrap gap-2">
+                      {report.signedByCt ? (
+                        <StatusBadge tone="success">CT signe</StatusBadge>
+                      ) : (
+                        <StatusBadge tone="warning">CT attente</StatusBadge>
+                      )}
+                      {report.signedByMoe ? (
+                        <StatusBadge tone="success">MOE signe</StatusBadge>
+                      ) : (
+                        <StatusBadge tone="warning">MOE attente</StatusBadge>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {!report.pdfReady ? (
+                        <button
+                          onClick={() => markPdfReady(report.id)}
+                          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+                        >
+                          Generer PDF
+                        </button>
+                      ) : null}
+                      {!report.signedByMoe ? (
+                        <button
+                          onClick={() => signAsMoe(report.id)}
+                          className="rounded-2xl bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+                        >
+                          Signer cote MOE
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-slate-500">
+                    <span>Completude</span>
+                    <span>{report.completeness}%</span>
+                  </div>
+                  <ProgressBar
+                    value={report.completeness}
+                    tone={report.completeness >= 95 ? "success" : "warning"}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel
+          title="Mapping avec le cahier des charges"
+          description="Je te montre explicitement ce qui est deja couvert dans cette iteration du module 5."
+        >
+          <div className="space-y-3">
+            {[
+              "RJC mobile-first: oui, avec effectif, meteo, activites, incidents, progression lot par lot.",
+              "Generation PDF: oui, simulee dans l'interface avec etat de preparation.",
+              "Signature conducteur + maitre d'oeuvre: oui, statuts et actions prevus dans l'historique.",
+              "Journal photo geolocalise: oui, avec lot, zone, tache et coordonnees.",
+              "Fiches de non-conformite: oui, creation, assignation, echeance et cloture.",
+              "Dashboard chantier temps reel: oui, KPIs, derive planning, meteo et actions critiques.",
+            ].map((item) => (
+              <div
+                key={item}
+                className="rounded-[20px] border border-white/8 bg-white/4 px-4 py-3 text-sm leading-6 text-slate-200"
+              >
+                {item}
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function OverviewTab({
+  latestReport,
+  reports,
+  ncrs,
+  signatures,
+}: {
+  latestReport: ReportItem | undefined;
+  reports: ReportItem[];
+  ncrs: NcrItem[];
+  signatures: SignatureItem[];
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            Dernier RJC
+          </p>
+          {latestReport ? (
+            <>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <p className="font-display text-2xl font-semibold text-white">
+                  {latestReport.id}
+                </p>
+                <StatusBadge tone={latestReport.tone}>{latestReport.status}</StatusBadge>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                {latestReport.summary}
+              </p>
+              <div className="mt-4">
+                <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-slate-500">
+                  <span>Completude</span>
+                  <span>{latestReport.completeness}%</span>
+                </div>
+                <ProgressBar
+                  value={latestReport.completeness}
+                  tone={latestReport.completeness >= 95 ? "success" : "warning"}
+                />
+              </div>
+            </>
+          ) : null}
+        </div>
+
+        <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            Signatures & archivage
+          </p>
+          <div className="mt-4 space-y-3">
+            {signatures.map((item) => (
+              <div
+                key={item.role}
+                className="rounded-[20px] border border-white/8 bg-white/4 px-4 py-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-white">{item.role}</p>
+                  <StatusBadge tone={item.tone}>{item.state}</StatusBadge>
+                </div>
+                <p className="mt-2 text-sm text-slate-300">{item.note}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            Derive & alertes
+          </p>
+          <div className="mt-4 space-y-3">
+            {[
+              {
+                label: "Lot structure",
+                detail: "Glissement cumule +2 jours sur la sequence coffrage.",
+                tone: "warning" as const,
+              },
+              {
+                label: "Lot CVC",
+                detail: "Validation detail acrotere bloque la suite des gaines.",
+                tone: "danger" as const,
+              },
+              {
+                label: "RJC du jour",
+                detail: `${reports.length} rapports disponibles et archives dans le projet.`,
+                tone: "primary" as const,
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="rounded-[20px] border border-white/8 bg-white/4 px-4 py-3"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-white">{item.label}</p>
+                  <StatusBadge tone={item.tone}>Actif</StatusBadge>
+                </div>
+                <p className="mt-2 text-sm text-slate-300">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
+          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            FNC a suivre
+          </p>
+          <div className="mt-4 space-y-3">
+            {ncrs.slice(0, 3).map((item) => (
+              <div
+                key={item.ref}
+                className="rounded-[20px] border border-white/8 bg-white/4 px-4 py-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-white">{item.ref}</p>
+                  <StatusBadge tone={item.tone}>{item.status}</StatusBadge>
+                </div>
+                <p className="mt-2 text-sm text-slate-300">{item.title}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RjcTab({
+  formState,
+  setFormState,
+  reportCompleteness,
+  incidentTemplates,
+  submitDailyReport,
+}: {
+  formState: FormState;
+  setFormState: React.Dispatch<React.SetStateAction<FormState>>;
+  reportCompleteness: number;
+  incidentTemplates: string[];
+  submitDailyReport: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+              <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Date rapport
+              </span>
+              <input
+                value={formState.reportDate}
+                onChange={(event) =>
+                  setFormState((current) => ({
+                    ...current,
+                    reportDate: event.target.value,
+                  }))
+                }
+                className="mt-3 w-full bg-transparent text-lg font-semibold text-white outline-none"
+              />
+            </label>
+            <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+              <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Effectif present
+              </span>
+              <input
+                type="number"
+                value={formState.workforceCount}
+                onChange={(event) =>
+                  setFormState((current) => ({
+                    ...current,
+                    workforceCount: Number(event.target.value),
+                  }))
+                }
+                className="mt-3 w-full bg-transparent text-lg font-semibold text-white outline-none"
+              />
+            </label>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {["Ensoleille", "Nuageux", "Pluie", "Vent fort"].map((weather) => (
+              <button
+                key={weather}
+                onClick={() =>
+                  setFormState((current) => ({
+                    ...current,
+                    weather,
+                  }))
+                }
+                className={cx(
+                  "rounded-full border px-4 py-2 text-sm font-semibold",
+                  weather === formState.weather
+                    ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
+                    : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
+                )}
+              >
+                {weather}
+              </button>
+            ))}
+          </div>
+
+          <label className="block rounded-[24px] border border-white/8 bg-white/4 p-4">
+            <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              Activites realisees
+            </span>
+            <textarea
+              value={formState.activities}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  activities: event.target.value,
+                }))
+              }
+              className="mt-3 min-h-32 w-full resize-none bg-transparent text-base leading-7 text-white outline-none"
+            />
+          </label>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+              <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Incidents / blocages
+              </span>
+              <textarea
+                value={formState.incidents}
+                onChange={(event) =>
+                  setFormState((current) => ({
+                    ...current,
+                    incidents: event.target.value,
+                  }))
+                }
+                className="mt-3 min-h-28 w-full resize-none bg-transparent text-sm leading-6 text-white outline-none"
+              />
+              <div className="mt-3 flex flex-wrap gap-2">
+                {incidentTemplates.map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() =>
+                      setFormState((current) => ({
+                        ...current,
+                        incidents: current.incidents.includes(tag)
+                          ? current.incidents
+                          : `${current.incidents}\n- ${tag}`.trim(),
+                      }))
+                    }
+                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 hover:bg-white/8"
+                  >
+                    + {tag}
+                  </button>
+                ))}
+              </div>
+            </label>
+
+            <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+              <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Note chef de projet
+              </span>
+              <textarea
+                value={formState.note}
+                onChange={(event) =>
+                  setFormState((current) => ({
+                    ...current,
+                    note: event.target.value,
+                  }))
+                }
+                className="mt-3 min-h-28 w-full resize-none bg-transparent text-sm leading-6 text-white outline-none"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-white">Completude du RJC</p>
+              <StatusBadge tone={reportCompleteness >= 95 ? "success" : "warning"}>
+                {reportCompleteness}%
+              </StatusBadge>
+            </div>
+            <div className="mt-4">
+              <ProgressBar
+                value={reportCompleteness}
+                tone={reportCompleteness >= 95 ? "success" : "warning"}
+              />
+            </div>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              L&apos;objectif produit est de faire remplir ce rapport en moins de 5 minutes sur
+              mobile tout en gardant une trace exploitable.
+            </p>
+          </div>
+
+          <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+            <div className="flex items-center gap-2">
+              <Waves className="size-4 text-slate-400" />
+              <p className="text-sm font-semibold text-white">Progression par lot / tache</p>
+            </div>
+            <div className="mt-4 space-y-4">
+              {formState.progressByLot.map((item, index) => (
+                <div key={item.lot}>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm text-white">{item.lot}</p>
+                      <p className="text-xs text-slate-500">{item.task}</p>
+                    </div>
+                    <span className="text-sm text-slate-300">{item.progress}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={item.progress}
+                    onChange={(event) =>
+                      setFormState((current) => ({
+                        ...current,
+                        progressByLot: current.progressByLot.map((entry, entryIndex) =>
+                          entryIndex === index
+                            ? { ...entry, progress: Number(event.target.value) }
+                            : entry,
+                        ),
+                      }))
+                    }
+                    className="w-full accent-sky-400"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <ActionButton icon={Camera} label="Photos" />
+            <ActionButton icon={Signature} label="Signer CT" />
+            <ActionButton icon={FileOutput} label="Preparer PDF" />
+          </div>
+
+          <button
+            onClick={submitDailyReport}
+            className="flex w-full items-center justify-center gap-2 rounded-[22px] bg-sky-400 px-4 py-4 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+          >
+            <CheckCheck className="size-4" />
+            Soumettre le RJC du jour
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PhotosTab({
+  draftPhoto,
+  setDraftPhoto,
+  photos,
+  searchPhotos,
+  setSearchPhotos,
+  photoLotFilter,
+  setPhotoLotFilter,
+  availableLots,
+  addPhoto,
+}: {
+  draftPhoto: {
+    title: string;
+    zone: string;
+    lot: string;
+    task: string;
+    geo: string;
+  };
+  setDraftPhoto: React.Dispatch<
+    React.SetStateAction<{
+      title: string;
+      zone: string;
+      lot: string;
+      task: string;
+      geo: string;
+    }>
+  >;
+  photos: PhotoItem[];
+  searchPhotos: string;
+  setSearchPhotos: React.Dispatch<React.SetStateAction<string>>;
+  photoLotFilter: string;
+  setPhotoLotFilter: React.Dispatch<React.SetStateAction<string>>;
+  availableLots: string[];
+  addPhoto: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Titre photo"
+              value={draftPhoto.title}
+              onChange={(value) =>
+                setDraftPhoto((current) => ({ ...current, title: value }))
+              }
+            />
+            <Field
+              label="Zone"
+              value={draftPhoto.zone}
+              onChange={(value) =>
+                setDraftPhoto((current) => ({ ...current, zone: value }))
+              }
+            />
+            <Field
+              label="Lot"
+              value={draftPhoto.lot}
+              onChange={(value) =>
+                setDraftPhoto((current) => ({ ...current, lot: value }))
+              }
+            />
+            <Field
+              label="Tache associee"
+              value={draftPhoto.task}
+              onChange={(value) =>
+                setDraftPhoto((current) => ({ ...current, task: value }))
+              }
+            />
+          </div>
+          <Field
+            label="Coordonnees geo"
+            value={draftPhoto.geo}
+            onChange={(value) =>
+              setDraftPhoto((current) => ({ ...current, geo: value }))
+            }
+          />
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ActionButton icon={MapPin} label="Capturer GPS" />
+            <button
+              onClick={addPhoto}
+              className="flex items-center justify-center gap-2 rounded-[22px] bg-sky-400 px-4 py-4 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+            >
+              <Camera className="size-4" />
+              Ajouter au journal photo
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <label className="flex items-center gap-3 rounded-[22px] border border-white/8 bg-white/4 px-4 py-3 text-sm text-slate-300">
+            <Search className="size-4 text-slate-400" />
+            <input
+              value={searchPhotos}
+              onChange={(event) => setSearchPhotos(event.target.value)}
+              className="w-full bg-transparent text-white outline-none placeholder:text-slate-500"
+              placeholder="Chercher par titre, zone ou tache..."
+            />
+          </label>
+
+          <div className="flex flex-wrap gap-2">
+            {availableLots.map((lot) => (
+              <button
+                key={lot}
+                onClick={() => setPhotoLotFilter(lot)}
+                className={cx(
+                  "rounded-full border px-4 py-2 text-sm font-semibold",
+                  photoLotFilter === lot
+                    ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
+                    : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
+                )}
+              >
+                {lot}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {photos.map((photo) => (
+          <div
+            key={photo.id}
+            className={`rounded-[24px] border border-white/8 bg-gradient-to-br ${photo.accent} p-[1px]`}
+          >
+            <div className="h-full rounded-[23px] bg-[#08111f]/90 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <StatusBadge tone="primary">{photo.lot}</StatusBadge>
+                <span className="font-mono text-xs text-slate-400">{photo.time}</span>
+              </div>
+              <div className="mt-16">
+                <p className="text-sm font-semibold text-white">{photo.title}</p>
+                <p className="mt-1 text-sm text-slate-300">
+                  {photo.zone} - {photo.task}
+                </p>
+              </div>
+              <div className="mt-4 space-y-2 text-xs text-slate-400">
+                <div className="flex items-center gap-2">
+                  <MapPin className="size-3" />
+                  {photo.geo}
+                </div>
+                <div>{photo.author}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NcrTab({
+  draftNcr,
+  setDraftNcr,
+  ncrs,
+  createNcr,
+  closeNcr,
+}: {
+  draftNcr: {
+    title: string;
+    owner: string;
+    dueDate: string;
+    severity: string;
+    description: string;
+    photoAttached: boolean;
+  };
+  setDraftNcr: React.Dispatch<
+    React.SetStateAction<{
+      title: string;
+      owner: string;
+      dueDate: string;
+      severity: string;
+      description: string;
+      photoAttached: boolean;
+    }>
+  >;
+  ncrs: NcrItem[];
+  createNcr: () => void;
+  closeNcr: (ref: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <div className="space-y-4">
+          <Field
+            label="Titre de la non-conformite"
+            value={draftNcr.title}
+            onChange={(value) =>
+              setDraftNcr((current) => ({ ...current, title: value }))
+            }
+          />
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Responsable"
+              value={draftNcr.owner}
+              onChange={(value) =>
+                setDraftNcr((current) => ({ ...current, owner: value }))
+              }
+            />
+            <Field
+              label="Date de levee cible"
+              value={draftNcr.dueDate}
+              onChange={(value) =>
+                setDraftNcr((current) => ({ ...current, dueDate: value }))
+              }
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {["Mineure", "Majeure", "Critique"].map((severity) => (
+              <button
+                key={severity}
+                onClick={() =>
+                  setDraftNcr((current) => ({ ...current, severity }))
+                }
+                className={cx(
+                  "rounded-full border px-4 py-2 text-sm font-semibold",
+                  draftNcr.severity === severity
+                    ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
+                    : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
+                )}
+              >
+                {severity}
+              </button>
+            ))}
+          </div>
+
+          <label className="block rounded-[22px] border border-white/8 bg-white/4 p-4">
+            <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              Description
+            </span>
+            <textarea
+              value={draftNcr.description}
+              onChange={(event) =>
+                setDraftNcr((current) => ({
+                  ...current,
+                  description: event.target.value,
+                }))
+              }
+              className="mt-3 min-h-28 w-full resize-none bg-transparent text-sm leading-6 text-white outline-none"
+            />
+          </label>
+
+          <button
+            onClick={() =>
+              setDraftNcr((current) => ({
+                ...current,
+                photoAttached: !current.photoAttached,
+              }))
+            }
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/8"
+          >
+            <Camera className="size-4" />
+            {draftNcr.photoAttached ? "Photo jointe" : "Ajouter photo"}
+          </button>
+
+          <button
+            onClick={createNcr}
+            className="flex w-full items-center justify-center gap-2 rounded-[22px] bg-sky-400 px-4 py-4 text-sm font-semibold text-slate-950 hover:bg-sky-300"
+          >
+            <ShieldAlert className="size-4" />
+            Creer la fiche NC
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {ncrs.map((item) => (
+            <div
+              key={item.ref}
+              className="rounded-[22px] border border-white/8 bg-white/4 p-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-display text-lg font-semibold text-white">
+                      {item.ref}
+                    </p>
+                    <StatusBadge tone={item.tone}>{item.severity}</StatusBadge>
+                    <StatusBadge tone={toneByStatus[item.status] ?? item.tone}>
+                      {item.status}
+                    </StatusBadge>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-200">{item.title}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    {item.description}
+                  </p>
+                </div>
+                {item.status !== "Levee" ? (
+                  <button
+                    onClick={() => closeNcr(item.ref)}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+                  >
+                    Cloturer
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <InfoStat label="Responsable" value={item.owner} />
+                <InfoStat label="Echeance" value={formatDate(item.dueDate)} />
+                <InfoStat
+                  label="Preuve photo"
+                  value={item.photoAttached ? "Oui" : "Non"}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+      <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+        {label}
+      </span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-3 w-full bg-transparent text-white outline-none"
+      />
+    </label>
+  );
+}
+
+function InfoStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="mt-1 text-sm text-white">{value}</p>
+    </div>
+  );
+}
+
+function ActionButton({
+  icon: Icon,
+  label,
+}: {
+  icon: typeof Camera;
+  label: string;
+}) {
+  return (
+    <button className="flex items-center justify-between rounded-[22px] border border-dashed border-white/14 bg-white/4 px-4 py-4 text-left hover:bg-white/8">
+      <span className="text-sm font-semibold text-white">{label}</span>
+      <Icon className="size-4 text-slate-400" />
+    </button>
+  );
+}

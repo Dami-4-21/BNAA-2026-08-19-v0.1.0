@@ -1,26 +1,206 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f5f5f4;
+  --foreground: #111111;
+  --muted: #57534e;
+  --muted-strong: #78716c;
+  --line: #e7e5e4;
+  --surface: #ffffff;
+  --surface-subtle: #fafaf9;
+  --surface-muted: #f5f5f4;
+  --surface-strong: #1c1917;
+  --accent: #111111;
+  --accent-soft: rgba(17, 17, 17, 0.06);
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --shadow-lg: 0 24px 48px rgba(15, 23, 42, 0.06);
+  --shadow-sm: 0 6px 20px rgba(15, 23, 42, 0.05);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-manrope);
+  --font-mono: var(--font-plex-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--background);
+  color-scheme: light;
+}
+
+* {
+  border-color: var(--line);
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(circle at top left, rgba(0, 0, 0, 0.025), transparent 22%),
+    linear-gradient(180deg, #f8f8f7 0%, #f5f5f4 100%);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-manrope), sans-serif;
+}
+
+::selection {
+  background: rgba(17, 17, 17, 0.12);
+  color: var(--foreground);
+}
+
+a,
+button,
+input,
+textarea,
+select {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+button {
+  cursor: pointer;
+}
+
+.font-display {
+  font-family: var(--font-sora), sans-serif;
+}
+
+.glass-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-lg);
+}
+
+.glass-panel-soft {
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+
+.data-grid {
+  background-image:
+    linear-gradient(rgba(231, 229, 228, 0.7) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(231, 229, 228, 0.7) 1px, transparent 1px);
+  background-position: center;
+  background-size: 28px 28px;
+}
+
+.soft-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 113, 108, 0.35) transparent;
+}
+
+.soft-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.soft-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.soft-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(120, 113, 108, 0.28);
+  border-radius: 999px;
+}
+
+.soft-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 113, 108, 0.4);
+}
+
+.workspace-light .glass-panel .text-white,
+.workspace-light .glass-panel-soft .text-white {
+  color: var(--foreground) !important;
+}
+
+.workspace-light .glass-panel .bg-black.text-white,
+.workspace-light .glass-panel-soft .bg-black.text-white,
+.workspace-light .glass-panel .bg-sky-400,
+.workspace-light .glass-panel-soft .bg-sky-400,
+.workspace-light .glass-panel .bg-black,
+.workspace-light .glass-panel-soft .bg-black {
+  color: #ffffff !important;
+}
+
+.workspace-light .text-slate-200,
+.workspace-light .text-slate-300 {
+  color: var(--muted) !important;
+}
+
+.workspace-light .text-slate-400,
+.workspace-light .text-slate-500 {
+  color: var(--muted-strong) !important;
+}
+
+.workspace-light .bg-white\/4,
+.workspace-light .bg-white\/5,
+.workspace-light .bg-white\/6,
+.workspace-light .bg-white\/8 {
+  background-color: var(--surface-subtle) !important;
+}
+
+.workspace-light .border-white\/6,
+.workspace-light .border-white\/8,
+.workspace-light .border-white\/10,
+.workspace-light .border-white\/14 {
+  border-color: var(--line) !important;
+}
+
+.workspace-light .bg-\[\#08111f\]\/88,
+.workspace-light .bg-\[\#08111f\]\/90,
+.workspace-light .bg-\[\#081220\]\/92,
+.workspace-light .bg-\[\#07111f\]\/78 {
+  background: var(--surface) !important;
+}
+
+.workspace-light .bg-sky-400\/12 {
+  background-color: rgba(17, 17, 17, 0.06) !important;
+}
+
+.workspace-light .bg-sky-400\/10,
+.workspace-light .bg-sky-400\/14,
+.workspace-light .bg-sky-400\/8 {
+  background-color: rgba(17, 17, 17, 0.05) !important;
+}
+
+.workspace-light .border-sky-400\/20,
+.workspace-light .border-sky-400\/24,
+.workspace-light .border-sky-400\/25,
+.workspace-light .border-sky-400\/30 {
+  border-color: rgba(17, 17, 17, 0.12) !important;
+}
+
+.workspace-light .text-sky-100,
+.workspace-light .text-sky-200 {
+  color: var(--foreground) !important;
+}
+
+.workspace-light .bg-sky-400 {
+  background: var(--accent) !important;
+  color: #ffffff !important;
+}
+
+.workspace-light .hover\:bg-sky-300:hover {
+  background: #292524 !important;
+}
+
+.workspace-light .from-sky-400,
+.workspace-light .to-cyan-300,
+.workspace-light .from-emerald-400,
+.workspace-light .to-teal-300,
+.workspace-light .from-amber-300,
+.workspace-light .to-orange-300,
+.workspace-light .from-rose-400,
+.workspace-light .to-fuchsia-400 {
+  --tw-gradient-from: #111111 var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgba(17, 17, 17, 0.22) var(--tw-gradient-to-position) !important;
+}
+
+.workspace-light input::placeholder,
+.workspace-light textarea::placeholder {
+  color: var(--muted-strong);
 }
