@@ -169,6 +169,72 @@ function parseSetupList(value: string, fallback: string) {
   return entries.length > 0 ? entries : [fallback];
 }
 
+function normalizeSetupEntries(values: string[], fallback: string) {
+  const entries = values
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return entries.length > 0 ? Array.from(new Set(entries)) : [fallback];
+}
+
+function applyProjectSetup(
+  project: ProjectRecord,
+  setup: {
+    lots: string[];
+    memberIds?: string[];
+    phases: string[];
+    zones: string[];
+  },
+) {
+  project.setup = {
+    lots: normalizeSetupEntries(setup.lots, "General"),
+    memberIds: Array.from(new Set(setup.memberIds ?? project.setup?.memberIds ?? [])),
+    phases: normalizeSetupEntries(setup.phases, "EXE"),
+    zones: normalizeSetupEntries(setup.zones, "Zone principale"),
+  };
+
+  project.site.lotProgress = project.setup.lots.map((lot, index) => {
+    const existing =
+      project.site.lotProgress.find((item) => item.lot === lot) ??
+      project.site.lotProgress[index];
+
+    return {
+      lot,
+      task: existing?.task ?? `Preparation ${lot.toLowerCase()}`,
+      progress: existing?.progress ?? 0,
+      planned: existing?.planned ?? 0,
+      owner: existing?.owner ?? "A affecter",
+      tone: existing?.tone ?? (index === 0 ? "primary" : "neutral"),
+    };
+  });
+
+  project.site.draftPhoto = {
+    ...project.site.draftPhoto,
+    zone: project.setup.zones[0] ?? "Zone principale",
+    lot: project.setup.lots[0] ?? "General",
+  };
+
+  project.site.draftNcr = {
+    ...project.site.draftNcr,
+    owner: project.setup.lots[0] ?? "General",
+  };
+
+  project.documents.tree = [
+    {
+      title: project.summary.name,
+      nodes: project.setup.lots.map((lot) => ({
+        label: lot,
+        phases: project.setup.phases,
+      })),
+    },
+  ] as DocumentsModuleData["tree"];
+
+  project.documents.draftVersion = {
+    ...project.documents.draftVersion,
+    audience: project.setup.lots[0] ?? "Equipe projet",
+  };
+}
+
 function createEmptySiteModule(setup: {
   lots: string[];
   projectName: string;
@@ -402,6 +468,24 @@ function buildAdminPayload(database: DatabaseState): AdminPageData {
     auditTrail: clone(database.auditTrail),
     users: clone(database.users.map((entry) => sanitizeUser(entry))),
     availableProjects: Object.values(database.projects).map((project) => clone(project.summary)),
+    projects: Object.values(database.projects).map((project) => {
+      const members = database.users
+        .filter((user) => canAccessProject(user, project.summary.id))
+        .map((user) => ({
+          id: user.id,
+          initials: user.initials,
+          name: user.name,
+          role: user.role,
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name, "fr"));
+
+      return {
+        summary: clone(project.summary),
+        setup: clone(project.setup),
+        memberCount: members.length,
+        members,
+      };
+    }),
     tenant: clone(database.tenant),
   };
 }
@@ -448,6 +532,53 @@ function buildInitials(name: string) {
 function syncTenantStats(database: DatabaseState) {
   database.tenant.users = database.users.length;
   database.tenant.activeProjects = Object.keys(database.projects).length;
+}
+
+function syncProjectSetupMembers(database: DatabaseState) {
+  Object.values(database.projects).forEach((project) => {
+    project.setup.memberIds = database.users
+      .filter((user) => canAccessProject(user, project.summary.id))
+      .map((user) => user.id);
+  });
+}
+
+function ensureProjectSetupState(database: DatabaseState) {
+  Object.values(database.projects).forEach((project) => {
+    const lots = Array.from(
+      new Set(project.site.lotProgress.map((item) => item.lot).filter(Boolean)),
+    );
+    const phases = Array.from(
+      new Set(
+        project.documents.tree.flatMap((branch) =>
+          branch.nodes.flatMap((node) => node.phases),
+        ),
+      ),
+    );
+    const zones = Array.from(
+      new Set(
+        [
+          ...project.site.photoLibrary.map((photo) => photo.zone),
+          project.site.draftPhoto.zone,
+        ].filter(Boolean),
+      ),
+    );
+
+    project.setup = {
+      lots: project.setup?.lots?.length ? project.setup.lots : lots.length ? lots : ["General"],
+      memberIds:
+        project.setup?.memberIds?.length
+          ? project.setup.memberIds
+          : database.users
+              .filter((user) => canAccessProject(user, project.summary.id))
+              .map((user) => user.id),
+      phases:
+        project.setup?.phases?.length ? project.setup.phases : phases.length ? phases : ["EXE"],
+      zones:
+        project.setup?.zones?.length ? project.setup.zones : zones.length ? zones : ["Zone principale"],
+    };
+  });
+
+  syncProjectSetupMembers(database);
 }
 
 function ensureAuditTrailState(database: DatabaseState) {
@@ -547,6 +678,7 @@ function ensureSystemUsers(database: DatabaseState) {
 
   ensureAuditTrailState(database);
   ensureNotificationsState(database);
+  ensureProjectSetupState(database);
   syncTenantStats(database);
 }
 
@@ -762,12 +894,12 @@ function recomputeProjectSummary(project: ProjectRecord) {
   project.summary.progress = latestReport?.progress ?? project.summary.progress;
   project.summary.spentTnd = spentTnd;
   project.summary.invoicesDue = invoicesDue;
-  if (project.summary.status !== "Cloture") {
+  if (!["Cloture", "Configuration"].includes(project.summary.status)) {
     project.summary.status =
       project.summary.progress >= 75 ? "Phase encaissement" : "En execution";
   }
   project.summary.nextMilestone =
-    latestReport?.summary ?? project.summary.nextMilestone;
+    project.summary.nextMilestone || latestReport?.summary || "A planifier";
 
   const portfolioEntry = {
     name: project.summary.name,
@@ -1738,6 +1870,7 @@ export async function createAdminUser(
     };
 
     database.users.push(nextUser);
+    syncProjectSetupMembers(database);
     syncTenantStats(database);
     appendAudit(
       database,
@@ -1786,6 +1919,7 @@ export async function updateAdminUser(
 
     user.role = nextRole;
     user.projectIds = nextProjectIds;
+    syncProjectSetupMembers(database);
 
     appendAudit(
       database,
@@ -1865,10 +1999,23 @@ export async function createAdminProject(
 
     database.projects[code] = {
       summary,
+      setup: {
+        lots,
+        memberIds: database.users
+          .filter((entry) => canAccessProject(entry, code))
+          .map((entry) => entry.id),
+        phases,
+        zones,
+      },
       site: createEmptySiteModule({ lots, projectName: name, zones }),
       documents: createEmptyDocumentsModule({ lots, phases, projectName: name }),
       finance: createEmptyFinanceModule(),
     };
+    applyProjectSetup(database.projects[code], {
+      lots,
+      phases,
+      zones,
+    });
 
     database.portfolio.unshift({
       name,
@@ -1939,6 +2086,149 @@ export async function archiveAdminProject(
       title: "Projet cloture",
       tone: "success",
       type: "project",
+    });
+
+    return buildAdminPayload(database);
+  });
+}
+
+export async function updateAdminProjectSetup(
+  token: string,
+  payload: {
+    budgetTnd: number;
+    client: string;
+    location: string;
+    lots: string[];
+    name: string;
+    nextMilestone: string;
+    phases: string[];
+    projectId: string;
+    status: string;
+    zones: string[];
+  },
+) {
+  return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
+    const actor = getUserForSession(database, token);
+    assert(actor, 401, "Session invalide ou expiree.");
+    ensurePermission(actor, "admin.manage");
+
+    const project = getProjectRecord(database, payload.projectId);
+    const name = payload.name.trim();
+    const client = payload.client.trim();
+    const location = payload.location.trim();
+    const status = payload.status.trim() || project.summary.status;
+    const nextMilestone = payload.nextMilestone.trim() || project.summary.nextMilestone;
+    const budgetTnd = Number(payload.budgetTnd);
+    const lots = normalizeSetupEntries(payload.lots, "General");
+    const phases = normalizeSetupEntries(payload.phases, "EXE");
+    const zones = normalizeSetupEntries(payload.zones, "Zone principale");
+
+    assert(name.length >= 3, 400, "Nom projet trop court.");
+    assert(client.length >= 2, 400, "Client requis.");
+    assert(location.length >= 2, 400, "Localisation requise.");
+    assert(Number.isFinite(budgetTnd) && budgetTnd >= 0, 400, "Budget projet invalide.");
+
+    project.summary.name = name;
+    project.summary.client = client;
+    project.summary.location = location;
+    project.summary.status = status;
+    project.summary.budgetTnd = budgetTnd;
+    project.summary.nextMilestone = nextMilestone;
+    applyProjectSetup(project, {
+      lots,
+      memberIds: project.setup.memberIds,
+      phases,
+      zones,
+    });
+
+    const { portfolioEntry } = recomputeProjectSummary(project);
+    database.portfolio = database.portfolio.map((entry) =>
+      entry.code === portfolioEntry.code ? portfolioEntry : entry,
+    );
+
+    appendAudit(
+      database,
+      actor.name,
+      "a mis a jour le parametrage projet",
+      `${project.summary.name} - ${project.summary.code} - ${lots.length} lot(s), ${zones.length} zone(s), ${phases.length} phase(s)`,
+    );
+    appendNotification(database, {
+      actor: actor.name,
+      actorId: actor.id,
+      detail: `${project.summary.code} a un parametrage projet mis a jour avec ${lots.length} lot(s), ${zones.length} zone(s) et ${phases.length} phase(s).`,
+      href: "/admin",
+      projectCode: project.summary.code,
+      projectId: project.summary.id,
+      title: "Parametrage projet actualise",
+      tone: "primary",
+      type: "project",
+      roles: ["Super Admin", "Chef de projet"],
+    });
+
+    return buildAdminPayload(database);
+  });
+}
+
+export async function updateAdminProjectMembers(
+  token: string,
+  payload: {
+    memberIds: string[];
+    projectId: string;
+  },
+) {
+  return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
+    const actor = getUserForSession(database, token);
+    assert(actor, 401, "Session invalide ou expiree.");
+    ensurePermission(actor, "admin.manage");
+
+    const project = getProjectRecord(database, payload.projectId);
+    const memberIds = Array.from(new Set(payload.memberIds));
+    const allowedRoles = new Set(project.summary.allowedRoles);
+
+    database.users.forEach((user) => {
+      const shouldHaveAccess =
+        user.projectIds.includes("*") ||
+        (memberIds.includes(user.id) && allowedRoles.has(user.role));
+
+      if (user.projectIds.includes("*")) {
+        return;
+      }
+
+      if (shouldHaveAccess && !user.projectIds.includes(project.summary.id)) {
+        user.projectIds.push(project.summary.id);
+      }
+
+      if (!shouldHaveAccess && user.projectIds.includes(project.summary.id)) {
+        user.projectIds = user.projectIds.filter((entry) => entry !== project.summary.id);
+      }
+    });
+
+    syncProjectSetupMembers(database);
+
+    const assignedMembers = database.users
+      .filter((user) => canAccessProject(user, project.summary.id))
+      .map((user) => user.name)
+      .join(", ");
+
+    appendAudit(
+      database,
+      actor.name,
+      "a mis a jour l'affectation equipe",
+      `${project.summary.code} - ${assignedMembers || "aucun membre"} `,
+    );
+    appendNotification(database, {
+      actor: actor.name,
+      actorId: actor.id,
+      detail: `${project.summary.code} compte maintenant ${project.setup.memberIds.length} membre(s) affecte(s) avec acces SaaS.`,
+      href: "/admin",
+      projectCode: project.summary.code,
+      projectId: project.summary.id,
+      title: "Equipe projet reaffectee",
+      tone: "warning",
+      type: "project",
+      roles: ["Super Admin", "Chef de projet"],
     });
 
     return buildAdminPayload(database);

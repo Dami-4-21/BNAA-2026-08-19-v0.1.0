@@ -62,12 +62,40 @@ export function createSeedDatabase(): DatabaseState {
     projects: Object.fromEntries(
       workspaceProjects.map((project) => [
         project.id,
-        {
-          summary: clone(project),
-          site: getSiteModuleData(project.id),
-          documents: getDocumentsModuleData(project.id),
-          finance: getFinanceModuleData(project.id),
-        },
+        (() => {
+          const site = getSiteModuleData(project.id);
+          const documents = getDocumentsModuleData(project.id);
+          const uniquePhases = Array.from(
+            new Set(
+              documents.tree.flatMap((branch) =>
+                branch.nodes.flatMap((node) => node.phases),
+              ),
+            ),
+          );
+          const uniqueZones = Array.from(
+            new Set(
+              [
+                ...site.photoLibrary.map((photo) => photo.zone),
+                site.draftPhoto.zone,
+              ].filter(Boolean),
+            ),
+          );
+
+          return {
+            summary: clone(project),
+            setup: {
+              lots: Array.from(new Set(site.lotProgress.map((item) => item.lot))),
+              memberIds: users
+                .filter((user) => user.projectIds.includes("*") || user.projectIds.includes(project.id))
+                .map((user) => user.id),
+              phases: uniquePhases.length > 0 ? uniquePhases : ["EXE"],
+              zones: uniqueZones.length > 0 ? uniqueZones : ["Zone principale"],
+            },
+            site,
+            documents,
+            finance: getFinanceModuleData(project.id),
+          };
+        })(),
       ]),
     ),
     alerts: clone(alerts),

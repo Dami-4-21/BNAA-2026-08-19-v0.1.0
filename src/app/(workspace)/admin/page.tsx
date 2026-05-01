@@ -4,10 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
   CheckCheck,
+  CheckSquare,
   FolderKanban,
+  Layers3,
+  MapPinned,
   Save,
   ShieldCheck,
   ShieldUser,
+  Users,
   UserCog,
   UserPlus2,
   Users2,
@@ -38,6 +42,22 @@ type UserDrafts = Record<
   }
 >;
 
+type ProjectDrafts = Record<
+  string,
+  {
+    budgetTnd: string;
+    client: string;
+    location: string;
+    lots: string[];
+    memberIds: string[];
+    name: string;
+    nextMilestone: string;
+    phases: string[];
+    status: string;
+    zones: string[];
+  }
+>;
+
 function buildUserDrafts(users: AdminPageData["users"]): UserDrafts {
   return Object.fromEntries(
     users.map((user) => [
@@ -54,6 +74,30 @@ function sameProjectIds(left: string[], right: string[]) {
   return left.length === right.length && left.every((value) => right.includes(value));
 }
 
+function buildProjectDrafts(projects: AdminPageData["projects"]): ProjectDrafts {
+  return Object.fromEntries(
+    projects.map((project) => [
+      project.summary.id,
+      {
+        name: project.summary.name,
+        client: project.summary.client,
+        location: project.summary.location,
+        status: project.summary.status,
+        budgetTnd: `${project.summary.budgetTnd}`,
+        nextMilestone: project.summary.nextMilestone,
+        lots: [...project.setup.lots],
+        phases: [...project.setup.phases],
+        zones: [...project.setup.zones],
+        memberIds: [...project.setup.memberIds],
+      },
+    ]),
+  );
+}
+
+function sameStringList(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value) => right.includes(value));
+}
+
 export default function AdminPage() {
   const { currentUser, refreshWorkspace } = useWorkspace();
   const [data, setData] = useState<AdminPageData | null>(null);
@@ -62,6 +106,10 @@ export default function AdminPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [closingProjectId, setClosingProjectId] = useState("");
+  const [projectDrafts, setProjectDrafts] = useState<ProjectDrafts>({});
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [savingProjectId, setSavingProjectId] = useState("");
+  const [savingMembersProjectId, setSavingMembersProjectId] = useState("");
   const [savingUserId, setSavingUserId] = useState("");
   const [userDrafts, setUserDrafts] = useState<UserDrafts>({});
   const [form, setForm] = useState({
@@ -96,6 +144,8 @@ export default function AdminPage() {
         if (!cancelled) {
           setData(payload);
           setUserDrafts(buildUserDrafts(payload.users));
+          setProjectDrafts(buildProjectDrafts(payload.projects));
+          setSelectedProjectId((current) => current || payload.projects[0]?.summary.id || "");
         }
       } catch (nextError) {
         if (!cancelled) {
@@ -115,10 +165,23 @@ export default function AdminPage() {
     () => `${data?.availableProjects.length ?? 0}`,
     [data?.availableProjects.length],
   );
+  const selectedProject = useMemo(
+    () => data?.projects.find((project) => project.summary.id === selectedProjectId) ?? data?.projects[0],
+    [data?.projects, selectedProjectId],
+  );
+  const selectedProjectDraft = selectedProject
+    ? projectDrafts[selectedProject.summary.id]
+    : null;
 
   function applyAdminPayload(payload: AdminPageData) {
     setData(payload);
     setUserDrafts(buildUserDrafts(payload.users));
+    setProjectDrafts(buildProjectDrafts(payload.projects));
+    setSelectedProjectId((current) =>
+      payload.projects.some((project) => project.summary.id === current)
+        ? current
+        : (payload.projects[0]?.summary.id ?? ""),
+    );
   }
 
   async function handleCreateUser(event: React.FormEvent<HTMLFormElement>) {
@@ -230,6 +293,115 @@ export default function AdminPage() {
         ? currentDraft.projectIds.filter((item) => item !== projectId)
         : [...currentDraft.projectIds, projectId],
     });
+  }
+
+  function updateProjectDraft(
+    projectId: string,
+    patch: Partial<ProjectDrafts[string]>,
+  ) {
+    setProjectDrafts((current) => ({
+      ...current,
+      [projectId]: {
+        ...(current[projectId] ?? {
+          name: "",
+          client: "",
+          location: "",
+          status: "Configuration",
+          budgetTnd: "",
+          nextMilestone: "",
+          lots: [],
+          phases: [],
+          zones: [],
+          memberIds: [],
+        }),
+        ...patch,
+      },
+    }));
+  }
+
+  function toggleProjectMember(projectId: string, userId: string) {
+    const currentDraft = projectDrafts[projectId];
+    if (!currentDraft) {
+      return;
+    }
+
+    updateProjectDraft(projectId, {
+      memberIds: currentDraft.memberIds.includes(userId)
+        ? currentDraft.memberIds.filter((entry) => entry !== userId)
+        : [...currentDraft.memberIds, userId],
+    });
+  }
+
+  async function saveProjectSetup(projectId: string) {
+    const draft = projectDrafts[projectId];
+    if (!draft) {
+      return;
+    }
+
+    setSavingProjectId(projectId);
+    setError("");
+    setSuccess("");
+
+    try {
+      const payload = await apiFetch<AdminPageData>("/api/admin", {
+        method: "POST",
+        body: {
+          action: "update-project-setup",
+          payload: {
+            projectId,
+            name: draft.name,
+            client: draft.client,
+            location: draft.location,
+            status: draft.status,
+            budgetTnd: Number(draft.budgetTnd || 0),
+            nextMilestone: draft.nextMilestone,
+            lots: draft.lots,
+            phases: draft.phases,
+            zones: draft.zones,
+          },
+        },
+      });
+
+      applyAdminPayload(payload);
+      await refreshWorkspace();
+      setSuccess("Parametrage projet mis a jour.");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Parametrage projet impossible.");
+    } finally {
+      setSavingProjectId("");
+    }
+  }
+
+  async function saveProjectMembers(projectId: string) {
+    const draft = projectDrafts[projectId];
+    if (!draft) {
+      return;
+    }
+
+    setSavingMembersProjectId(projectId);
+    setError("");
+    setSuccess("");
+
+    try {
+      const payload = await apiFetch<AdminPageData>("/api/admin", {
+        method: "POST",
+        body: {
+          action: "update-project-members",
+          payload: {
+            projectId,
+            memberIds: draft.memberIds,
+          },
+        },
+      });
+
+      applyAdminPayload(payload);
+      await refreshWorkspace();
+      setSuccess("Affectation equipe mise a jour.");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Affectation equipe impossible.");
+    } finally {
+      setSavingMembersProjectId("");
+    }
   }
 
   async function saveUser(userId: string) {
@@ -546,44 +718,64 @@ export default function AdminPage() {
         </Panel>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
         <Panel title="Portefeuille accessible">
           <div className="space-y-3">
-            {data.availableProjects.map((project) => (
+            {data.projects.map((project) => (
               <div
-                key={project.id}
+                key={project.summary.id}
                 className="rounded-[22px] border border-white/8 bg-white/4 p-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-start gap-3">
                     <FolderKanban className="mt-1 size-4 text-slate-400" />
                     <div>
-                      <p className="text-sm font-semibold text-white">{project.name}</p>
+                      <p className="text-sm font-semibold text-white">{project.summary.name}</p>
                       <p className="mt-1 text-sm text-slate-300">
-                        {project.code} - {project.client}
+                        {project.summary.code} - {project.summary.client}
                       </p>
                       <p className="mt-2 text-sm text-slate-400">
-                        {project.location} - {project.nextMilestone}
+                        {project.summary.location} - {project.summary.nextMilestone}
                       </p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                        <span>{project.setup.lots.length} lot(s)</span>
+                        <span>{project.setup.zones.length} zone(s)</span>
+                        <span>{project.setup.phases.length} phase(s)</span>
+                        <span>{project.memberCount} membre(s)</span>
+                      </div>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <StatusBadge tone={project.status === "Cloture" ? "success" : "primary"}>
-                      {project.status}
+                    <StatusBadge
+                      tone={project.summary.status === "Cloture" ? "success" : "primary"}
+                    >
+                      {project.summary.status}
                     </StatusBadge>
-                    <StatusBadge tone="neutral">{project.progress}%</StatusBadge>
-                    {project.status !== "Cloture" ? (
+                    <StatusBadge tone="neutral">{project.summary.progress}%</StatusBadge>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProjectId(project.summary.id)}
+                      className={cx(
+                        "rounded-full px-4 py-1.5 text-xs font-semibold",
+                        selectedProject?.summary.id === project.summary.id
+                          ? "bg-sky-400 text-slate-950"
+                          : "bg-white/10 text-white hover:bg-white/15",
+                      )}
+                    >
+                      Configurer
+                    </button>
+                    {project.summary.status !== "Cloture" ? (
                       <button
-                        onClick={() => void archiveProject(project.id)}
-                        disabled={closingProjectId === project.id}
+                        onClick={() => void archiveProject(project.summary.id)}
+                        disabled={closingProjectId === project.summary.id}
                         className={cx(
                           "rounded-full px-4 py-1.5 text-xs font-semibold",
-                          closingProjectId === project.id
+                          closingProjectId === project.summary.id
                             ? "cursor-not-allowed bg-stone-200 text-stone-500"
                             : "bg-black text-white hover:bg-stone-800",
                         )}
                       >
-                        {closingProjectId === project.id ? "Cloture..." : "Cloturer"}
+                        {closingProjectId === project.summary.id ? "Cloture..." : "Cloturer"}
                       </button>
                     ) : null}
                   </div>
@@ -593,25 +785,251 @@ export default function AdminPage() {
           </div>
         </Panel>
 
-        <Panel title="Matrice des roles">
-          <div className="space-y-3">
-            {data.roleMatrix.map((role) => (
-              <div
-                key={role.role}
-                className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-              >
-                <div className="flex items-start gap-3">
-                  <ShieldCheck className="mt-1 size-4 text-slate-400" />
+        <Panel
+          title="Parametrage projet"
+          description="Structurez les lots, phases, zones et l'equipe d'un projet pour que le reste du SaaS reutilise ce parametre directement."
+        >
+          {selectedProject && selectedProjectDraft ? (
+            <div className="space-y-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  label="Nom du projet"
+                  value={selectedProjectDraft.name}
+                  onChange={(value) =>
+                    updateProjectDraft(selectedProject.summary.id, { name: value })
+                  }
+                />
+                <FormField
+                  label="Client"
+                  value={selectedProjectDraft.client}
+                  onChange={(value) =>
+                    updateProjectDraft(selectedProject.summary.id, { client: value })
+                  }
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
+                <FormField
+                  label="Localisation"
+                  value={selectedProjectDraft.location}
+                  onChange={(value) =>
+                    updateProjectDraft(selectedProject.summary.id, { location: value })
+                  }
+                />
+                <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+                  <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                    Statut
+                  </span>
+                  <select
+                    value={selectedProjectDraft.status}
+                    onChange={(event) =>
+                      updateProjectDraft(selectedProject.summary.id, {
+                        status: event.target.value,
+                      })
+                    }
+                    className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
+                  >
+                    {projectStatusOptions.map((status) => (
+                      <option key={`${selectedProject.summary.id}-${status}`} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                    <option value="Cloture">Cloture</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-[0.85fr_1.15fr]">
+                <FormField
+                  label="Budget (TND)"
+                  value={selectedProjectDraft.budgetTnd}
+                  onChange={(value) =>
+                    updateProjectDraft(selectedProject.summary.id, { budgetTnd: value })
+                  }
+                />
+                <FormField
+                  label="Prochain jalon"
+                  value={selectedProjectDraft.nextMilestone}
+                  onChange={(value) =>
+                    updateProjectDraft(selectedProject.summary.id, {
+                      nextMilestone: value,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-3">
+                <TokenEditor
+                  label="Lots"
+                  icon={Layers3}
+                  values={selectedProjectDraft.lots}
+                  onChange={(values) =>
+                    updateProjectDraft(selectedProject.summary.id, { lots: values })
+                  }
+                />
+                <TokenEditor
+                  label="Phases"
+                  icon={FolderKanban}
+                  values={selectedProjectDraft.phases}
+                  onChange={(values) =>
+                    updateProjectDraft(selectedProject.summary.id, { phases: values })
+                  }
+                />
+                <TokenEditor
+                  label="Zones"
+                  icon={MapPinned}
+                  values={selectedProjectDraft.zones}
+                  onChange={(values) =>
+                    updateProjectDraft(selectedProject.summary.id, { zones: values })
+                  }
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => void saveProjectSetup(selectedProject.summary.id)}
+                  disabled={
+                    savingProjectId === selectedProject.summary.id ||
+                    (selectedProjectDraft.name === selectedProject.summary.name &&
+                      selectedProjectDraft.client === selectedProject.summary.client &&
+                      selectedProjectDraft.location === selectedProject.summary.location &&
+                      selectedProjectDraft.status === selectedProject.summary.status &&
+                      selectedProjectDraft.budgetTnd === `${selectedProject.summary.budgetTnd}` &&
+                      selectedProjectDraft.nextMilestone === selectedProject.summary.nextMilestone &&
+                      sameStringList(selectedProjectDraft.lots, selectedProject.setup.lots) &&
+                      sameStringList(selectedProjectDraft.phases, selectedProject.setup.phases) &&
+                      sameStringList(selectedProjectDraft.zones, selectedProject.setup.zones))
+                  }
+                  className={cx(
+                    "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
+                    savingProjectId === selectedProject.summary.id
+                      ? "cursor-not-allowed bg-stone-200 text-stone-500"
+                      : "bg-black text-white hover:bg-stone-800",
+                  )}
+                >
+                  <Save className="size-4" />
+                  {savingProjectId === selectedProject.summary.id
+                    ? "Enregistrement..."
+                    : "Enregistrer le parametrage"}
+                </button>
+              </div>
+
+              <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-white">{role.role}</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">{role.access}</p>
+                    <p className="text-sm font-semibold text-white">Affectation equipe</p>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Choisissez les utilisateurs qui doivent voir et exploiter ce projet dans le SaaS.
+                    </p>
                   </div>
+                  <StatusBadge tone="primary">
+                    {selectedProjectDraft.memberIds.length} membre(s)
+                  </StatusBadge>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {data.users.map((user) => {
+                    const isAllowedRole =
+                      selectedProject.summary.allowedRoles.includes(user.role) ||
+                      user.role === "Super Admin";
+                    const checked =
+                      user.role === "Super Admin" ||
+                      selectedProjectDraft.memberIds.includes(user.id);
+
+                    return (
+                      <button
+                        key={`${selectedProject.summary.id}-${user.id}`}
+                        type="button"
+                        onClick={() =>
+                          user.role === "Super Admin" || !isAllowedRole
+                            ? null
+                            : toggleProjectMember(selectedProject.summary.id, user.id)
+                        }
+                        className={cx(
+                          "rounded-[20px] border p-4 text-left",
+                          checked
+                            ? "border-emerald-400/30 bg-emerald-400/12"
+                            : "border-white/8 bg-black/10 hover:bg-white/6",
+                          (!isAllowedRole || user.role === "Super Admin") &&
+                            "cursor-not-allowed opacity-70",
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-white">{user.name}</p>
+                            <p className="mt-1 text-sm text-slate-300">{user.role}</p>
+                            <p className="mt-2 text-xs text-slate-400">{user.email}</p>
+                          </div>
+                          {checked ? (
+                            <CheckSquare className="size-5 text-emerald-300" />
+                          ) : (
+                            <Users className="size-5 text-slate-500" />
+                          )}
+                        </div>
+                        {!isAllowedRole ? (
+                          <p className="mt-3 text-xs text-amber-300">
+                            Role non prevu pour ce projet.
+                          </p>
+                        ) : user.role === "Super Admin" ? (
+                          <p className="mt-3 text-xs text-slate-400">
+                            Acces conserve automatiquement.
+                          </p>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void saveProjectMembers(selectedProject.summary.id)}
+                    disabled={
+                      savingMembersProjectId === selectedProject.summary.id ||
+                      sameStringList(selectedProjectDraft.memberIds, selectedProject.setup.memberIds)
+                    }
+                    className={cx(
+                      "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
+                      savingMembersProjectId === selectedProject.summary.id
+                        ? "cursor-not-allowed bg-stone-200 text-stone-500"
+                        : "bg-sky-400 text-slate-950 hover:bg-sky-300",
+                    )}
+                  >
+                    <Users className="size-4" />
+                    {savingMembersProjectId === selectedProject.summary.id
+                      ? "Affectation..."
+                      : "Enregistrer l'equipe"}
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className="rounded-[22px] border border-dashed border-white/10 bg-white/4 px-4 py-8 text-center text-sm text-slate-300">
+              Selectionnez un projet pour modifier sa structure et ses membres.
+            </div>
+          )}
         </Panel>
       </div>
+
+      <Panel title="Matrice des roles">
+        <div className="space-y-3">
+          {data.roleMatrix.map((role) => (
+            <div
+              key={role.role}
+              className="rounded-[22px] border border-white/8 bg-white/4 p-4"
+            >
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="mt-1 size-4 text-slate-400" />
+                <div>
+                  <p className="text-sm font-semibold text-white">{role.role}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{role.access}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
 
       <Panel title="Utilisateurs et acces">
         <div className="space-y-4">
@@ -740,6 +1158,75 @@ function CredentialCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
       <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</p>
       <p className="mt-2 text-sm font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function TokenEditor({
+  icon: Icon,
+  label,
+  onChange,
+  values,
+}: {
+  icon: typeof Layers3;
+  label: string;
+  onChange: (values: string[]) => void;
+  values: string[];
+}) {
+  const [draft, setDraft] = useState("");
+
+  function addToken() {
+    const nextValue = draft.trim();
+    if (!nextValue || values.includes(nextValue)) {
+      setDraft("");
+      return;
+    }
+
+    onChange([...values, nextValue]);
+    setDraft("");
+  }
+
+  return (
+    <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+      <div className="flex items-center gap-2">
+        <Icon className="size-4 text-slate-400" />
+        <p className="text-sm font-semibold text-white">{label}</p>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {values.map((value) => (
+          <button
+            key={`${label}-${value}`}
+            type="button"
+            onClick={() => onChange(values.filter((entry) => entry !== value))}
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
+          >
+            {value} <span className="ml-1 text-slate-400">×</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === ",") {
+              event.preventDefault();
+              addToken();
+            }
+          }}
+          placeholder={`Ajouter ${label.toLowerCase()}`}
+          className="w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none placeholder:text-slate-500"
+        />
+        <button
+          type="button"
+          onClick={addToken}
+          className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100"
+        >
+          Ajouter
+        </button>
+      </div>
     </div>
   );
 }

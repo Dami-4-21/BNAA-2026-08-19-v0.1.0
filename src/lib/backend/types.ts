@@ -91,8 +91,16 @@ export type SessionRecord = {
   expiresAt: string;
 };
 
+export type ProjectSetupRecord = {
+  lots: string[];
+  memberIds: string[];
+  phases: string[];
+  zones: string[];
+};
+
 export type ProjectRecord = {
   summary: WorkspaceProject;
+  setup: ProjectSetupRecord;
   site: SiteModuleData;
   documents: DocumentsModuleData;
   finance: FinanceModuleData;
@@ -208,6 +216,17 @@ export type AdminPageData = {
   auditTrail: AuditTrailItem[];
   users: SafeUser[];
   availableProjects: WorkspaceProject[];
+  projects: Array<{
+    summary: WorkspaceProject;
+    setup: ProjectSetupRecord;
+    memberCount: number;
+    members: Array<{
+      id: string;
+      initials: string;
+      name: string;
+      role: string;
+    }>;
+  }>;
   tenant: TenantRecord;
 };
 

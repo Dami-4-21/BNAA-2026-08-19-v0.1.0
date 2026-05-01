@@ -7,6 +7,8 @@ import {
   createAdminUser,
   getAdminPayload,
   isApiError,
+  updateAdminProjectMembers,
+  updateAdminProjectSetup,
   updateAdminUser,
 } from "@/lib/backend/service";
 
@@ -28,7 +30,13 @@ export async function POST(request: NextRequest) {
   try {
     const token = request.cookies.get(sessionCookieName)?.value ?? "";
     const body = (await request.json()) as {
-      action?: "archive-project" | "create-project" | "create-user" | "update-user";
+      action?:
+        | "archive-project"
+        | "create-project"
+        | "create-user"
+        | "update-project-members"
+        | "update-project-setup"
+        | "update-user";
       payload?: Record<string, unknown>;
     };
     const payloadBody = body.payload ?? {};
@@ -52,6 +60,34 @@ export async function POST(request: NextRequest) {
           phases: String(payloadBody.phases ?? ""),
           status: String(payloadBody.status ?? ""),
           zones: String(payloadBody.zones ?? ""),
+        });
+        break;
+      case "update-project-setup":
+        payload = await updateAdminProjectSetup(token, {
+          projectId: String(payloadBody.projectId ?? ""),
+          name: String(payloadBody.name ?? ""),
+          client: String(payloadBody.client ?? ""),
+          location: String(payloadBody.location ?? ""),
+          status: String(payloadBody.status ?? ""),
+          budgetTnd: Number(payloadBody.budgetTnd ?? 0),
+          nextMilestone: String(payloadBody.nextMilestone ?? ""),
+          lots: Array.isArray(payloadBody.lots)
+            ? payloadBody.lots.map((entry) => String(entry))
+            : [],
+          phases: Array.isArray(payloadBody.phases)
+            ? payloadBody.phases.map((entry) => String(entry))
+            : [],
+          zones: Array.isArray(payloadBody.zones)
+            ? payloadBody.zones.map((entry) => String(entry))
+            : [],
+        });
+        break;
+      case "update-project-members":
+        payload = await updateAdminProjectMembers(token, {
+          projectId: String(payloadBody.projectId ?? ""),
+          memberIds: Array.isArray(payloadBody.memberIds)
+            ? payloadBody.memberIds.map((entry) => String(entry))
+            : [],
         });
         break;
       case "update-user":
