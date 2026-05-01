@@ -46,15 +46,7 @@ type DocumentsTab = "library" | "versions" | "distribution" | "offline";
 type ActiveTone = "primary" | "success" | "warning" | "danger";
 
 type DocumentFile = DocumentsPayload["files"][number];
-
-type Recipient = {
-  id: string;
-  documentId: string;
-  name: string;
-  role: string;
-  status: string;
-  acknowledgedAt: string;
-};
+type Recipient = DocumentsPayload["recipients"][number];
 
 type DocumentTreeRoot = {
   title: string;
@@ -156,6 +148,7 @@ export function DocumentsModule() {
       canAcknowledge={canAcknowledge}
       canMarkObsolete={canMarkObsolete}
       canPublishVersion={canPublishVersion}
+      currentUserId={currentUser.id}
       currentUserRole={currentUser.role}
       projectData={projectData}
     />
@@ -168,6 +161,7 @@ function DocumentsModuleContent({
   canDistribute,
   canMarkObsolete,
   canPublishVersion,
+  currentUserId,
   currentUserRole,
   projectData,
 }: {
@@ -176,6 +170,7 @@ function DocumentsModuleContent({
   canDistribute: boolean;
   canMarkObsolete: boolean;
   canPublishVersion: boolean;
+  currentUserId: string;
   currentUserRole: string;
   projectData: DocumentsPayload;
 }) {
@@ -410,6 +405,20 @@ function DocumentsModuleContent({
   const selectedCompareVersion = selectedDocument
     ? comparisonSelections[selectedDocument.id] ?? selectedDocument.compareWith
     : "";
+  const getRecipientAcknowledgeHelper = (recipient: Recipient) => {
+    if (!canAcknowledge) {
+      return "Votre role ne peut pas accuser reception des documents.";
+    }
+
+    if (recipient.userId && currentUserRole !== "Super Admin" && recipient.userId !== currentUserId) {
+      return `Accuse reserve a ${recipient.name}.`;
+    }
+
+    return "Confirmer la lecture de ce document pour la diffusion controlee.";
+  };
+  const canAcknowledgeRecipient = (recipient: Recipient) =>
+    canAcknowledge &&
+    (!recipient.userId || currentUserRole === "Super Admin" || recipient.userId === currentUserId);
 
   const documentFilters = useMemo(
     () => [
@@ -636,7 +645,6 @@ function DocumentsModuleContent({
 
               {activeTab === "distribution" ? selectedDocument ? (
                 <DistributionTab
-                  canAcknowledge={canAcknowledge}
                   canDistributeSelected={canDistributeSelected}
                   distributeActionHelper={distributeActionHelper}
                   selectedDocument={selectedDocument}
@@ -644,7 +652,9 @@ function DocumentsModuleContent({
                   draftVersion={draftVersion}
                   setDraftVersion={setDraftVersion}
                   distributionOptions={projectData.distributionOptions}
+                  canAcknowledgeRecipient={canAcknowledgeRecipient}
                   distributeSelected={distributeSelected}
+                  getRecipientAcknowledgeHelper={getRecipientAcknowledgeHelper}
                   acknowledgeRecipient={acknowledgeRecipient}
                 />
               ) : null : null}
@@ -1074,7 +1084,7 @@ function VersionsTab({
 }
 
 function DistributionTab({
-  canAcknowledge,
+  canAcknowledgeRecipient,
   canDistributeSelected,
   distributeActionHelper,
   selectedDocument,
@@ -1083,9 +1093,10 @@ function DistributionTab({
   setDraftVersion,
   distributionOptions,
   distributeSelected,
+  getRecipientAcknowledgeHelper,
   acknowledgeRecipient,
 }: {
-  canAcknowledge: boolean;
+  canAcknowledgeRecipient: (recipient: Recipient) => boolean;
   canDistributeSelected: boolean;
   distributeActionHelper: string;
   selectedDocument: DocumentFile;
@@ -1104,6 +1115,7 @@ function DistributionTab({
   >;
   distributionOptions: string[];
   distributeSelected: () => void;
+  getRecipientAcknowledgeHelper: (recipient: Recipient) => string;
   acknowledgeRecipient: (recipientId: string) => void;
 }) {
   return (
@@ -1206,16 +1218,14 @@ function DistributionTab({
               </p>
               {recipient.status !== "Lu" ? (
                 <button
-                  onClick={() => (canAcknowledge ? acknowledgeRecipient(recipient.id) : null)}
-                  disabled={!canAcknowledge}
-                  title={
-                    canAcknowledge
-                      ? "Confirmer la lecture de ce document pour la diffusion controlee."
-                      : "Votre role ne peut pas accuser reception des documents."
+                  onClick={() =>
+                    canAcknowledgeRecipient(recipient) ? acknowledgeRecipient(recipient.id) : null
                   }
+                  disabled={!canAcknowledgeRecipient(recipient)}
+                  title={getRecipientAcknowledgeHelper(recipient)}
                   className={cx(
                     "mt-3 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm",
-                    canAcknowledge
+                    canAcknowledgeRecipient(recipient)
                       ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
                       : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
                   )}

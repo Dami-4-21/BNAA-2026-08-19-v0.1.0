@@ -25,6 +25,7 @@ import type {
   DashboardPageData,
   DatabaseState,
   DocumentFileRecord,
+  DocumentRecipientRecord,
   DocumentVersionRecord,
   DocumentsModuleData,
   FinanceModuleData,
@@ -1216,6 +1217,21 @@ function deriveProjectMemberOptions(database: DatabaseState, project: ProjectRec
       name: member.name,
         role: member.role,
       }));
+}
+
+function resolveDistributionRecipients(
+  projectMembers: ReturnType<typeof deriveProjectMemberOptions>,
+  audience: string,
+) {
+  if (audience === "Equipe projet complete" || audience.startsWith("Lot ")) {
+    return projectMembers;
+  }
+
+  const exactMember = projectMembers.find(
+    (member) => `${member.name} - ${member.role}` === audience,
+  );
+
+  return exactMember ? [exactMember] : projectMembers;
 }
 
 function deriveProjectWorkflowOwners(database: DatabaseState, project: ProjectRecord) {
@@ -3006,6 +3022,7 @@ export async function mutateSitePayload(
         break;
       }
       case "mark-pdf-ready": {
+        ensurePermission(user, "site.report.create");
         const reportId = String(payload.reportId ?? "");
         const report = project.site.reports.find((item) => item.id === reportId) as
           | ((typeof project.site.reports)[number] & {
@@ -3015,6 +3032,7 @@ export async function mutateSitePayload(
           | undefined;
         assert(report, 404, "Rapport chantier introuvable.");
         assert(report.signedByCt, 400, "Le rapport doit etre signe cote conducteur avant generation PDF.");
+        assert(report.completeness >= 95, 400, "Le rapport doit etre complet avant preparation du PDF.");
         report.pdfReady = true;
         report.status = "Pret validation";
         report.tone = "primary";
@@ -3476,18 +3494,32 @@ export async function mutateDocumentsPayload(
         ensurePermission(user, "documents.distribute");
         const audience = String(payload.audience ?? "").trim();
         assert(audience, 400, "Audience de diffusion requise.");
+        const projectMembers = deriveProjectMemberOptions(database, project);
+        const distributionRecipients = resolveDistributionRecipients(projectMembers, audience);
+        assert(distributionRecipients.length > 0, 400, "Aucun destinataire n'est associe a cette diffusion.");
         document.status = "Diffusion";
         document.tone = "primary";
         document.lastDistributedAt = todayIso;
-        document.recipients = Math.max(document.recipients, document.readCount + 1);
-        project.documents.recipients.push({
-          id: `REC-${randomUUID().slice(0, 8)}`,
-          documentId,
-          name: audience,
-          role: "Liste de diffusion",
-          status: "Non lu",
-          acknowledgedAt: "",
-        });
+        document.readCount = 0;
+        document.recipients = distributionRecipients.length;
+        project.documents.recipients = project.documents.recipients.filter(
+          (item) => item.documentId !== documentId,
+        );
+        project.documents.recipients.push(
+          ...distributionRecipients.map(
+            (recipient): DocumentRecipientRecord => ({
+              acknowledgedAt: "",
+              audience,
+              distributedAt: toDateTimeLabel(nowTimestamp),
+              documentId,
+              id: `REC-${randomUUID().slice(0, 8)}`,
+              name: recipient.name,
+              role: recipient.role,
+              status: "Non lu",
+              userId: recipient.id,
+            }),
+          ),
+        );
         appendAudit(
           database,
           user.name,
@@ -3512,8 +3544,24 @@ export async function mutateDocumentsPayload(
       }
       case "acknowledge": {
         const recipientId = String(payload.recipientId ?? "");
-        const recipient = project.documents.recipients.find((item) => item.id === recipientId);
+        const recipient = project.documents.recipients.find((item) => item.id === recipientId) as
+          | DocumentRecipientRecord
+          | undefined;
         assert(recipient, 404, "Destinataire introuvable.");
+        if (recipient.userId) {
+          assert(
+            user.role === "Super Admin" || user.id === recipient.userId,
+            403,
+            "Seul le destinataire assigne peut accuser reception de ce document.",
+          );
+        } else {
+          recipient.userId = user.id;
+          recipient.name = user.name;
+          recipient.role = user.role;
+        }
+        if (recipient.status === "Lu") {
+          break;
+        }
         recipient.status = "Lu";
         recipient.acknowledgedAt = toDateTimeLabel(nowTimestamp);
         document.readCount = Math.min(document.readCount + 1, document.recipients);
@@ -3700,14 +3748,12 @@ export async function mutateFinancePayload(
             })
           | undefined;
         assert(invoice, 404, "Facture introuvable.");
-        invoice.status = "Envoyee";
-        invoice.tone = "primary";
-        invoice.validatedByMoe = false;
-        invoice.validatedByMo = false;
-        invoice.moeValidatedBy = "";
-        invoice.moeValidatedAt = "";
-        invoice.moValidatedBy = "";
-        invoice.moValidatedAt = "";
+        invoice.status = invoice.validatedByMo
+          ? "Validee"
+          : invoice.validatedByMoe
+            ? "Validation MO"
+            : "Envoyee";
+        invoice.tone = toInvoiceTone(invoice.status);
         appendAudit(database, user.name, "a envoye une facture", invoiceId);
         appendNotification(database, {
           actor: user.name,

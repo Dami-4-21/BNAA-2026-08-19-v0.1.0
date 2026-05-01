@@ -380,6 +380,23 @@ function SiteModuleContent({
   const projectValidationHelper = canRunProjectValidation
     ? `Validation projet affectee a ${assignedProjectApprover?.name ?? "l'equipe projet"}.`
     : `En attente de la validation projet par ${assignedProjectApprover?.name ?? "le chef de projet"}.`;
+  const canPrepareReportPdf = (report: ReportItem) =>
+    canCreateReport && report.completeness >= 95 && report.signedByCt;
+  const getReportPdfHelper = (report: ReportItem) => {
+    if (!canCreateReport) {
+      return "Votre role ne peut pas preparer les PDF de rapport.";
+    }
+
+    if (report.completeness < 95) {
+      return "Le rapport doit etre complet avant la preparation du PDF.";
+    }
+
+    if (!report.signedByCt) {
+      return "Le rapport doit d'abord etre signe cote conducteur.";
+    }
+
+    return "Preparer le PDF de ce rapport pour validation et archivage.";
+  };
   const canSubmitReport = Boolean(
     canCreateReport &&
       formState.reportDate &&
@@ -1135,11 +1152,14 @@ function SiteModuleContent({
                       ) : null}
                       {!report.pdfReady ? (
                         <button
-                          onClick={() => (canCreateReport ? markPdfReady(report.id) : null)}
-                          disabled={!canCreateReport}
+                          onClick={() =>
+                            canPrepareReportPdf(report) ? markPdfReady(report.id) : null
+                          }
+                          disabled={!canPrepareReportPdf(report)}
+                          title={getReportPdfHelper(report)}
                           className={cx(
                             "rounded-2xl px-4 py-2 text-sm font-semibold",
-                            canCreateReport
+                            canPrepareReportPdf(report)
                               ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
                               : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
                           )}

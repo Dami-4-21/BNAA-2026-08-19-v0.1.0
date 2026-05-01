@@ -112,8 +112,18 @@ export type DocumentFileRecord = Omit<
   versions: DocumentVersionRecord[];
 };
 
-export type DocumentsModuleData = Omit<DocumentsModuleBaseData, "files"> & {
+export type DocumentRecipientRecord = DocumentsModuleBaseData["recipients"][number] & {
+  audience?: string;
+  distributedAt?: string;
+  userId?: string;
+};
+
+export type DocumentsModuleRecord = Omit<DocumentsModuleBaseData, "files" | "recipients"> & {
   files: DocumentFileRecord[];
+  recipients: DocumentRecipientRecord[];
+};
+
+export type DocumentsModuleData = DocumentsModuleRecord & {
   distributionOptions: string[];
   projectMembers: ProjectMemberOption[];
   projectSetup: ProjectSetupRecord;
@@ -159,7 +169,7 @@ export type ProjectRecord = {
   summary: WorkspaceProject;
   setup: ProjectSetupRecord;
   site: SiteModuleBaseData;
-  documents: DocumentsModuleBaseData;
+  documents: DocumentsModuleRecord;
   finance: FinanceModuleBaseData;
 };
 
