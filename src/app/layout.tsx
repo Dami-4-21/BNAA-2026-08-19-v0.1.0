@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Manrope, Sora } from "next/font/google";
 import { AuthProvider } from "@/components/auth-context";
+import { PwaProvider } from "@/components/pwa-provider";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -23,6 +24,7 @@ export const metadata: Metadata = {
   title: "BnaaSaaS",
   description:
     "Plateforme de gestion de projets genie civil pour suivi de chantier, documents et finance.",
+  applicationName: "BnaaSaaS",
 };
 
 export default function RootLayout({
@@ -36,7 +38,9 @@ export default function RootLayout({
       className={`${manrope.variable} ${sora.variable} ${plexMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col soft-scrollbar">
-        <AuthProvider>{children}</AuthProvider>
+        <PwaProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </PwaProvider>
       </body>
     </html>
   );

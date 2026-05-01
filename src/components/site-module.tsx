@@ -2,9 +2,11 @@
 
 import {
   startTransition,
+  useCallback,
   useEffect,
   useDeferredValue,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -20,6 +22,7 @@ import {
   Signature,
   TimerReset,
   Waves,
+  WifiOff,
 } from "lucide-react";
 
 import {
@@ -34,6 +37,15 @@ import {
 import { formatDate } from "@/lib/format";
 import { apiFetch, apiUpload } from "@/lib/api";
 import type { SiteModuleData as SitePayload } from "@/lib/backend/types";
+import {
+  clearSiteDraft,
+  enqueuePendingSiteReport,
+  loadPendingSiteReports,
+  loadSiteDraft,
+  overwritePendingSiteReports,
+  type PendingSiteReportAction,
+  saveSiteDraft,
+} from "@/lib/offline";
 import { useWorkspace } from "@/components/workspace-context";
 
 type TabKey = "overview" | "rjc" | "photos" | "ncr";
@@ -193,6 +205,31 @@ function openPdf(url?: string) {
   link.click();
 }
 
+function normalizeReportFormState(formState: FormState) {
+  return {
+    ...formState,
+    reportDate: formState.reportDate.includes("/")
+      ? formState.reportDate.split("/").reverse().join("-")
+      : formState.reportDate,
+  };
+}
+
+function isOfflineFailure(error: unknown) {
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    return true;
+  }
+
+  if (error instanceof TypeError) {
+    return true;
+  }
+
+  if (error instanceof Error) {
+    return /fetch|network|connexion/i.test(error.message);
+  }
+
+  return false;
+}
+
 export function SiteModule() {
   const { activeProject, can, currentUser } = useWorkspace();
   const [projectData, setProjectData] = useState<SitePayload | null>(null);
@@ -285,9 +322,20 @@ function SiteModuleContent({
   currentUserRole: string;
   projectData: SitePayload;
 }) {
+  const initialSavedDraft =
+    typeof window === "undefined" ? null : loadSiteDraft<FormState>(activeProject.id);
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [searchPhotos, setSearchPhotos] = useState("");
   const [photoLotFilter, setPhotoLotFilter] = useState("Tous");
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
+  const [pendingSyncCount, setPendingSyncCount] = useState(() =>
+    typeof window === "undefined" ? 0 : loadPendingSiteReports(activeProject.id).length,
+  );
+  const [syncNotice, setSyncNotice] = useState(() =>
+    initialSavedDraft ? "Brouillon local recharge pour reprise terrain." : "",
+  );
   const [overview, setOverview] = useState(projectData.overview);
   const [lotProgress, setLotProgress] = useState(projectData.lotProgress);
   const [signatureQueue, setSignatureQueue] = useState(projectData.signatureQueue);
@@ -296,12 +344,13 @@ function SiteModuleContent({
   const [ncrs, setNcrs] = useState<NcrItem[]>(projectData.ncrs);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [editingReportId, setEditingReportId] = useState("");
-  const [formState, setFormState] = useState<FormState>(() =>
-    createFormState(projectData),
+  const [formState, setFormState] = useState<FormState>(
+    () => initialSavedDraft ?? createFormState(projectData),
   );
   const [draftPhoto, setDraftPhoto] = useState(projectData.draftPhoto);
   const [draftNcr, setDraftNcr] = useState(projectData.draftNcr);
   const [mutationError, setMutationError] = useState("");
+  const syncInFlight = useRef(false);
   const availableLotOptions = projectData.projectSetup.lots;
   const availableZoneOptions = projectData.projectSetup.zones;
   const responsibleOptions = projectData.projectMembers.map((member) => member.name);
@@ -323,6 +372,24 @@ function SiteModuleContent({
       setDraftNcr(nextData.draftNcr);
     });
   }
+
+  useEffect(() => {
+    saveSiteDraft(activeProject.id, formState);
+  }, [activeProject.id, formState]);
+
+  useEffect(() => {
+    function updateNetworkStatus() {
+      setIsOnline(window.navigator.onLine);
+    }
+
+    window.addEventListener("online", updateNetworkStatus);
+    window.addEventListener("offline", updateNetworkStatus);
+
+    return () => {
+      window.removeEventListener("online", updateNetworkStatus);
+      window.removeEventListener("offline", updateNetworkStatus);
+    };
+  }, []);
 
   async function runSiteAction(action: string, payload: Record<string, unknown>) {
     const nextData = await apiFetch<SitePayload>(`/api/projects/${activeProject.id}/site`, {
@@ -361,19 +428,117 @@ function SiteModuleContent({
 
   const latestReport = reports[0];
 
+  const syncPendingReports = useCallback(async () => {
+    if (!isOnline || syncInFlight.current) {
+      return;
+    }
+
+    const queue = loadPendingSiteReports(activeProject.id);
+    if (queue.length === 0) {
+      setPendingSyncCount(0);
+      return;
+    }
+
+    syncInFlight.current = true;
+    setSyncNotice(
+      `${queue.length} rapport(s) hors ligne en cours de synchronisation.`,
+    );
+
+    let remainingQueue = [...queue];
+    let lastPayload: SitePayload | null = null;
+
+    try {
+      for (const queuedAction of queue) {
+        try {
+          lastPayload = await apiFetch<SitePayload>(`/api/projects/${activeProject.id}/site`, {
+            method: "POST",
+            body: {
+              action: queuedAction.action,
+              payload: {
+                reportId: queuedAction.reportId,
+                formState: queuedAction.formState,
+              },
+            },
+          });
+
+          remainingQueue = remainingQueue.filter((entry) => entry.id !== queuedAction.id);
+          overwritePendingSiteReports(activeProject.id, remainingQueue);
+        } catch (error) {
+          if (isOfflineFailure(error)) {
+            break;
+          }
+
+          remainingQueue = remainingQueue.filter((entry) => entry.id !== queuedAction.id);
+          overwritePendingSiteReports(activeProject.id, remainingQueue);
+          setMutationError(
+            error instanceof Error
+              ? error.message
+              : "Une action hors ligne n'a pas pu etre synchronisee.",
+          );
+        }
+      }
+
+      setPendingSyncCount(remainingQueue.length);
+
+      if (lastPayload) {
+        applyProjectData(lastPayload);
+      }
+
+      if (remainingQueue.length === 0) {
+        clearSiteDraft(activeProject.id);
+        setSyncNotice("Tous les rapports hors ligne ont ete synchronises.");
+      } else {
+        setSyncNotice(
+          `${remainingQueue.length} rapport(s) restent en attente de reseau.`,
+        );
+      }
+    } finally {
+      syncInFlight.current = false;
+    }
+  }, [activeProject.id, isOnline]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void syncPendingReports();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [syncPendingReports]);
+
   async function submitDailyReport() {
+    const normalizedFormState = normalizeReportFormState(formState);
+
     try {
       await runSiteAction(editingReportId ? "update-report" : "create-report", {
         reportId: editingReportId,
-        formState: {
-          ...formState,
-          reportDate: formState.reportDate.includes("/")
-            ? formState.reportDate.split("/").reverse().join("-")
-            : formState.reportDate,
-        },
+        formState: normalizedFormState,
       });
+      clearSiteDraft(activeProject.id);
+      setSyncNotice("");
       setActiveTab("overview");
     } catch (error) {
+      if (isOfflineFailure(error)) {
+        const queued = enqueuePendingSiteReport({
+          action: editingReportId ? "update-report" : "create-report",
+          formState: normalizedFormState as Record<string, unknown>,
+          id:
+            typeof crypto !== "undefined" && "randomUUID" in crypto
+              ? crypto.randomUUID()
+              : `${Date.now()}`,
+          projectId: activeProject.id,
+          queuedAt: new Date().toISOString(),
+          reportId: editingReportId || undefined,
+        } satisfies PendingSiteReportAction);
+
+        setMutationError("");
+        setPendingSyncCount(queued.length);
+        setSyncNotice(
+          "Rapport enregistre hors ligne. Il sera synchronise automatiquement au retour du reseau.",
+        );
+        setActiveTab("overview");
+        return;
+      }
+
       setMutationError(
         error instanceof Error ? error.message : "Creation du rapport impossible.",
       );
@@ -510,6 +675,40 @@ function SiteModuleContent({
           />
         ))}
       </div>
+
+      {!isOnline || pendingSyncCount > 0 ? (
+        <div
+          className={cx(
+            "flex flex-col gap-3 rounded-[22px] border px-4 py-4 text-sm leading-6 md:flex-row md:items-center md:justify-between",
+            !isOnline
+              ? "border-amber-200 bg-amber-50 text-amber-800"
+              : "border-sky-200 bg-sky-50 text-sky-800",
+          )}
+        >
+          <div className="flex items-start gap-3">
+            <WifiOff className="mt-0.5 size-4 shrink-0" />
+            <div>
+              <p className="font-semibold">
+                {!isOnline ? "Mode hors ligne actif" : "Synchronisation en attente"}
+              </p>
+              <p>
+                {syncNotice ||
+                  (!isOnline
+                    ? "Les brouillons RJC sont conserves localement jusqu'au retour du reseau."
+                    : `${pendingSyncCount} rapport(s) terrain seront synchronises automatiquement.`)}
+              </p>
+            </div>
+          </div>
+          {isOnline && pendingSyncCount > 0 ? (
+            <button
+              onClick={() => void syncPendingReports()}
+              className="rounded-2xl border border-sky-200 bg-white px-4 py-2 font-semibold text-sky-900 hover:bg-sky-100"
+            >
+              Synchroniser maintenant
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {!canCreateReport || !canAddPhoto || !canCreateNcr || !canValidateReport ? (
         <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm leading-6 text-stone-600">

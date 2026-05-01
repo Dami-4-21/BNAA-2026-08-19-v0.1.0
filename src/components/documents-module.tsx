@@ -33,6 +33,11 @@ import {
 import { formatDate } from "@/lib/format";
 import { apiFetch, apiUpload } from "@/lib/api";
 import type { DocumentsModuleData as DocumentsPayload } from "@/lib/backend/types";
+import {
+  cacheDocumentForOffline,
+  isDocumentCached,
+  removeCachedDocument,
+} from "@/lib/offline";
 import { useWorkspace } from "@/components/workspace-context";
 
 type DocumentsTab = "library" | "versions" | "distribution" | "offline";
@@ -194,9 +199,13 @@ function DocumentsModuleContent({
   projectData: DocumentsPayload;
 }) {
   const [activeTab, setActiveTab] = useState<DocumentsTab>("library");
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
   const [overview, setOverview] = useState(projectData.overview);
   const [documents, setDocuments] = useState<DocumentFile[]>(projectData.files);
   const [recipients, setRecipients] = useState<Recipient[]>(projectData.recipients);
+  const [cachedDocumentUrls, setCachedDocumentUrls] = useState<string[]>([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState(
     projectData.files[0]?.id ?? "",
   );
@@ -234,6 +243,46 @@ function DocumentsModuleContent({
       );
     });
   }
+
+  useEffect(() => {
+    function updateNetworkStatus() {
+      setIsOnline(window.navigator.onLine);
+    }
+
+    window.addEventListener("online", updateNetworkStatus);
+    window.addEventListener("offline", updateNetworkStatus);
+
+    return () => {
+      window.removeEventListener("online", updateNetworkStatus);
+      window.removeEventListener("offline", updateNetworkStatus);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function readCachedDocuments() {
+      const urls = await Promise.all(
+        documents.map(async (document) => {
+          if (!document.downloadUrl) {
+            return null;
+          }
+
+          return (await isDocumentCached(document.downloadUrl)) ? document.downloadUrl : null;
+        }),
+      );
+
+      if (!cancelled) {
+        setCachedDocumentUrls(urls.filter(Boolean) as string[]);
+      }
+    }
+
+    void readCachedDocuments();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [documents]);
 
   async function runDocumentsAction(action: string, payload: Record<string, unknown>) {
     const nextData = await apiFetch<DocumentsPayload>(`/api/projects/${activeProjectId}/documents`, {
@@ -371,7 +420,24 @@ function DocumentsModuleContent({
 
   async function toggleOffline(documentId: string) {
     try {
-      await runDocumentsAction("toggle-offline", { documentId });
+      const nextData = await runDocumentsAction("toggle-offline", { documentId });
+      const nextDocument = nextData.files.find((item) => item.id === documentId) as
+        | DocumentFile
+        | undefined;
+
+      if (nextDocument?.downloadUrl) {
+        if (nextDocument.offlineReady) {
+          await cacheDocumentForOffline(nextDocument.downloadUrl);
+        } else {
+          await removeCachedDocument(nextDocument.downloadUrl);
+        }
+      }
+
+      setCachedDocumentUrls(
+        (nextData.files as DocumentFile[])
+          .filter((item) => item.offlineReady && item.downloadUrl)
+          .map((item) => item.downloadUrl as string),
+      );
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Sync offline impossible.");
     }
@@ -425,6 +491,12 @@ function DocumentsModuleContent({
           />
         ))}
       </div>
+
+      {!isOnline ? (
+        <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-800">
+          Mode hors ligne actif. Les plans deja mis en cache restent accessibles depuis cet appareil.
+        </div>
+      ) : null}
 
       {!canPublishVersion || !canDistribute || !canMarkObsolete ? (
         <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm leading-6 text-stone-600">
@@ -506,6 +578,7 @@ function DocumentsModuleContent({
                 <OfflineTab
                   documents={documents}
                   offlineSummary={overview.offline}
+                  cachedUrls={cachedDocumentUrls}
                   toggleOffline={toggleOffline}
                 />
               ) : null}
@@ -1046,6 +1119,7 @@ function DistributionTab({
 function OfflineTab({
   documents,
   offlineSummary,
+  cachedUrls,
   toggleOffline,
 }: {
   documents: DocumentFile[];
@@ -1054,9 +1128,14 @@ function OfflineTab({
     cachedFiles: number;
     coverage: string;
   };
+  cachedUrls: string[];
   toggleOffline: (documentId: string) => void;
 }) {
-  const cached = documents.filter((document) => document.offlineReady).length;
+  const cached = documents.filter(
+    (document) =>
+      document.offlineReady ||
+      (document.downloadUrl ? cachedUrls.includes(document.downloadUrl) : false),
+  ).length;
 
   return (
     <div className="space-y-4">
@@ -1110,7 +1189,10 @@ function OfflineTab({
                   </p>
                 </div>
                 <StatusBadge tone={document.offlineReady ? "success" : "warning"}>
-                  {document.offlineReady ? "En cache" : "Hors cache"}
+                  {document.offlineReady ||
+                  (document.downloadUrl ? cachedUrls.includes(document.downloadUrl) : false)
+                    ? "En cache"
+                    : "Hors cache"}
                 </StatusBadge>
               </div>
               <button
