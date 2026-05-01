@@ -14,6 +14,7 @@ import {
 import { saveUploadedFile } from "@/lib/backend/files";
 import { dispatchNotificationEmail as sendNotificationEmail } from "@/lib/backend/mail";
 import { buildDailyReportPdf, buildInvoicePdf } from "@/lib/backend/pdf";
+import { resolveProjectWeather } from "@/lib/backend/weather";
 import { financeVatRegimes } from "@/lib/mock-data";
 import { createSessionExpiry, createSessionToken } from "@/lib/backend/session";
 import { readDatabase, updateDatabase } from "@/lib/backend/store";
@@ -1025,7 +1026,10 @@ function deriveProjectMemberOptions(database: DatabaseState, project: ProjectRec
     }));
 }
 
-function deriveSiteData(database: DatabaseState, project: ProjectRecord): SiteModuleData {
+async function deriveSiteData(
+  database: DatabaseState,
+  project: ProjectRecord,
+): Promise<SiteModuleData> {
   const site = clone(project.site);
   site.reports = site.reports.map((report) => ({
     ...report,
@@ -1121,6 +1125,12 @@ function deriveSiteData(database: DatabaseState, project: ProjectRecord): SiteMo
       tone: latestReport?.pdfReady ? "primary" : "warning",
     },
   ];
+
+  site.overview.weather = await resolveProjectWeather({
+    fallback: clone(site.overview.weather),
+    location: project.summary.location,
+    projectId: project.summary.id,
+  });
 
   return {
     ...site,
@@ -1454,14 +1464,14 @@ function buildDashboardMetrics(project: ProjectRecord) {
   ];
 }
 
-function buildDashboardData(
+async function buildDashboardData(
   database: DatabaseState,
   user: AppUser | SafeUser,
   projectId: string,
-): DashboardPageData {
+): Promise<DashboardPageData> {
   ensureProjectAccess(user, projectId);
   const project = getProjectRecord(database, projectId);
-  const site = deriveSiteData(database, project);
+  const site = await deriveSiteData(database, project);
   const documents = deriveDocumentsData(database, project);
   const finance = deriveFinanceData(database, project);
   const userNotifications = getUserNotifications(database, user).map((notification) =>
@@ -1690,7 +1700,7 @@ export async function getDashboardPayload(token: string, projectId: string) {
   ensureSystemUsers(database);
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
-  return buildDashboardData(database, user, projectId);
+  return await buildDashboardData(database, user, projectId);
 }
 
 export async function getProjectsPayload(token: string): Promise<ProjectsPageData> {
@@ -2386,7 +2396,7 @@ export async function getSitePayload(token: string, projectId: string) {
   assert(user, 401, "Session invalide ou expiree.");
   ensurePermission(user, "site.view");
   ensureProjectAccess(user, projectId);
-  return deriveSiteData(database, getProjectRecord(database, projectId));
+  return await deriveSiteData(database, getProjectRecord(database, projectId));
 }
 
 export async function downloadSiteReportPdf(token: string, projectId: string, reportId: string) {
@@ -2542,7 +2552,7 @@ export async function uploadSitePhoto(
       entry.code === portfolioEntry.code ? portfolioEntry : entry,
     );
 
-    return deriveSiteData(database, project);
+    return await deriveSiteData(database, project);
   });
 }
 
@@ -2903,7 +2913,7 @@ export async function mutateSitePayload(
       entry.code === portfolioEntry.code ? portfolioEntry : entry,
     );
 
-    return deriveSiteData(database, project);
+    return await deriveSiteData(database, project);
   });
 }
 
