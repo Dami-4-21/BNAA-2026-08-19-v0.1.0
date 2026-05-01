@@ -358,6 +358,7 @@ function SiteModuleContent({
   const [draftPhoto, setDraftPhoto] = useState(projectData.draftPhoto);
   const [draftNcr, setDraftNcr] = useState(projectData.draftNcr);
   const [mutationError, setMutationError] = useState("");
+  const [pendingAction, setPendingAction] = useState("");
   const syncInFlight = useRef(false);
   const availableLotOptions = projectData.projectSetup.lots;
   const availableZoneOptions = projectData.projectSetup.zones;
@@ -402,7 +403,8 @@ function SiteModuleContent({
       formState.reportDate &&
       formState.weather &&
       formState.workforceCount > 0 &&
-      formState.activities.trim().length > 0,
+      formState.activities.trim().length > 0 &&
+      !pendingAction,
   );
   const reportActionHelper = !canCreateReport
     ? "Votre role peut consulter les rapports, mais pas en soumettre."
@@ -421,7 +423,8 @@ function SiteModuleContent({
       draftPhoto.title.trim() &&
       draftPhoto.zone.trim() &&
       draftPhoto.lot.trim() &&
-      draftPhoto.task.trim(),
+      draftPhoto.task.trim() &&
+      !pendingAction,
   );
   const photoActionHelper = !canAddPhoto
     ? "Votre role peut consulter le journal photo, mais pas y ajouter de nouveaux elements."
@@ -439,7 +442,8 @@ function SiteModuleContent({
       draftNcr.title.trim() &&
       draftNcr.owner.trim() &&
       draftNcr.dueDate.trim() &&
-      draftNcr.description.trim(),
+      draftNcr.description.trim() &&
+      !pendingAction,
   );
   const ncrActionHelper = !canCreateNcr
     ? "Votre role peut consulter les non-conformites, mais pas en creer."
@@ -520,17 +524,26 @@ function SiteModuleContent({
     };
   }, []);
 
-  async function runSiteAction(action: string, payload: Record<string, unknown>) {
-    const nextData = await apiFetch<SitePayload>(`/api/projects/${activeProject.id}/site`, {
-      method: "POST",
-      body: {
-        action,
-        payload,
-      },
-    });
-    setMutationError("");
-    applyProjectData(nextData);
-    return nextData;
+  async function runSiteAction(
+    action: string,
+    payload: Record<string, unknown>,
+    pendingKey = action,
+  ) {
+    setPendingAction(pendingKey);
+    try {
+      const nextData = await apiFetch<SitePayload>(`/api/projects/${activeProject.id}/site`, {
+        method: "POST",
+        body: {
+          action,
+          payload,
+        },
+      });
+      setMutationError("");
+      applyProjectData(nextData);
+      return nextData;
+    } finally {
+      setPendingAction("");
+    }
   }
 
   const reportCompleteness = percentComplete({
@@ -638,10 +651,14 @@ function SiteModuleContent({
     const normalizedFormState = normalizeReportFormState(formState);
 
     try {
-      await runSiteAction(editingReportId ? "update-report" : "create-report", {
-        reportId: editingReportId,
-        formState: normalizedFormState,
-      });
+      await runSiteAction(
+        editingReportId ? "update-report" : "create-report",
+        {
+          reportId: editingReportId,
+          formState: normalizedFormState,
+        },
+        editingReportId ? "update-report" : "create-report",
+      );
       clearSiteDraft(activeProject.id);
       setSyncNotice("");
       selectTab("overview");
@@ -703,7 +720,7 @@ function SiteModuleContent({
 
   async function markPdfReady(reportId: string) {
     try {
-      const nextData = await runSiteAction("mark-pdf-ready", { reportId });
+      const nextData = await runSiteAction("mark-pdf-ready", { reportId }, "mark-pdf-ready");
       const nextReport = nextData.reports.find((report) => report.id === reportId) as
         | ReportItem
         | undefined;
@@ -715,7 +732,7 @@ function SiteModuleContent({
 
   async function signAsMoe(reportId: string) {
     try {
-      await runSiteAction("sign-report", { reportId });
+      await runSiteAction("sign-report", { reportId }, "sign-report");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Signature impossible.");
     }
@@ -730,6 +747,8 @@ function SiteModuleContent({
       if (!photoFile) {
         throw new Error("Choisissez une photo a joindre au journal chantier.");
       }
+
+      setPendingAction("add-photo");
 
       const formData = new FormData();
       formData.set("title", draftPhoto.title);
@@ -752,6 +771,8 @@ function SiteModuleContent({
       selectTab("photos");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Ajout photo impossible.");
+    } finally {
+      setPendingAction("");
     }
   }
 
@@ -784,7 +805,7 @@ function SiteModuleContent({
 
   async function createNcr() {
     try {
-      await runSiteAction("create-ncr", { draftNcr });
+      await runSiteAction("create-ncr", { draftNcr }, "create-ncr");
       selectTab("ncr");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Creation NC impossible.");
@@ -793,7 +814,7 @@ function SiteModuleContent({
 
   async function closeNcr(ref: string) {
     try {
-      await runSiteAction("close-ncr", { ref });
+      await runSiteAction("close-ncr", { ref }, "close-ncr");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Cloture NC impossible.");
     }
@@ -807,10 +828,10 @@ function SiteModuleContent({
         action={
           <button
             onClick={() => (canCreateReport ? selectTab("rjc") : null)}
-            disabled={!canCreateReport}
+            disabled={!canCreateReport || Boolean(pendingAction)}
             className={cx(
               "rounded-2xl px-4 py-3 text-sm font-semibold",
-              canCreateReport
+              canCreateReport && !pendingAction
                 ? "bg-black text-white hover:bg-stone-800"
                 : "cursor-not-allowed bg-stone-200 text-stone-500",
             )}
@@ -919,6 +940,7 @@ function SiteModuleContent({
                   editingReportId={editingReportId}
                   formState={formState}
                   setFormState={setFormState}
+                  pendingAction={pendingAction}
                   reportCompleteness={reportCompleteness}
                   incidentTemplates={projectData.incidentTemplates}
                   openOverviewTab={() =>
@@ -936,6 +958,7 @@ function SiteModuleContent({
               {activeTab === "photos" ? (
                 <PhotosTab
                   draftPhoto={draftPhoto}
+                  pendingAction={pendingAction}
                   photoFile={photoFile}
                   setPhotoFile={setPhotoFile}
                   setDraftPhoto={setDraftPhoto}
@@ -958,6 +981,7 @@ function SiteModuleContent({
                 <NcrTab
                   canCloseNcr={canCloseNcr}
                   draftNcr={draftNcr}
+                  pendingAction={pendingAction}
                   setDraftNcr={setDraftNcr}
                   ncrs={ncrs}
                   responsibleOptions={responsibleOptions}
@@ -1155,16 +1179,16 @@ function SiteModuleContent({
                           onClick={() =>
                             canPrepareReportPdf(report) ? markPdfReady(report.id) : null
                           }
-                          disabled={!canPrepareReportPdf(report)}
+                          disabled={!canPrepareReportPdf(report) || pendingAction === "mark-pdf-ready"}
                           title={getReportPdfHelper(report)}
                           className={cx(
                             "rounded-2xl px-4 py-2 text-sm font-semibold",
-                            canPrepareReportPdf(report)
+                            canPrepareReportPdf(report) && pendingAction !== "mark-pdf-ready"
                               ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
                               : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
                           )}
                         >
-                          Generer PDF
+                          {pendingAction === "mark-pdf-ready" ? "Preparation..." : "Generer PDF"}
                         </button>
                       ) : null}
                       {report.pdfReady && report.pdfUrl ? (
@@ -1178,16 +1202,16 @@ function SiteModuleContent({
                       {!report.signedByMoe ? (
                         <button
                           onClick={() => (canRunProjectValidation ? signAsMoe(report.id) : null)}
-                          disabled={!canRunProjectValidation}
+                          disabled={!canRunProjectValidation || pendingAction === "sign-report"}
                           title={projectValidationHelper}
                           className={cx(
                             "rounded-2xl px-4 py-2 text-sm font-semibold",
-                            canRunProjectValidation
+                            canRunProjectValidation && pendingAction !== "sign-report"
                               ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                               : "cursor-not-allowed bg-slate-700 text-slate-400",
                           )}
                         >
-                          Valider cote projet
+                          {pendingAction === "sign-report" ? "Validation..." : "Valider cote projet"}
                         </button>
                       ) : null}
                     </div>
@@ -1382,6 +1406,7 @@ function RjcTab({
   editingReportId,
   formState,
   setFormState,
+  pendingAction,
   reportCompleteness,
   incidentTemplates,
   openOverviewTab,
@@ -1395,6 +1420,7 @@ function RjcTab({
   editingReportId: string;
   formState: FormState;
   setFormState: React.Dispatch<React.SetStateAction<FormState>>;
+  pendingAction: string;
   reportCompleteness: number;
   incidentTemplates: string[];
   openOverviewTab: () => void;
@@ -1624,9 +1650,9 @@ function RjcTab({
             </button>
           ) : null}
 
-          <button
-            onClick={() => (canSubmitReport ? submitDailyReport() : null)}
-            disabled={!canSubmitReport}
+            <button
+              onClick={() => (canSubmitReport ? submitDailyReport() : null)}
+              disabled={!canSubmitReport}
             title={reportActionHelper}
             className={cx(
               "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
@@ -1634,14 +1660,16 @@ function RjcTab({
                 ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                 : "cursor-not-allowed bg-slate-700 text-slate-400",
             )}
-          >
-            <CheckCheck className="size-4" />
-            {canSubmitReport
-              ? editingReportId
-                ? "Mettre a jour le RJC"
-                : "Soumettre le RJC du jour"
-              : "Lecture seule sur le RJC"}
-          </button>
+            >
+              <CheckCheck className="size-4" />
+              {pendingAction === "create-report" || pendingAction === "update-report"
+                ? "Enregistrement..."
+                : canSubmitReport
+                  ? editingReportId
+                    ? "Mettre a jour le RJC"
+                    : "Soumettre le RJC du jour"
+                  : "Lecture seule sur le RJC"}
+            </button>
           <p className="text-xs leading-5 text-slate-400">{reportActionHelper}</p>
         </div>
       </div>
@@ -1652,6 +1680,7 @@ function RjcTab({
 function PhotosTab({
   captureGps,
   draftPhoto,
+  pendingAction,
   photoFile,
   setPhotoFile,
   setDraftPhoto,
@@ -1684,6 +1713,7 @@ function PhotosTab({
       geo: string;
     }>
   >;
+  pendingAction: string;
   photoFile: File | null;
   setPhotoFile: React.Dispatch<React.SetStateAction<File | null>>;
   photos: PhotoItem[];
@@ -1778,7 +1808,11 @@ function PhotosTab({
               )}
             >
               <Camera className="size-4" />
-              {canSubmitPhoto ? "Ajouter au journal photo" : "Ajout photo indisponible"}
+              {pendingAction === "add-photo"
+                ? "Ajout en cours..."
+                : canSubmitPhoto
+                  ? "Ajouter au journal photo"
+                  : "Ajout photo indisponible"}
             </button>
           </div>
           <p className="text-xs leading-5 text-slate-400">{photoActionHelper}</p>
@@ -1862,6 +1896,7 @@ function PhotosTab({
 function NcrTab({
   canCloseNcr,
   draftNcr,
+  pendingAction,
   setDraftNcr,
   ncrs,
   responsibleOptions,
@@ -1891,6 +1926,7 @@ function NcrTab({
       photoAttached: boolean;
     }>
   >;
+  pendingAction: string;
   ncrs: NcrItem[];
   responsibleOptions: string[];
   focusedNcrRef: string;
@@ -1989,7 +2025,11 @@ function NcrTab({
             )}
           >
             <ShieldAlert className="size-4" />
-            {canSubmitNcr ? "Creer la fiche NC" : "Creation NC indisponible"}
+            {pendingAction === "create-ncr"
+              ? "Creation en cours..."
+              : canSubmitNcr
+                ? "Creer la fiche NC"
+                : "Creation NC indisponible"}
           </button>
           <p className="text-xs leading-5 text-slate-400">{ncrActionHelper}</p>
         </div>
@@ -2024,16 +2064,16 @@ function NcrTab({
                 {item.status !== "Levee" ? (
                   <button
                     onClick={() => (canCloseNcr ? closeNcr(item.ref) : null)}
-                    disabled={!canCloseNcr}
+                    disabled={!canCloseNcr || pendingAction === "close-ncr"}
                     title={closeNcrHelper}
                     className={cx(
                       "rounded-2xl px-4 py-2 text-sm font-semibold",
-                      canCloseNcr
+                      canCloseNcr && pendingAction !== "close-ncr"
                         ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
                         : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
                     )}
                   >
-                    Cloturer
+                    {pendingAction === "close-ncr" ? "Cloture..." : "Cloturer"}
                   </button>
                 ) : null}
               </div>

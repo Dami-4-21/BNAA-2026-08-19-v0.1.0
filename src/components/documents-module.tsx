@@ -200,6 +200,7 @@ function DocumentsModuleContent({
   });
   const [versionFile, setVersionFile] = useState<File | null>(null);
   const [mutationError, setMutationError] = useState("");
+  const [pendingAction, setPendingAction] = useState("");
 
   const deferredSearch = useDeferredValue(search);
 
@@ -284,17 +285,26 @@ function DocumentsModuleContent({
     };
   }, [documents]);
 
-  async function runDocumentsAction(action: string, payload: Record<string, unknown>) {
-    const nextData = await apiFetch<DocumentsPayload>(`/api/projects/${activeProjectId}/documents`, {
-      method: "POST",
-      body: {
-        action,
-        payload,
-      },
-    });
-    setMutationError("");
-    applyProjectData(nextData);
-    return nextData;
+  async function runDocumentsAction(
+    action: string,
+    payload: Record<string, unknown>,
+    pendingKey = action,
+  ) {
+    setPendingAction(pendingKey);
+    try {
+      const nextData = await apiFetch<DocumentsPayload>(`/api/projects/${activeProjectId}/documents`, {
+        method: "POST",
+        body: {
+          action,
+          payload,
+        },
+      });
+      setMutationError("");
+      applyProjectData(nextData);
+      return nextData;
+    } finally {
+      setPendingAction("");
+    }
   }
 
   const selectedDocument =
@@ -372,7 +382,9 @@ function DocumentsModuleContent({
         metadataDraft.lot !== selectedDocument.lot ||
         metadataDraft.phase !== selectedDocument.phase),
   );
-  const canSubmitMetadataUpdate = Boolean(canPublishVersion && selectedDocument && hasMetadataChanges);
+  const canSubmitMetadataUpdate = Boolean(
+    canPublishVersion && selectedDocument && hasMetadataChanges && !pendingAction,
+  );
   const metadataActionHelper = !canPublishVersion
     ? "Votre role peut consulter les metadonnees, mais pas les modifier."
     : !selectedDocument
@@ -380,14 +392,14 @@ function DocumentsModuleContent({
       : hasMetadataChanges
         ? "Les metadonnees modifiees seront enregistrees sur la revision courante."
         : "Aucune modification de metadonnees a enregistrer.";
-  const canPublishSelectedVersion = Boolean(canPublishVersion && versionFile);
+  const canPublishSelectedVersion = Boolean(canPublishVersion && versionFile && !pendingAction);
   const publishVersionHelper = !canPublishVersion
     ? "Votre role ne peut pas publier de nouvelle revision."
     : versionFile
       ? "La nouvelle revision sera publiee comme version courante."
       : "Ajoutez un fichier avant de publier une nouvelle revision.";
   const canMarkSelectedObsolete = Boolean(
-    canMarkObsolete && selectedDocument && selectedDocument.status !== "Obsolete",
+    canMarkObsolete && selectedDocument && selectedDocument.status !== "Obsolete" && !pendingAction,
   );
   const markObsoleteHelper = !canMarkObsolete
     ? "Votre role ne peut pas marquer un plan comme obsolete."
@@ -395,7 +407,7 @@ function DocumentsModuleContent({
       ? "Ce plan est deja marque obsolete."
       : "Le plan sera retire des revisions en vigueur.";
   const canDistributeSelected = Boolean(
-    canDistribute && selectedDocument && draftVersion.audience.trim(),
+    canDistribute && selectedDocument && draftVersion.audience.trim() && !pendingAction,
   );
   const distributeActionHelper = !canDistribute
     ? "Votre role peut consulter la diffusion, mais pas la lancer."
@@ -441,6 +453,8 @@ function DocumentsModuleContent({
         throw new Error("Ajoutez un fichier avant de publier une nouvelle revision.");
       }
 
+      setPendingAction("publish-version");
+
       const formData = new FormData();
       formData.set("documentId", selectedDocument.id);
       formData.set("revision", draftVersion.revision);
@@ -459,12 +473,14 @@ function DocumentsModuleContent({
       applyProjectData(nextData);
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Publication impossible.");
+    } finally {
+      setPendingAction("");
     }
   }
 
   async function markObsolete(documentId: string) {
     try {
-      await runDocumentsAction("mark-obsolete", { documentId });
+      await runDocumentsAction("mark-obsolete", { documentId }, "mark-obsolete");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Operation impossible.");
     }
@@ -478,7 +494,7 @@ function DocumentsModuleContent({
       await runDocumentsAction("distribute", {
         documentId: selectedDocument.id,
         audience: draftVersion.audience,
-      });
+      }, "distribute");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Diffusion impossible.");
     }
@@ -492,7 +508,7 @@ function DocumentsModuleContent({
       await runDocumentsAction("acknowledge", {
         documentId: selectedDocument.id,
         recipientId,
-      });
+      }, "acknowledge");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Accuse impossible.");
     }
@@ -500,7 +516,7 @@ function DocumentsModuleContent({
 
   async function toggleOffline(documentId: string) {
     try {
-      const nextData = await runDocumentsAction("toggle-offline", { documentId });
+      const nextData = await runDocumentsAction("toggle-offline", { documentId }, "toggle-offline");
       const nextDocument = nextData.files.find((item) => item.id === documentId) as
         | DocumentFile
         | undefined;
@@ -532,7 +548,7 @@ function DocumentsModuleContent({
       await runDocumentsAction("update-metadata", {
         documentId: selectedDocument.id,
         ...metadataDraft,
-      });
+      }, "update-metadata");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Mise a jour impossible.");
     }
@@ -546,10 +562,10 @@ function DocumentsModuleContent({
         action={
           <button
             onClick={() => (canPublishVersion ? selectTab("versions") : null)}
-            disabled={!canPublishVersion}
+            disabled={!canPublishVersion || Boolean(pendingAction)}
             className={cx(
               "rounded-2xl px-4 py-3 text-sm font-semibold",
-              canPublishVersion
+              canPublishVersion && !pendingAction
                 ? "bg-black text-white hover:bg-stone-800"
                 : "cursor-not-allowed bg-stone-200 text-stone-500",
             )}
@@ -589,6 +605,12 @@ function DocumentsModuleContent({
       {mutationError ? (
         <div className="rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-4 text-sm leading-6 text-rose-700">
           {mutationError}
+        </div>
+      ) : null}
+
+      {pendingAction ? (
+        <div className="rounded-[22px] border border-sky-200 bg-sky-50 px-4 py-4 text-sm leading-6 text-sky-800">
+          Action en cours sur la GED. Les commandes se reactiveront des que la mise a jour sera terminee.
         </div>
       ) : null}
 
@@ -632,6 +654,7 @@ function DocumentsModuleContent({
                   canMarkSelectedObsolete={canMarkSelectedObsolete}
                   canPublishSelectedVersion={canPublishSelectedVersion}
                   markObsoleteHelper={markObsoleteHelper}
+                  pendingAction={pendingAction}
                   publishVersionHelper={publishVersionHelper}
                   selectedDocument={selectedDocument}
                   draftVersion={draftVersion}
@@ -647,6 +670,7 @@ function DocumentsModuleContent({
                 <DistributionTab
                   canDistributeSelected={canDistributeSelected}
                   distributeActionHelper={distributeActionHelper}
+                  pendingAction={pendingAction}
                   selectedDocument={selectedDocument}
                   recipients={recipientsForSelected}
                   draftVersion={draftVersion}
@@ -664,6 +688,7 @@ function DocumentsModuleContent({
                   documents={documents}
                   offlineSummary={overview.offline}
                   cachedUrls={cachedDocumentUrls}
+                  pendingAction={pendingAction}
                   toggleOffline={toggleOffline}
                 />
               ) : null}
@@ -740,7 +765,9 @@ function DocumentsModuleContent({
                     )}
                   >
                     <CheckCheck className="size-4" />
-                    Mettre a jour les metadonnees
+                    {pendingAction === "update-metadata"
+                      ? "Mise a jour..."
+                      : "Mettre a jour les metadonnees"}
                   </button>
                   <p className="text-xs leading-5 text-slate-400">{metadataActionHelper}</p>
 
@@ -939,6 +966,7 @@ function VersionsTab({
   canMarkSelectedObsolete,
   canPublishSelectedVersion,
   markObsoleteHelper,
+  pendingAction,
   publishVersionHelper,
   selectedDocument,
   draftVersion,
@@ -951,6 +979,7 @@ function VersionsTab({
   canMarkSelectedObsolete: boolean;
   canPublishSelectedVersion: boolean;
   markObsoleteHelper: string;
+  pendingAction: string;
   publishVersionHelper: string;
   selectedDocument: DocumentFile;
   draftVersion: {
@@ -1018,7 +1047,11 @@ function VersionsTab({
               )}
             >
               <Upload className="size-4" />
-              {canPublishSelectedVersion ? "Publier nouvelle version" : "Publication indisponible"}
+              {pendingAction === "publish-version"
+                ? "Publication..."
+                : canPublishSelectedVersion
+                  ? "Publier nouvelle version"
+                  : "Publication indisponible"}
             </button>
             <button
               onClick={() => (canMarkSelectedObsolete ? markObsolete(selectedDocument.id) : null)}
@@ -1032,7 +1065,7 @@ function VersionsTab({
               )}
             >
               <ShieldCheck className="size-4" />
-              Marquer obsolete
+              {pendingAction === "mark-obsolete" ? "Mise a jour..." : "Marquer obsolete"}
             </button>
           </div>
           <div className="grid gap-2 text-xs leading-5 text-slate-400 sm:grid-cols-2">
@@ -1087,6 +1120,7 @@ function DistributionTab({
   canAcknowledgeRecipient,
   canDistributeSelected,
   distributeActionHelper,
+  pendingAction,
   selectedDocument,
   recipients,
   draftVersion,
@@ -1099,6 +1133,7 @@ function DistributionTab({
   canAcknowledgeRecipient: (recipient: Recipient) => boolean;
   canDistributeSelected: boolean;
   distributeActionHelper: string;
+  pendingAction: string;
   selectedDocument: DocumentFile;
   recipients: Recipient[];
   draftVersion: {
@@ -1154,7 +1189,7 @@ function DistributionTab({
           <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-semibold text-white">
-                {selectedDocument.code} - accusés de reception
+                {selectedDocument.code} - accuses de reception
               </p>
               <StatusBadge tone="primary">
                 {selectedDocument.readCount}/{selectedDocument.recipients} lus
@@ -1189,9 +1224,13 @@ function DistributionTab({
                 ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                 : "cursor-not-allowed bg-slate-700 text-slate-400",
             )}
-          >
-            <Send className="size-4" />
-            {canDistributeSelected ? "Creer la diffusion controlee" : "Diffusion indisponible"}
+            >
+              <Send className="size-4" />
+              {pendingAction === "distribute"
+                ? "Diffusion en cours..."
+                : canDistributeSelected
+                  ? "Creer la diffusion controlee"
+                  : "Diffusion indisponible"}
           </button>
           <p className="text-xs leading-5 text-slate-400">{distributeActionHelper}</p>
         </div>
@@ -1221,17 +1260,17 @@ function DistributionTab({
                   onClick={() =>
                     canAcknowledgeRecipient(recipient) ? acknowledgeRecipient(recipient.id) : null
                   }
-                  disabled={!canAcknowledgeRecipient(recipient)}
+                  disabled={!canAcknowledgeRecipient(recipient) || pendingAction === "acknowledge"}
                   title={getRecipientAcknowledgeHelper(recipient)}
                   className={cx(
                     "mt-3 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm",
-                    canAcknowledgeRecipient(recipient)
+                    canAcknowledgeRecipient(recipient) && pendingAction !== "acknowledge"
                       ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
                       : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
                   )}
                 >
                   <CheckCheck className="size-4" />
-                  Marquer comme lu
+                  {pendingAction === "acknowledge" ? "Mise a jour..." : "Marquer comme lu"}
                 </button>
               ) : null}
             </div>
@@ -1246,6 +1285,7 @@ function OfflineTab({
   documents,
   offlineSummary,
   cachedUrls,
+  pendingAction,
   toggleOffline,
 }: {
   documents: DocumentFile[];
@@ -1255,6 +1295,7 @@ function OfflineTab({
     coverage: string;
   };
   cachedUrls: string[];
+  pendingAction: string;
   toggleOffline: (documentId: string) => void;
 }) {
   const cached = documents.filter(
@@ -1326,7 +1367,7 @@ function OfflineTab({
                 </div>
                 <button
                   onClick={() => (canToggleOffline ? toggleOffline(document.id) : null)}
-                  disabled={!canToggleOffline}
+                  disabled={!canToggleOffline || pendingAction === "toggle-offline"}
                   title={
                     canToggleOffline
                       ? isCached
@@ -1336,17 +1377,19 @@ function OfflineTab({
                   }
                   className={cx(
                     "mt-3 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm",
-                    canToggleOffline
+                    canToggleOffline && pendingAction !== "toggle-offline"
                       ? "border-white/10 bg-white/5 text-white hover:bg-white/8"
                       : "cursor-not-allowed border-white/8 bg-white/5 text-slate-500",
                   )}
                 >
                   <CloudDownload className="size-4" />
-                  {!canToggleOffline
-                    ? "Fichier indisponible"
-                    : isCached
-                      ? "Retirer du cache"
-                      : "Ajouter au cache"}
+                  {pendingAction === "toggle-offline"
+                    ? "Sync..."
+                    : !canToggleOffline
+                      ? "Fichier indisponible"
+                      : isCached
+                        ? "Retirer du cache"
+                        : "Ajouter au cache"}
                 </button>
               </div>
             );

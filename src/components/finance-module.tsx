@@ -250,6 +250,7 @@ function FinanceModuleContent({
   const [cashflowData, setCashflowData] = useState(projectData.cashflow);
   const [declaration, setDeclaration] = useState(projectData.declaration);
   const [mutationError, setMutationError] = useState("");
+  const [pendingAction, setPendingAction] = useState("");
 
   const draftValues = useMemo(() => {
     const retentionAmount = Math.round((dmDraft.baseAmountHt * dmDraft.retentionPct) / 100);
@@ -300,11 +301,12 @@ function FinanceModuleContent({
     ? statusDraft
     : (manualStatusOptions[0] ?? statusDraft);
   const canApplyStatusUpdate =
-    canManageManualStatus && manualStatusOptions.includes(selectedStatusValue);
+    canManageManualStatus && manualStatusOptions.includes(selectedStatusValue) && !pendingAction;
   const canRegisterPaymentForSelectedInvoice = Boolean(
     canRecordPayment &&
       selectedInvoice &&
-      (selectedInvoice.validatedByMo || selectedInvoice.status === "Payee"),
+      (selectedInvoice.validatedByMo || selectedInvoice.status === "Payee") &&
+      !pendingAction,
   );
   const createInvoiceHelper = canCreateInvoice
     ? "Le decompte mensuel sera converti en facture brouillon."
@@ -458,17 +460,26 @@ function FinanceModuleContent({
     });
   }
 
-  async function runFinanceAction(action: string, payload: Record<string, unknown>) {
-    const nextData = await apiFetch<FinancePayload>(`/api/projects/${activeProjectId}/finance`, {
-      method: "POST",
-      body: {
-        action,
-        payload,
-      },
-    });
-    setMutationError("");
-    applyProjectData(nextData);
-    return nextData;
+  async function runFinanceAction(
+    action: string,
+    payload: Record<string, unknown>,
+    pendingKey = action,
+  ) {
+    setPendingAction(pendingKey);
+    try {
+      const nextData = await apiFetch<FinancePayload>(`/api/projects/${activeProjectId}/finance`, {
+        method: "POST",
+        body: {
+          action,
+          payload,
+        },
+      });
+      setMutationError("");
+      applyProjectData(nextData);
+      return nextData;
+    } finally {
+      setPendingAction("");
+    }
   }
 
   async function generateMonthlyStatement() {
@@ -476,7 +487,7 @@ function FinanceModuleContent({
       const nextData = await runFinanceAction("create-invoice", {
         dmDraft,
         vatRegimeId: vatRegime.id,
-      });
+      }, "create-invoice");
       const nextInvoiceId = nextData.invoices[0]?.id ?? "";
       setSelectedInvoiceId(nextInvoiceId);
       if (nextData.invoices[0]) {
@@ -490,7 +501,7 @@ function FinanceModuleContent({
 
   async function validateInvoice(invoiceId: string) {
     try {
-      await runFinanceAction("validate-invoice", { invoiceId });
+      await runFinanceAction("validate-invoice", { invoiceId }, "validate-invoice");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Validation impossible.");
     }
@@ -498,7 +509,7 @@ function FinanceModuleContent({
 
   async function sendInvoice(invoiceId: string) {
     try {
-      const nextData = await runFinanceAction("send-invoice", { invoiceId });
+      const nextData = await runFinanceAction("send-invoice", { invoiceId }, "send-invoice");
       const nextInvoice = nextData.invoices.find((invoice) => invoice.id === invoiceId) as
         | InvoiceItem
         | undefined;
@@ -516,7 +527,7 @@ function FinanceModuleContent({
       await runFinanceAction("register-payment", {
         invoiceId,
         paymentDraft,
-      });
+      }, "register-payment");
       selectTab("cashflow");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Paiement impossible.");
@@ -528,7 +539,7 @@ function FinanceModuleContent({
       await runFinanceAction("update-invoice-status", {
         invoiceId,
         status: statusDraft,
-      });
+      }, "update-invoice-status");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Statut impossible.");
     }
@@ -555,11 +566,11 @@ function FinanceModuleContent({
         action={
           <button
             onClick={() => (canCreateInvoice ? selectTab("dm") : null)}
-            disabled={!canCreateInvoice}
+            disabled={!canCreateInvoice || Boolean(pendingAction)}
             title={createInvoiceHelper}
             className={cx(
               "rounded-2xl px-4 py-3 text-sm font-semibold",
-              canCreateInvoice
+              canCreateInvoice && !pendingAction
                 ? "bg-black text-white hover:bg-stone-800"
                 : "cursor-not-allowed bg-stone-200 text-stone-500",
             )}
@@ -595,6 +606,12 @@ function FinanceModuleContent({
         </div>
       ) : null}
 
+      {pendingAction ? (
+        <div className="rounded-[22px] border border-sky-200 bg-sky-50 px-4 py-4 text-sm leading-6 text-sky-800">
+          Mise a jour finance en cours. Les actions critiques se reactiveront une fois le traitement termine.
+        </div>
+      ) : null}
+
       <Panel className="overflow-hidden">
         <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
           <div className="space-y-4">
@@ -625,6 +642,7 @@ function FinanceModuleContent({
                   availableLots={projectData.projectSetup.lots}
                   vatRegime={vatRegime}
                   draftValues={draftValues}
+                  pendingAction={pendingAction}
                   generateMonthlyStatement={generateMonthlyStatement}
                 />
               ) : null}
@@ -651,6 +669,7 @@ function FinanceModuleContent({
                   updateInvoiceStatus={updateInvoiceStatus}
                   validateInvoice={validateInvoice}
                   validationAction={validationAction}
+                  pendingAction={pendingAction}
                   downloadInvoicePdf={downloadInvoicePdf}
                   paymentDraft={paymentDraft}
                   setPaymentDraft={setPaymentDraft}
@@ -745,6 +764,7 @@ function DecompteTab({
   availableLots,
   vatRegime,
   draftValues,
+  pendingAction,
   generateMonthlyStatement,
 }: {
   canCreateInvoice: boolean;
@@ -772,6 +792,7 @@ function DecompteTab({
     tvaAmount: number;
     amountTtc: number;
   };
+  pendingAction: string;
   generateMonthlyStatement: () => void;
 }) {
   return (
@@ -833,16 +854,20 @@ function DecompteTab({
 
           <button
             onClick={() => (canCreateInvoice ? generateMonthlyStatement() : null)}
-            disabled={!canCreateInvoice}
+            disabled={!canCreateInvoice || pendingAction === "create-invoice"}
             className={cx(
               "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
-              canCreateInvoice
+              canCreateInvoice && pendingAction !== "create-invoice"
                 ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                 : "cursor-not-allowed bg-slate-700 text-slate-400",
             )}
           >
             <FileText className="size-4" />
-            {canCreateInvoice ? "Generer le decompte mensuel" : "Lecture seule des decomptes"}
+            {pendingAction === "create-invoice"
+              ? "Generation..."
+              : canCreateInvoice
+                ? "Generer le decompte mensuel"
+                : "Lecture seule des decomptes"}
           </button>
         </div>
 
@@ -906,6 +931,7 @@ function InvoicesTab({
   updateInvoiceStatus,
   validateInvoice,
   validationAction,
+  pendingAction,
   downloadInvoicePdf,
   paymentDraft,
   setPaymentDraft,
@@ -940,6 +966,7 @@ function InvoicesTab({
     helper: string;
     label: string;
   };
+  pendingAction: string;
   downloadInvoicePdf: (invoice: InvoiceItem) => void;
   paymentDraft: {
     amount: string;
@@ -1096,7 +1123,7 @@ function InvoicesTab({
                 <select
                   value={statusValue}
                   onChange={(event) => setStatusDraft(event.target.value)}
-                  disabled={!manualStatusOptions.length || !canUpdateStatus}
+                  disabled={!manualStatusOptions.length || !canUpdateStatus || pendingAction === "update-invoice-status"}
                   title={statusActionHelper}
                   className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
                 >
@@ -1109,16 +1136,16 @@ function InvoicesTab({
               </label>
               <button
                 onClick={() => (canUpdateStatus ? updateInvoiceStatus(selectedInvoice.id) : null)}
-                disabled={!canUpdateStatus}
+                disabled={!canUpdateStatus || pendingAction === "update-invoice-status"}
                 title={statusActionHelper}
                 className={cx(
                   "self-end rounded-2xl px-4 py-3 text-sm font-semibold",
-                  canUpdateStatus
+                  canUpdateStatus && pendingAction !== "update-invoice-status"
                     ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
                     : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
                 )}
               >
-                Mettre a jour
+                {pendingAction === "update-invoice-status" ? "Mise a jour..." : "Mettre a jour"}
               </button>
             </div>
             <p className="text-xs leading-5 text-slate-400">{statusActionHelper}</p>
@@ -1137,31 +1164,31 @@ function InvoicesTab({
               ) : null}
               <button
                 onClick={() => (canSendInvoice ? sendInvoice(selectedInvoice.id) : null)}
-                disabled={!canSendInvoice}
+                disabled={!canSendInvoice || pendingAction === "send-invoice"}
                 title={sendInvoiceHelper}
                 className={cx(
                   "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
-                  canSendInvoice
+                  canSendInvoice && pendingAction !== "send-invoice"
                     ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
                     : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
                 )}
               >
                 <Send className="size-4" />
-                Generer / envoyer PDF
+                {pendingAction === "send-invoice" ? "Generation..." : "Generer / envoyer PDF"}
               </button>
               <button
                 onClick={() => (validationAction.canRun ? validateInvoice(selectedInvoice.id) : null)}
-                disabled={!validationAction.canRun}
+                disabled={!validationAction.canRun || pendingAction === "validate-invoice"}
                 title={validationAction.helper}
                 className={cx(
                   "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
-                  validationAction.canRun
+                  validationAction.canRun && pendingAction !== "validate-invoice"
                     ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                     : "cursor-not-allowed bg-slate-700 text-slate-400",
                 )}
               >
                 <CheckCheck className="size-4" />
-                {validationAction.label}
+                {pendingAction === "validate-invoice" ? "Validation..." : validationAction.label}
               </button>
             </div>
           </div>
@@ -1201,17 +1228,21 @@ function InvoicesTab({
               </fieldset>
               <button
                 onClick={() => (canRecordPayment ? registerPayment(selectedInvoice.id) : null)}
-                disabled={!canRecordPayment}
+                disabled={!canRecordPayment || pendingAction === "register-payment"}
                 title={paymentActionHelper}
                 className={cx(
                   "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
-                  canRecordPayment
+                  canRecordPayment && pendingAction !== "register-payment"
                     ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                     : "cursor-not-allowed bg-slate-700 text-slate-400",
                 )}
               >
                 <Landmark className="size-4" />
-                {canRecordPayment ? "Enregistrer le paiement" : "Paiement indisponible"}
+                {pendingAction === "register-payment"
+                  ? "Enregistrement..."
+                  : canRecordPayment
+                    ? "Enregistrer le paiement"
+                    : "Paiement indisponible"}
               </button>
               <p className="text-xs leading-5 text-slate-400">{paymentActionHelper}</p>
             </div>
