@@ -1007,7 +1007,9 @@ function deriveSiteData(database: DatabaseState, project: ProjectRecord): SiteMo
       role: "Conducteur de travaux",
       state: latestReport?.signedByCt ? "Signe" : "En attente",
       note: latestReport
-        ? `Dernier RJC ${latestReport.id} - ${latestReport.signedByCt ? "signature recue" : "signature en attente"}`
+        ? latestReport.signedByCt
+          ? `${latestReport.id} signe par ${(latestReport as { ctSignatureBy?: string }).ctSignatureBy ?? latestReport.author}${(latestReport as { ctSignatureAt?: string }).ctSignatureAt ? ` le ${(latestReport as { ctSignatureAt?: string }).ctSignatureAt}` : ""}`
+          : `Dernier RJC ${latestReport.id} - signature en attente`
         : "Aucun rapport disponible",
       tone: latestReport?.signedByCt ? "success" : "warning",
     },
@@ -1015,7 +1017,9 @@ function deriveSiteData(database: DatabaseState, project: ProjectRecord): SiteMo
       role: "Maitre d'oeuvre",
       state: latestReport?.signedByMoe ? "Signe" : "En attente",
       note: latestReport
-        ? `Rapport ${latestReport.id} ${latestReport.signedByMoe ? "valide" : "a valider"}`
+        ? latestReport.signedByMoe
+          ? `${latestReport.id} valide par ${(latestReport as { moeSignatureBy?: string }).moeSignatureBy ?? "l'approbateur"}${(latestReport as { moeSignatureAt?: string }).moeSignatureAt ? ` le ${(latestReport as { moeSignatureAt?: string }).moeSignatureAt}` : ""}`
+          : `Rapport ${latestReport.id} a valider`
         : "Aucun rapport disponible",
       tone: latestReport?.signedByMoe ? "success" : "warning",
     },
@@ -1023,7 +1027,7 @@ function deriveSiteData(database: DatabaseState, project: ProjectRecord): SiteMo
       role: "Archivage PDF",
       state: latestReport?.pdfReady ? "Pret" : "En attente",
       note: latestReport
-        ? `Generation ${latestReport.pdfReady ? "prete" : "en attente"} pour ${latestReport.id}`
+        ? `Generation ${latestReport.pdfReady ? "prete" : "en attente"} pour ${latestReport.id}${latestReport.signedByMoe ? " et archivee apres validation" : ""}`
         : "Aucun PDF a produire",
       tone: latestReport?.pdfReady ? "primary" : "warning",
     },
@@ -2506,6 +2510,10 @@ export async function mutateSitePayload(
           pdfReady: false,
           signedByCt: true,
           signedByMoe: false,
+          ctSignatureBy: user.name,
+          ctSignatureAt: toDateTimeLabel(nowTimestamp),
+          moeSignatureBy: "",
+          moeSignatureAt: "",
           activities: formState.activities,
           incidents: formState.incidents,
           note: formState.note,
@@ -2561,7 +2569,11 @@ export async function mutateSitePayload(
         const report = project.site.reports.find((item) => item.id === reportId) as
           | ((typeof project.site.reports)[number] & {
               activities?: string;
+              ctSignatureAt?: string;
+              ctSignatureBy?: string;
               incidents?: string;
+              moeSignatureAt?: string;
+              moeSignatureBy?: string;
               note?: string;
               progressByLot?: SiteModuleData["lotProgress"];
             })
@@ -2587,6 +2599,13 @@ export async function mutateSitePayload(
         report.completeness = completeness;
         report.status = completeness >= 95 ? "Soumis" : "A completer";
         report.tone = completeness >= 95 ? "primary" : "warning";
+        report.pdfReady = false;
+        report.signedByCt = true;
+        report.signedByMoe = false;
+        report.ctSignatureBy = user.name;
+        report.ctSignatureAt = toDateTimeLabel(nowTimestamp);
+        report.moeSignatureBy = "";
+        report.moeSignatureAt = "";
         report.activities = formState.activities;
         report.incidents = formState.incidents;
         report.note = formState.note;
@@ -2629,18 +2648,24 @@ export async function mutateSitePayload(
       }
       case "mark-pdf-ready": {
         const reportId = String(payload.reportId ?? "");
-        project.site.reports = project.site.reports.map((report) =>
-          report.id === reportId
-            ? { ...report, pdfReady: true, status: "Pret PDF", tone: "primary" }
-            : report,
-        );
+        const report = project.site.reports.find((item) => item.id === reportId) as
+          | ((typeof project.site.reports)[number] & {
+              ctSignatureAt?: string;
+              ctSignatureBy?: string;
+            })
+          | undefined;
+        assert(report, 404, "Rapport chantier introuvable.");
+        assert(report.signedByCt, 400, "Le rapport doit etre signe cote conducteur avant generation PDF.");
+        report.pdfReady = true;
+        report.status = "Pret validation";
+        report.tone = "primary";
         appendAudit(database, user.name, "a prepare le PDF du RJC", reportId);
         appendNotification(database, {
           actor: user.name,
           actorId: user.id,
           detail: `${project.summary.code} - ${reportId} est pret pour signature et archivage.`,
           href: "/site",
-          permission: "site.view",
+          roles: ["Chef de projet", "Bureau d'etudes", "Super Admin"],
           projectCode: project.summary.code,
           projectId: project.summary.id,
           requiresAction: true,
@@ -2651,12 +2676,22 @@ export async function mutateSitePayload(
         break;
       }
       case "sign-report": {
+        ensurePermission(user, "site.report.validate");
         const reportId = String(payload.reportId ?? "");
-        project.site.reports = project.site.reports.map((report) =>
-          report.id === reportId
-            ? { ...report, signedByMoe: true, pdfReady: true, status: "Signe", tone: "success" }
-            : report,
-        );
+        const report = project.site.reports.find((item) => item.id === reportId) as
+          | ((typeof project.site.reports)[number] & {
+              moeSignatureAt?: string;
+              moeSignatureBy?: string;
+            })
+          | undefined;
+        assert(report, 404, "Rapport chantier introuvable.");
+        assert(report.completeness >= 95, 400, "Le rapport doit etre complet avant validation.");
+        report.signedByMoe = true;
+        report.pdfReady = true;
+        report.status = "Valide";
+        report.tone = "success";
+        report.moeSignatureBy = user.name;
+        report.moeSignatureAt = toDateTimeLabel(nowTimestamp);
         appendAudit(database, user.name, "a valide un RJC", reportId);
         appendNotification(database, {
           actor: user.name,
@@ -3191,7 +3226,11 @@ export async function mutateFinancePayload(
           sourceProgress: dmDraft.progressPct,
           validatedByMoe: false,
           validatedByMo: false,
-        });
+          moeValidatedBy: "",
+          moeValidatedAt: "",
+          moValidatedBy: "",
+          moValidatedAt: "",
+        } as unknown as (typeof project.finance.invoices)[number]);
         project.finance.dmDraft = clone(dmDraft);
         project.finance.defaultVatRegimeId = vatRegime.id;
         appendAudit(
@@ -3218,23 +3257,35 @@ export async function mutateFinancePayload(
       case "send-invoice": {
         ensurePermission(user, "finance.invoice.send");
         const invoiceId = String(payload.invoiceId ?? "");
-        const invoice = project.finance.invoices.find((item) => item.id === invoiceId);
+        const invoice = project.finance.invoices.find((item) => item.id === invoiceId) as
+          | ((typeof project.finance.invoices)[number] & {
+              moValidatedAt?: string;
+              moValidatedBy?: string;
+              moeValidatedAt?: string;
+              moeValidatedBy?: string;
+            })
+          | undefined;
         assert(invoice, 404, "Facture introuvable.");
-        project.finance.invoices = project.finance.invoices.map((invoice) =>
-          invoice.id === invoiceId ? { ...invoice, status: "Envoyee", tone: "primary" } : invoice,
-        );
+        invoice.status = "Envoyee";
+        invoice.tone = "primary";
+        invoice.validatedByMoe = false;
+        invoice.validatedByMo = false;
+        invoice.moeValidatedBy = "";
+        invoice.moeValidatedAt = "";
+        invoice.moValidatedBy = "";
+        invoice.moValidatedAt = "";
         appendAudit(database, user.name, "a envoye une facture", invoiceId);
         appendNotification(database, {
           actor: user.name,
           actorId: user.id,
           channel: "In-app + email",
-          detail: `${invoice.invoiceNumber} a ete envoyee et attend la validation du maitre d'ouvrage.`,
+          detail: `${invoice.invoiceNumber} a ete envoyee et attend la validation cote projet avant transmission finale au client.`,
           href: "/finance",
-          permission: "finance.invoice.validate",
+          roles: ["Chef de projet", "Super Admin"],
           projectCode: project.summary.code,
           projectId: project.summary.id,
           requiresAction: true,
-          title: "Facture a valider",
+          title: "Facture en attente validation projet",
           tone: "warning",
           type: "invoice",
         });
@@ -3243,20 +3294,59 @@ export async function mutateFinancePayload(
       case "validate-invoice": {
         ensurePermission(user, "finance.invoice.validate");
         const invoiceId = String(payload.invoiceId ?? "");
-        const invoice = project.finance.invoices.find((item) => item.id === invoiceId);
+        const invoice = project.finance.invoices.find((item) => item.id === invoiceId) as
+          | ((typeof project.finance.invoices)[number] & {
+              moValidatedAt?: string;
+              moValidatedBy?: string;
+              moeValidatedAt?: string;
+              moeValidatedBy?: string;
+            })
+          | undefined;
         assert(invoice, 404, "Facture introuvable.");
-        project.finance.invoices = project.finance.invoices.map((invoice) =>
-          invoice.id === invoiceId
-            ? {
-                ...invoice,
-                status: "Validee",
-                tone: "primary",
-                validatedByMo: true,
-                validatedByMoe: true,
-              }
-            : invoice,
-        );
-        appendAudit(database, user.name, "a valide une facture", invoiceId);
+        const isProjectApprover = user.role === "Chef de projet" || user.role === "Super Admin";
+        const isClientApprover = user.role === "Maitre d'ouvrage" || user.role === "Super Admin";
+
+        if (!invoice.validatedByMoe) {
+          assert(
+            isProjectApprover,
+            403,
+            "La validation projet doit etre effectuee par le chef de projet.",
+          );
+          invoice.validatedByMoe = true;
+          invoice.moeValidatedBy = user.name;
+          invoice.moeValidatedAt = toDateTimeLabel(nowTimestamp);
+          invoice.status = "Validation MO";
+          invoice.tone = "primary";
+          appendAudit(database, user.name, "a valide une facture cote projet", invoiceId);
+          appendNotification(database, {
+            actor: user.name,
+            actorId: user.id,
+            channel: "In-app + email",
+            detail: `${invoice.invoiceNumber} est validee cote projet et attend maintenant la validation du maitre d'ouvrage.`,
+            href: "/finance",
+            roles: ["Maitre d'ouvrage", "Super Admin"],
+            projectCode: project.summary.code,
+            projectId: project.summary.id,
+            requiresAction: true,
+            title: "Facture en attente validation client",
+            tone: "primary",
+            type: "invoice",
+          });
+          break;
+        }
+
+        assert(isClientApprover, 403, "La validation finale doit etre effectuee par le maitre d'ouvrage.");
+        assert(invoice.validatedByMoe, 400, "La validation projet doit etre finalisee avant la validation client.");
+        if (invoice.validatedByMo) {
+          throw new ApiError(400, "Cette facture a deja ete validee.");
+        }
+
+        invoice.validatedByMo = true;
+        invoice.moValidatedBy = user.name;
+        invoice.moValidatedAt = toDateTimeLabel(nowTimestamp);
+        invoice.status = "Validee";
+        invoice.tone = "primary";
+        appendAudit(database, user.name, "a valide une facture cote client", invoiceId);
         appendNotification(database, {
           actor: user.name,
           actorId: user.id,
@@ -3285,7 +3375,7 @@ export async function mutateFinancePayload(
         );
         assert(invoice, 404, "Facture introuvable.");
         assert(
-          ["Brouillon", "Envoyee", "Validee", "Payee", "Litigieuse"].includes(nextStatus),
+          ["Brouillon", "Envoyee", "Validation MO", "Validee", "Payee", "Litigieuse"].includes(nextStatus),
           400,
           "Statut facture invalide.",
         );
@@ -3298,21 +3388,39 @@ export async function mutateFinancePayload(
                 paidAt:
                   nextStatus === "Payee"
                     ? invoice.paidAt || nowTimestamp
-                    : nextStatus === "Brouillon" || nextStatus === "Envoyee" || nextStatus === "Litigieuse"
+                    : nextStatus === "Brouillon" || nextStatus === "Envoyee" || nextStatus === "Validation MO" || nextStatus === "Litigieuse"
                       ? ""
                       : invoice.paidAt,
                 validatedByMoe:
-                  nextStatus === "Validee" || nextStatus === "Payee"
+                  nextStatus === "Validation MO" || nextStatus === "Validee" || nextStatus === "Payee"
                     ? true
                     : nextStatus === "Brouillon"
                       ? false
-                      : invoice.validatedByMoe,
+                      : nextStatus === "Envoyee" || nextStatus === "Litigieuse"
+                        ? false
+                        : invoice.validatedByMoe,
                 validatedByMo:
                   nextStatus === "Validee" || nextStatus === "Payee"
                     ? true
-                    : nextStatus === "Brouillon" || nextStatus === "Envoyee" || nextStatus === "Litigieuse"
+                    : nextStatus === "Brouillon" || nextStatus === "Envoyee" || nextStatus === "Validation MO" || nextStatus === "Litigieuse"
                       ? false
                       : invoice.validatedByMo,
+                moeValidatedBy:
+                  nextStatus === "Validation MO" || nextStatus === "Validee" || nextStatus === "Payee"
+                    ? (invoice as { moeValidatedBy?: string }).moeValidatedBy || user.name
+                    : "",
+                moeValidatedAt:
+                  nextStatus === "Validation MO" || nextStatus === "Validee" || nextStatus === "Payee"
+                    ? (invoice as { moeValidatedAt?: string }).moeValidatedAt || toDateTimeLabel(nowTimestamp)
+                    : "",
+                moValidatedBy:
+                  nextStatus === "Validee" || nextStatus === "Payee"
+                    ? (invoice as { moValidatedBy?: string }).moValidatedBy || user.name
+                    : "",
+                moValidatedAt:
+                  nextStatus === "Validee" || nextStatus === "Payee"
+                    ? (invoice as { moValidatedAt?: string }).moValidatedAt || toDateTimeLabel(nowTimestamp)
+                    : "",
               }
             : invoice,
         );

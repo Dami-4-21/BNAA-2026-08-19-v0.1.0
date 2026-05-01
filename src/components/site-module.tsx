@@ -54,7 +54,11 @@ type ReportItem = {
   signedByCt: boolean;
   signedByMoe: boolean;
   activities?: string;
+  ctSignatureAt?: string;
+  ctSignatureBy?: string;
   incidents?: string;
+  moeSignatureAt?: string;
+  moeSignatureBy?: string;
   note?: string;
   progressByLot?: FormState["progressByLot"];
   pdfUrl?: string;
@@ -194,6 +198,7 @@ export function SiteModule() {
   const [projectData, setProjectData] = useState<SitePayload | null>(null);
   const [error, setError] = useState("");
   const canCreateReport = can("site.report.create");
+  const canValidateReport = can("site.report.validate");
   const canAddPhoto = can("site.photo.create");
   const canCreateNcr = can("site.ncr.create");
   const canCloseNcr = can("site.ncr.close");
@@ -254,6 +259,7 @@ export function SiteModule() {
       canCloseNcr={canCloseNcr}
       canCreateNcr={canCreateNcr}
       canCreateReport={canCreateReport}
+      canValidateReport={canValidateReport}
       currentUserRole={currentUser.role}
       projectData={projectData}
     />
@@ -266,6 +272,7 @@ function SiteModuleContent({
   canCloseNcr,
   canCreateNcr,
   canCreateReport,
+  canValidateReport,
   currentUserRole,
   projectData,
 }: {
@@ -274,6 +281,7 @@ function SiteModuleContent({
   canCloseNcr: boolean;
   canCreateNcr: boolean;
   canCreateReport: boolean;
+  canValidateReport: boolean;
   currentUserRole: string;
   projectData: SitePayload;
 }) {
@@ -503,10 +511,10 @@ function SiteModuleContent({
         ))}
       </div>
 
-      {!canCreateReport || !canAddPhoto || !canCreateNcr ? (
+      {!canCreateReport || !canAddPhoto || !canCreateNcr || !canValidateReport ? (
         <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm leading-6 text-stone-600">
           Votre role <span className="font-semibold text-stone-950">{currentUserRole}</span> peut
-          consulter le suivi chantier, avec des actions limitees selon les droits attribues.
+          consulter le suivi chantier, avec des actions limitees sur la saisie terrain et les validations quotidiennes.
         </div>
       ) : null}
 
@@ -685,7 +693,7 @@ function SiteModuleContent({
             >
               <div className="space-y-3">
                 {[
-                  "Le MOE doit signer le RJC du jour pour declencher l'archivage PDF.",
+                  "La validation projet du RJC du jour declenche l'archivage PDF.",
                   `${openNcrCount} non-conformites restent ouvertes sur ${activeProject.name}.`,
                   `${activeProject.nextMilestone} reste le prochain jalon a securiser.`,
                 ].map((item) => (
@@ -733,6 +741,16 @@ function SiteModuleContent({
                       <InfoStat label="Effectif" value={`${report.workforce} ouvriers`} />
                       <InfoStat label="Auteur" value={report.author} />
                     </div>
+                    {report.ctSignatureAt || report.moeSignatureAt ? (
+                      <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-400">
+                        {report.ctSignatureAt ? (
+                          <span>CT: {report.ctSignatureBy ?? report.author} le {report.ctSignatureAt}</span>
+                        ) : null}
+                        {report.moeSignatureAt ? (
+                          <span>Validation projet: {report.moeSignatureBy ?? "Equipe projet"} le {report.moeSignatureAt}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-col gap-2 lg:items-end">
@@ -781,16 +799,16 @@ function SiteModuleContent({
                       ) : null}
                       {!report.signedByMoe ? (
                         <button
-                          onClick={() => (canCreateReport ? signAsMoe(report.id) : null)}
-                          disabled={!canCreateReport}
+                          onClick={() => (canValidateReport ? signAsMoe(report.id) : null)}
+                          disabled={!canValidateReport}
                           className={cx(
                             "rounded-2xl px-4 py-2 text-sm font-semibold",
-                            canCreateReport
+                            canValidateReport
                               ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                               : "cursor-not-allowed bg-slate-700 text-slate-400",
                           )}
                         >
-                          Signer cote MOE
+                          Valider cote projet
                         </button>
                       ) : null}
                     </div>
@@ -818,7 +836,7 @@ function SiteModuleContent({
         >
           <div className="space-y-3">
             {[
-              "Verifier la signature MOE avant l'archivage quotidien des rapports.",
+              "Verifier la validation projet avant l'archivage quotidien des rapports.",
               "Associer chaque photo a une zone ou une tache pour simplifier les recherches.",
               "Cloturer les non-conformites avec une preuve photo et une note de levee.",
             ].map((item) => (
@@ -1179,7 +1197,7 @@ function RjcTab({
 
           <div className="grid gap-3 sm:grid-cols-3">
             <ActionButton icon={Camera} label="Photos" />
-            <ActionButton icon={Signature} label="Signer CT" />
+            <ActionButton icon={Signature} label="Validation projet" />
             <ActionButton icon={FileOutput} label="Preparer PDF" />
           </div>
 

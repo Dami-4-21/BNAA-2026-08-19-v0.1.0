@@ -57,6 +57,10 @@ type InvoiceItem = {
   sourceProgress: number;
   validatedByMoe: boolean;
   validatedByMo: boolean;
+  moValidatedAt?: string;
+  moValidatedBy?: string;
+  moeValidatedAt?: string;
+  moeValidatedBy?: string;
   pdfUrl?: string;
 };
 
@@ -241,6 +245,45 @@ function FinanceModuleContent({
       )
     : 0;
 
+  const validationAction = useMemo(() => {
+    if (!selectedInvoice) {
+      return {
+        canRun: false,
+        helper: "Selectionnez une facture pour lancer la validation.",
+        label: "Valider la facture",
+      };
+    }
+
+    const projectApprover = currentUserRole === "Chef de projet" || currentUserRole === "Super Admin";
+    const clientApprover = currentUserRole === "Maitre d'ouvrage" || currentUserRole === "Super Admin";
+
+    if (!selectedInvoice.validatedByMoe) {
+      return {
+        canRun: canValidateInvoice && projectApprover,
+        helper: projectApprover
+          ? "Validation projet requise avant la validation client."
+          : "En attente de la validation projet par le chef de projet.",
+        label: "Valider cote projet",
+      };
+    }
+
+    if (!selectedInvoice.validatedByMo) {
+      return {
+        canRun: canValidateInvoice && clientApprover,
+        helper: clientApprover
+          ? "Validation finale client requise pour cloturer le circuit."
+          : "En attente de la validation finale par le maitre d'ouvrage.",
+        label: "Valider cote client",
+      };
+    }
+
+    return {
+      canRun: false,
+      helper: "Facture deja validee sur l'ensemble du circuit.",
+      label: "Facture validee",
+    };
+  }, [canValidateInvoice, currentUserRole, selectedInvoice]);
+
   function applyProjectData(nextData: FinancePayload) {
     startTransition(() => {
       setOverview(nextData.overview);
@@ -382,8 +425,7 @@ function FinanceModuleContent({
       {!canCreateInvoice || !canSendInvoice || !canValidateInvoice || !canRecordPayment ? (
         <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm leading-6 text-stone-600">
           Votre role <span className="font-semibold text-stone-950">{currentUserRole}</span> peut
-          consulter la finance, avec des droits adaptes pour creer, valider ou enregistrer les
-          paiements.
+          consulter la finance, avec des droits adaptes pour creer, valider par etapes ou enregistrer les paiements.
         </div>
       ) : null}
 
@@ -431,7 +473,6 @@ function FinanceModuleContent({
                 <InvoicesTab
                   canRecordPayment={canRecordPayment}
                   canSendInvoice={canSendInvoice}
-                  canValidateInvoice={canValidateInvoice}
                   canUpdateStatus={canCreateInvoice || canSendInvoice || canValidateInvoice || canRecordPayment}
                   invoices={invoices}
                   selectedInvoiceId={selectedInvoiceId}
@@ -444,6 +485,7 @@ function FinanceModuleContent({
                   setStatusDraft={setStatusDraft}
                   updateInvoiceStatus={updateInvoiceStatus}
                   validateInvoice={validateInvoice}
+                  validationAction={validationAction}
                   downloadInvoicePdf={downloadInvoicePdf}
                   paymentDraft={paymentDraft}
                   setPaymentDraft={setPaymentDraft}
@@ -681,7 +723,6 @@ function DecompteTab({
 function InvoicesTab({
   canRecordPayment,
   canSendInvoice,
-  canValidateInvoice,
   canUpdateStatus,
   invoices,
   selectedInvoiceId,
@@ -694,6 +735,7 @@ function InvoicesTab({
   setStatusDraft,
   updateInvoiceStatus,
   validateInvoice,
+  validationAction,
   downloadInvoicePdf,
   paymentDraft,
   setPaymentDraft,
@@ -701,7 +743,6 @@ function InvoicesTab({
 }: {
   canRecordPayment: boolean;
   canSendInvoice: boolean;
-  canValidateInvoice: boolean;
   canUpdateStatus: boolean;
   invoices: InvoiceItem[];
   selectedInvoiceId: string;
@@ -719,6 +760,11 @@ function InvoicesTab({
   setStatusDraft: React.Dispatch<React.SetStateAction<string>>;
   updateInvoiceStatus: (invoiceId: string) => void;
   validateInvoice: (invoiceId: string) => void;
+  validationAction: {
+    canRun: boolean;
+    helper: string;
+    label: string;
+  };
   downloadInvoicePdf: (invoice: InvoiceItem) => void;
   paymentDraft: {
     amount: string;
@@ -788,6 +834,11 @@ function InvoicesTab({
                 <p className="mt-2 text-sm text-white">
                   {selectedInvoice.validatedByMoe ? "Validee" : "En attente"}
                 </p>
+                {selectedInvoice.moeValidatedAt ? (
+                  <p className="mt-2 text-xs text-slate-400">
+                    {selectedInvoice.moeValidatedBy ?? "Equipe projet"} le {selectedInvoice.moeValidatedAt}
+                  </p>
+                ) : null}
               </div>
               <div className="rounded-[20px] border border-white/8 bg-white/4 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
@@ -796,6 +847,11 @@ function InvoicesTab({
                 <p className="mt-2 text-sm text-white">
                   {selectedInvoice.validatedByMo ? "Validee" : "En attente"}
                 </p>
+                {selectedInvoice.moValidatedAt ? (
+                  <p className="mt-2 text-xs text-slate-400">
+                    {selectedInvoice.moValidatedBy ?? "Maitre d'ouvrage"} le {selectedInvoice.moValidatedAt}
+                  </p>
+                ) : null}
               </div>
             </div>
             <div className="mt-4 rounded-[20px] border border-white/8 bg-white/4 p-4">
@@ -833,7 +889,7 @@ function InvoicesTab({
                   onChange={(event) => setStatusDraft(event.target.value)}
                   className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
                 >
-                  {["Brouillon", "Envoyee", "Validee", "Payee", "Litigieuse"].map((status) => (
+                  {["Brouillon", "Envoyee", "Validation MO", "Validee", "Payee", "Litigieuse"].map((status) => (
                     <option key={status} value={status}>
                       {status}
                     </option>
@@ -852,6 +908,9 @@ function InvoicesTab({
               >
                 Mettre a jour
               </button>
+            </div>
+            <div className="mt-4 rounded-[20px] border border-white/8 bg-white/4 p-4 text-sm leading-6 text-slate-300">
+              {validationAction.helper}
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
               {selectedInvoice.pdfUrl ? (
@@ -877,17 +936,17 @@ function InvoicesTab({
                 Generer / envoyer PDF
               </button>
               <button
-                onClick={() => (canValidateInvoice ? validateInvoice(selectedInvoice.id) : null)}
-                disabled={!canValidateInvoice}
+                onClick={() => (validationAction.canRun ? validateInvoice(selectedInvoice.id) : null)}
+                disabled={!validationAction.canRun}
                 className={cx(
                   "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
-                  canValidateInvoice
+                  validationAction.canRun
                     ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                     : "cursor-not-allowed bg-slate-700 text-slate-400",
                 )}
               >
                 <CheckCheck className="size-4" />
-                Valider la facture
+                {validationAction.label}
               </button>
             </div>
           </div>

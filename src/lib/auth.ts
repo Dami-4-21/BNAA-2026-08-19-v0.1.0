@@ -12,6 +12,7 @@ export type AppPermission =
   | "projects.view"
   | "site.view"
   | "site.report.create"
+  | "site.report.validate"
   | "site.photo.create"
   | "site.ncr.create"
   | "site.ncr.close"
@@ -48,6 +49,7 @@ const allPermissions: AppPermission[] = [
   "projects.view",
   "site.view",
   "site.report.create",
+  "site.report.validate",
   "site.photo.create",
   "site.ncr.create",
   "site.ncr.close",
@@ -152,6 +154,7 @@ const rolePermissions: Record<UserRole, AppPermission[]> = {
     ...basePermissions,
     "site.view",
     "site.report.create",
+    "site.report.validate",
     "site.photo.create",
     "site.ncr.create",
     "site.ncr.close",
@@ -160,6 +163,7 @@ const rolePermissions: Record<UserRole, AppPermission[]> = {
     "finance.view",
     "finance.invoice.create",
     "finance.invoice.send",
+    "finance.invoice.validate",
     "admin.view",
   ],
   "Conductrice travaux": [
@@ -174,6 +178,7 @@ const rolePermissions: Record<UserRole, AppPermission[]> = {
   "Bureau d'etudes": [
     ...basePermissions,
     "site.view",
+    "site.report.validate",
     "documents.view",
     "documents.version.publish",
     "documents.distribute",
