@@ -252,6 +252,46 @@ export default function AdminPage() {
       ]),
     ) as Record<ProjectWorkflowOwnerKey, AdminPageData["users"]>;
   }, [data, selectedProject, selectedProjectDraft]);
+  const projectSetupHasChanges =
+    selectedProject && selectedProjectDraft
+      ? !(
+          selectedProjectDraft.name === selectedProject.summary.name &&
+          selectedProjectDraft.client === selectedProject.summary.client &&
+          selectedProjectDraft.location === selectedProject.summary.location &&
+          selectedProjectDraft.status === selectedProject.summary.status &&
+          selectedProjectDraft.budgetTnd === `${selectedProject.summary.budgetTnd}` &&
+          selectedProjectDraft.nextMilestone === selectedProject.summary.nextMilestone &&
+          sameStringList(selectedProjectDraft.lots, selectedProject.setup.lots) &&
+          sameStringList(selectedProjectDraft.phases, selectedProject.setup.phases) &&
+          sameStringList(selectedProjectDraft.zones, selectedProject.setup.zones) &&
+          sameWorkflowOwners(
+            selectedProjectDraft.workflowOwners,
+            selectedProject.setup.workflowOwners,
+          )
+        )
+      : false;
+  const projectSetupHelper =
+    !selectedProject
+      ? "Selectionnez un projet pour modifier son parametrage."
+      : savingProjectId === selectedProject.summary.id
+        ? "Enregistrement du parametrage en cours."
+        : hasPendingMemberChanges
+          ? "Enregistrez d'abord l'equipe du projet avant les responsables du workflow."
+          : projectSetupHasChanges
+            ? "Enregistrer les changements de structure, de statut et de workflow."
+            : "Aucun changement de parametrage a enregistrer.";
+  const projectMembersHasChanges =
+    selectedProject && selectedProjectDraft
+      ? !sameStringList(selectedProjectDraft.memberIds, selectedProject.setup.memberIds)
+      : false;
+  const projectMembersHelper =
+    !selectedProject
+      ? "Selectionnez un projet pour gerer son equipe."
+      : savingMembersProjectId === selectedProject.summary.id
+        ? "Enregistrement de l'equipe en cours."
+        : projectMembersHasChanges
+          ? "Enregistrer l'affectation des membres de ce projet."
+          : "Aucune modification d'equipe a enregistrer.";
 
   function replaceSelectedProject(projectId: string) {
     setSelectedProjectId(projectId);
@@ -871,10 +911,16 @@ export default function AdminPage() {
                     <button
                       type="button"
                       onClick={() => replaceSelectedProject(project.summary.id)}
+                      disabled={selectedProject?.summary.id === project.summary.id}
+                      title={
+                        selectedProject?.summary.id === project.summary.id
+                          ? "Ce projet est deja ouvert dans le panneau de configuration."
+                          : "Charger ce projet dans le panneau de parametrage."
+                      }
                       className={cx(
                         "rounded-full px-4 py-1.5 text-xs font-semibold",
                         selectedProject?.summary.id === project.summary.id
-                          ? "bg-sky-400 text-slate-950"
+                          ? "cursor-not-allowed bg-sky-400 text-slate-950"
                           : "bg-white/10 text-white hover:bg-white/15",
                       )}
                     >
@@ -882,8 +928,14 @@ export default function AdminPage() {
                     </button>
                     {project.summary.status !== "Cloture" ? (
                       <button
+                        type="button"
                         onClick={() => void archiveProject(project.summary.id)}
                         disabled={closingProjectId === project.summary.id}
+                        title={
+                          closingProjectId === project.summary.id
+                            ? "Cloture du projet en cours."
+                            : "Cloturer ce projet et le sortir des flux actifs."
+                        }
                         className={cx(
                           "rounded-full px-4 py-1.5 text-xs font-semibold",
                           closingProjectId === project.summary.id
@@ -1067,20 +1119,9 @@ export default function AdminPage() {
                   disabled={
                     savingProjectId === selectedProject.summary.id ||
                     hasPendingMemberChanges ||
-                    (selectedProjectDraft.name === selectedProject.summary.name &&
-                      selectedProjectDraft.client === selectedProject.summary.client &&
-                      selectedProjectDraft.location === selectedProject.summary.location &&
-                      selectedProjectDraft.status === selectedProject.summary.status &&
-                      selectedProjectDraft.budgetTnd === `${selectedProject.summary.budgetTnd}` &&
-                      selectedProjectDraft.nextMilestone === selectedProject.summary.nextMilestone &&
-                      sameStringList(selectedProjectDraft.lots, selectedProject.setup.lots) &&
-                      sameStringList(selectedProjectDraft.phases, selectedProject.setup.phases) &&
-                      sameStringList(selectedProjectDraft.zones, selectedProject.setup.zones) &&
-                      sameWorkflowOwners(
-                        selectedProjectDraft.workflowOwners,
-                        selectedProject.setup.workflowOwners,
-                      ))
+                    !projectSetupHasChanges
                   }
+                  title={projectSetupHelper}
                   className={cx(
                     "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
                     savingProjectId === selectedProject.summary.id
@@ -1183,8 +1224,9 @@ export default function AdminPage() {
                     onClick={() => void saveProjectMembers(selectedProject.summary.id)}
                     disabled={
                       savingMembersProjectId === selectedProject.summary.id ||
-                      sameStringList(selectedProjectDraft.memberIds, selectedProject.setup.memberIds)
+                      !projectMembersHasChanges
                     }
+                    title={projectMembersHelper}
                     className={cx(
                       "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
                       savingMembersProjectId === selectedProject.summary.id
@@ -1236,6 +1278,12 @@ export default function AdminPage() {
             };
             const hasChanges =
               draft.role !== user.role || !sameProjectIds(draft.projectIds, user.projectIds);
+            const userSaveHelper =
+              savingUserId === user.id
+                ? "Enregistrement des acces en cours."
+                : hasChanges
+                  ? "Enregistrer le role et les projets accessibles pour cet utilisateur."
+                  : "Aucune modification d'acces a enregistrer.";
 
             return (
               <div
@@ -1276,8 +1324,10 @@ export default function AdminPage() {
                         </select>
                       </label>
                       <button
+                        type="button"
                         onClick={() => void saveUser(user.id)}
                         disabled={!hasChanges || savingUserId === user.id}
+                        title={userSaveHelper}
                         className={cx(
                           "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
                           hasChanges && savingUserId !== user.id

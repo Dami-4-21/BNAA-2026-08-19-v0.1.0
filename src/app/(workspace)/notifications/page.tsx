@@ -138,11 +138,19 @@ export default function NotificationsPage() {
     });
   }, [data, projectFilter, statusFilter, typeFilter]);
 
+  const markAllReadHelper =
+    pendingAction === "mark-all-read"
+      ? "Mise a jour des notifications en cours."
+      : data?.summary.unreadCount
+        ? "Marquer toutes les notifications visibles comme lues."
+        : "Toutes les notifications sont deja lues.";
+
   async function runNotificationAction(
     action: NotificationAction,
     notificationId?: string,
   ) {
     try {
+      setError("");
       setPendingAction(notificationId ?? action);
       const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
         method: "POST",
@@ -169,6 +177,10 @@ export default function NotificationsPage() {
     try {
       setPendingAction(notification.id);
       setError("");
+
+      if (!notification.href) {
+        throw new Error("Cette notification ne pointe vers aucun ecran.");
+      }
 
       if (!notification.isRead) {
         const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
@@ -309,6 +321,7 @@ export default function NotificationsPage() {
             type="button"
             onClick={() => void runNotificationAction("mark-all-read")}
             disabled={pendingAction === "mark-all-read" || data.summary.unreadCount === 0}
+            title={markAllReadHelper}
             className="inline-flex items-center gap-2 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <CheckCheck className="size-4" />
@@ -421,6 +434,13 @@ export default function NotificationsPage() {
                         )
                       }
                       disabled={pendingAction === notification.id}
+                      title={
+                        pendingAction === notification.id
+                          ? "Mise a jour en cours."
+                          : notification.isRead
+                            ? "Remettre cette notification dans vos elements non lus."
+                            : "Marquer cette notification comme lue."
+                      }
                       className="rounded-2xl border border-stone-200 bg-white px-4 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {notification.isRead ? "Marquer non lue" : "Marquer lue"}
@@ -428,7 +448,14 @@ export default function NotificationsPage() {
                     <button
                       type="button"
                       onClick={() => void openNotification(notification)}
-                      disabled={pendingAction === notification.id}
+                      disabled={pendingAction === notification.id || !notification.href}
+                      title={
+                        pendingAction === notification.id
+                          ? "Ouverture de la notification en cours."
+                          : notification.href
+                            ? "Ouvrir l'ecran cible et synchroniser le projet courant."
+                            : "Aucun ecran n'est rattache a cette notification."
+                      }
                       className="inline-flex items-center gap-2 rounded-2xl border border-stone-200 bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Ouvrir

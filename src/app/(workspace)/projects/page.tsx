@@ -38,6 +38,7 @@ export default function ProjectsPage() {
   const { currentUser, setActiveProjectId } = useWorkspace();
   const [data, setData] = useState<ProjectsPageData | null>(null);
   const [error, setError] = useState("");
+  const [pendingNavigation, setPendingNavigation] = useState("");
 
   const loadProjects = useCallback(async (options?: { preserveData?: boolean }) => {
     try {
@@ -100,6 +101,17 @@ export default function ProjectsPage() {
     );
   }
 
+  function openProject(projectId: string) {
+    setPendingNavigation(`project:${projectId}`);
+    setActiveProjectId(projectId);
+    router.push("/");
+  }
+
+  function openProjectAdmin(projectId: string) {
+    setPendingNavigation(`admin:${projectId}`);
+    router.push(`/admin?project=${projectId}`);
+  }
+
   return (
     <div className="space-y-6">
       <SectionHeading
@@ -129,6 +141,8 @@ export default function ProjectsPage() {
           const Icon = healthIcons[index] ?? ClipboardList;
           const summary = project.summary;
           const tone = getProjectTone(summary.status);
+          const isOpeningProject = pendingNavigation === `project:${summary.id}`;
+          const isOpeningAdmin = pendingNavigation === `admin:${summary.id}`;
 
           return (
             <Panel key={summary.id} className="overflow-hidden">
@@ -204,23 +218,34 @@ export default function ProjectsPage() {
 
                 <div className="flex flex-wrap gap-3">
                   <button
-                    onClick={() => {
-                      setActiveProjectId(summary.id);
-                      router.push("/");
-                    }}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8"
+                    type="button"
+                    onClick={() => openProject(summary.id)}
+                    disabled={pendingNavigation.length > 0}
+                    title={
+                      isOpeningProject
+                        ? "Ouverture du projet en cours."
+                        : "Basculer vers ce projet et ouvrir son tableau de bord."
+                    }
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Ouvrir le projet
+                    {isOpeningProject ? "Ouverture..." : "Ouvrir le projet"}
                     <ArrowUpRight className="size-4" />
                   </button>
 
                   {currentUser.role === "Super Admin" ? (
                     <button
-                      onClick={() => router.push(`/admin?project=${summary.id}`)}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
+                      type="button"
+                      onClick={() => openProjectAdmin(summary.id)}
+                      disabled={pendingNavigation.length > 0}
+                      title={
+                        isOpeningAdmin
+                          ? "Ouverture de la configuration en cours."
+                          : "Ouvrir ce projet directement dans l'administration."
+                      }
+                      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <Settings2 className="size-4" />
-                      Gerer l&apos;equipe
+                      {isOpeningAdmin ? "Chargement..." : "Gerer l&apos;equipe"}
                     </button>
                   ) : null}
                 </div>
