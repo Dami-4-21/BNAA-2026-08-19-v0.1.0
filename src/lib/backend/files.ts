@@ -3,8 +3,6 @@ import path from "node:path";
 
 import { getDataDirectory } from "@/lib/backend/store";
 
-const uploadsRoot = path.join(getDataDirectory(), "uploads");
-
 const fallbackExtensionByMimeType: Record<string, string> = {
   "application/msword": ".doc",
   "application/pdf": ".pdf",
@@ -40,15 +38,18 @@ function inferExtension(originalName: string, mimeType: string) {
 }
 
 function getAbsoluteUploadPath(relativePath: string) {
-  const base = path.resolve(getDataDirectory());
-  const candidate = path.resolve(base, relativePath);
-  const relative = path.relative(base, candidate);
+  const normalized = relativePath.replace(/\\/g, "/").replace(/^\/+/, "");
+  const segments = normalized.split("/").filter(Boolean);
 
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+  if (
+    segments.length === 0 ||
+    segments[0] !== "uploads" ||
+    segments.some((segment) => segment === "." || segment === "..")
+  ) {
     throw new Error("Chemin de fichier invalide.");
   }
 
-  return candidate;
+  return path.join(getDataDirectory(), ...segments);
 }
 
 export async function saveUploadedFile(options: {
@@ -85,8 +86,4 @@ export async function saveUploadedFile(options: {
 
 export async function readUploadedFile(relativePath: string) {
   return readFile(getAbsoluteUploadPath(relativePath));
-}
-
-export function getUploadsRoot() {
-  return uploadsRoot;
 }

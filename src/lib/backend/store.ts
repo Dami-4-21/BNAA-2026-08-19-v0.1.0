@@ -4,13 +4,14 @@ import path from "node:path";
 import { createSeedDatabase } from "@/lib/backend/seed";
 import type { DatabaseState } from "@/lib/backend/types";
 
-const defaultDataFile = path.join(
+const dataDirectory = path.join(
   /* turbopackIgnore: true */ process.cwd(),
   "data",
-  "database.json",
 );
-const databaseFile = process.env.BNAASAAS_DATA_FILE ?? defaultDataFile;
-const dataDirectory = path.dirname(databaseFile);
+const configuredDatabaseFileName = path.basename(
+  process.env.BNAASAAS_DATA_FILE?.trim() || "database.json",
+);
+const databaseFile = path.join(dataDirectory, configuredDatabaseFileName);
 
 let initPromise: Promise<void> | null = null;
 let writeQueue = Promise.resolve();
