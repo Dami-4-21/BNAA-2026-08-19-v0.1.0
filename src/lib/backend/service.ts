@@ -898,6 +898,23 @@ function ensureAssignedWorkflowOwner(
   );
 }
 
+function isAssignedWorkflowOwner(
+  user: AppUser | SafeUser,
+  project: ProjectRecord,
+  workflowOwnerKey: ProjectWorkflowOwnerKey,
+) {
+  if (user.role === "Super Admin") {
+    return true;
+  }
+
+  const assignedOwnerId = project.setup.workflowOwners?.[workflowOwnerKey];
+  if (assignedOwnerId) {
+    return user.id === assignedOwnerId;
+  }
+
+  return user.role === workflowOwnerRoleMap[workflowOwnerKey];
+}
+
 function appendAudit(
   database: DatabaseState,
   actor: string,
@@ -3749,19 +3766,18 @@ export async function mutateFinancePayload(
         const invoiceId = String(payload.invoiceId ?? "");
         const nextStatus = String(payload.status ?? "").trim();
         const invoice = project.finance.invoices.find((item) => item.id === invoiceId);
-        assert(
-          hasPermission(user, "finance.invoice.create") ||
-            hasPermission(user, "finance.invoice.send") ||
-            hasPermission(user, "finance.invoice.validate") ||
-            hasPermission(user, "finance.payment.record"),
-          403,
-          "Action non autorisee pour ce role.",
-        );
+        const isSuperAdmin = user.role === "Super Admin";
+        const canManageManualStatus =
+          isSuperAdmin || isAssignedWorkflowOwner(user, project, "financeLeadId");
+        const allowedStatuses = isSuperAdmin
+          ? ["Brouillon", "Envoyee", "Validation MO", "Validee", "Payee", "Litigieuse"]
+          : ["Brouillon", "Envoyee", "Litigieuse"];
+        assert(canManageManualStatus, 403, "Referent finance assigne requis pour cette action.");
         assert(invoice, 404, "Facture introuvable.");
         assert(
-          ["Brouillon", "Envoyee", "Validation MO", "Validee", "Payee", "Litigieuse"].includes(nextStatus),
+          allowedStatuses.includes(nextStatus),
           400,
-          "Statut facture invalide.",
+          "Statut facture invalide pour cette action.",
         );
         project.finance.invoices = project.finance.invoices.map((invoice) =>
           invoice.id === invoiceId

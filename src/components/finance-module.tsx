@@ -92,6 +92,15 @@ type WorkflowOwnerDisplay = {
   };
 };
 
+const allManualInvoiceStatuses = [
+  "Brouillon",
+  "Envoyee",
+  "Validation MO",
+  "Validee",
+  "Payee",
+  "Litigieuse",
+] as const;
+
 const tabs: Array<{ key: FinanceTab; label: string; helper: string }> = [
   {
     key: "dm",
@@ -237,9 +246,6 @@ function FinanceModuleContent({
   const [declaration, setDeclaration] = useState(projectData.declaration);
   const [mutationError, setMutationError] = useState("");
 
-  const selectedInvoice =
-    invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? invoices[0];
-
   const draftValues = useMemo(() => {
     const retentionAmount = Math.round((dmDraft.baseAmountHt * dmDraft.retentionPct) / 100);
     const amountAfterRetention = dmDraft.baseAmountHt - retentionAmount - dmDraft.advanceDeduction;
@@ -254,6 +260,42 @@ function FinanceModuleContent({
     };
   }, [dmDraft, vatRegime]);
 
+  const workflowOwners = useMemo(() => {
+    const membersById = new Map(projectData.projectMembers.map((member) => [member.id, member]));
+
+    return {
+      clientApproverId: membersById.get(projectData.projectSetup.workflowOwners.clientApproverId),
+      financeLeadId: membersById.get(projectData.projectSetup.workflowOwners.financeLeadId),
+      projectManagerId: membersById.get(projectData.projectSetup.workflowOwners.projectManagerId),
+    } satisfies WorkflowOwnerDisplay;
+  }, [projectData.projectMembers, projectData.projectSetup.workflowOwners]);
+
+  const canManageManualStatus = useMemo(() => {
+    if (currentUserRole === "Super Admin") {
+      return true;
+    }
+
+    if (workflowOwners.financeLeadId?.id) {
+      return workflowOwners.financeLeadId.id === currentUserId;
+    }
+
+    return currentUserRole === "Comptable";
+  }, [currentUserId, currentUserRole, workflowOwners.financeLeadId]);
+
+  const manualStatusOptions = useMemo(
+    () =>
+      currentUserRole === "Super Admin"
+        ? [...allManualInvoiceStatuses]
+        : (["Brouillon", "Envoyee", "Litigieuse"] as string[]),
+    [currentUserRole],
+  );
+  const selectedInvoice =
+    invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? invoices[0];
+  const selectedStatusValue = manualStatusOptions.includes(statusDraft)
+    ? statusDraft
+    : (manualStatusOptions[0] ?? statusDraft);
+  const canApplyStatusUpdate =
+    canManageManualStatus && manualStatusOptions.includes(selectedStatusValue);
   const paymentCoverage = selectedInvoice
     ? Math.round(
         ((selectedInvoice.status === "Payee"
@@ -265,16 +307,6 @@ function FinanceModuleContent({
           100,
       )
     : 0;
-
-  const workflowOwners = useMemo(() => {
-    const membersById = new Map(projectData.projectMembers.map((member) => [member.id, member]));
-
-    return {
-      clientApproverId: membersById.get(projectData.projectSetup.workflowOwners.clientApproverId),
-      financeLeadId: membersById.get(projectData.projectSetup.workflowOwners.financeLeadId),
-      projectManagerId: membersById.get(projectData.projectSetup.workflowOwners.projectManagerId),
-    } satisfies WorkflowOwnerDisplay;
-  }, [projectData.projectMembers, projectData.projectSetup.workflowOwners]);
 
   const validationAction = useMemo(() => {
     if (!selectedInvoice) {
@@ -524,7 +556,8 @@ function FinanceModuleContent({
                 <InvoicesTab
                   canRecordPayment={canRecordPayment}
                   canSendInvoice={canSendInvoice}
-                  canUpdateStatus={canCreateInvoice || canSendInvoice || canValidateInvoice || canRecordPayment}
+                  canUpdateStatus={canApplyStatusUpdate}
+                  manualStatusOptions={manualStatusOptions}
                   invoices={invoices}
                   selectedInvoiceId={selectedInvoiceId}
                   setSelectedInvoiceId={handleSelectInvoice}
@@ -533,7 +566,7 @@ function FinanceModuleContent({
                   projectMembers={projectData.projectMembers}
                   workflowOwners={workflowOwners}
                   sendInvoice={sendInvoice}
-                  statusDraft={statusDraft}
+                  statusValue={selectedStatusValue}
                   setStatusDraft={setStatusDraft}
                   updateInvoiceStatus={updateInvoiceStatus}
                   validateInvoice={validateInvoice}
@@ -776,6 +809,7 @@ function InvoicesTab({
   canRecordPayment,
   canSendInvoice,
   canUpdateStatus,
+  manualStatusOptions,
   invoices,
   selectedInvoiceId,
   setSelectedInvoiceId,
@@ -784,7 +818,7 @@ function InvoicesTab({
   projectMembers,
   workflowOwners,
   sendInvoice,
-  statusDraft,
+  statusValue,
   setStatusDraft,
   updateInvoiceStatus,
   validateInvoice,
@@ -797,6 +831,7 @@ function InvoicesTab({
   canRecordPayment: boolean;
   canSendInvoice: boolean;
   canUpdateStatus: boolean;
+  manualStatusOptions: string[];
   invoices: InvoiceItem[];
   selectedInvoiceId: string;
   setSelectedInvoiceId: (invoiceId: string) => void;
@@ -810,7 +845,7 @@ function InvoicesTab({
   }>;
   workflowOwners: WorkflowOwnerDisplay;
   sendInvoice: (invoiceId: string) => void;
-  statusDraft: string;
+  statusValue: string;
   setStatusDraft: React.Dispatch<React.SetStateAction<string>>;
   updateInvoiceStatus: (invoiceId: string) => void;
   validateInvoice: (invoiceId: string) => void;
@@ -967,11 +1002,12 @@ function InvoicesTab({
                   Statut facture
                 </span>
                 <select
-                  value={statusDraft}
+                  value={statusValue}
                   onChange={(event) => setStatusDraft(event.target.value)}
+                  disabled={!manualStatusOptions.length || !canUpdateStatus}
                   className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
                 >
-                  {["Brouillon", "Envoyee", "Validation MO", "Validee", "Payee", "Litigieuse"].map((status) => (
+                  {manualStatusOptions.map((status) => (
                     <option key={status} value={status}>
                       {status}
                     </option>

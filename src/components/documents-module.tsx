@@ -1170,34 +1170,48 @@ function OfflineTab({
         </div>
 
         <div className="space-y-3">
-          {documents.map((document) => (
-            <div
-              key={`${document.id}-offline`}
-              className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-white">{document.code}</p>
-                  <p className="mt-1 text-sm text-slate-400">
-                    {document.format} - {document.revision} - {document.fileSizeMb} Mo
-                  </p>
-                </div>
-                <StatusBadge tone={document.offlineReady ? "success" : "warning"}>
-                  {document.offlineReady ||
-                  (document.downloadUrl ? cachedUrls.includes(document.downloadUrl) : false)
-                    ? "En cache"
-                    : "Hors cache"}
-                </StatusBadge>
-              </div>
-              <button
-                onClick={() => toggleOffline(document.id)}
-                className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/8"
+          {documents.map((document) => {
+            const isCached =
+              document.offlineReady ||
+              (document.downloadUrl ? cachedUrls.includes(document.downloadUrl) : false);
+            const canToggleOffline = Boolean(document.downloadUrl);
+
+            return (
+              <div
+                key={`${document.id}-offline`}
+                className="rounded-[22px] border border-white/8 bg-white/4 p-4"
               >
-                <CloudDownload className="size-4" />
-                {document.offlineReady ? "Retirer du cache" : "Ajouter au cache"}
-              </button>
-            </div>
-          ))}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">{document.code}</p>
+                    <p className="mt-1 text-sm text-slate-400">
+                      {document.format} - {document.revision} - {document.fileSizeMb} Mo
+                    </p>
+                  </div>
+                  <StatusBadge tone={isCached ? "success" : "warning"}>
+                    {isCached ? "En cache" : "Hors cache"}
+                  </StatusBadge>
+                </div>
+                <button
+                  onClick={() => (canToggleOffline ? toggleOffline(document.id) : null)}
+                  disabled={!canToggleOffline}
+                  className={cx(
+                    "mt-3 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm",
+                    canToggleOffline
+                      ? "border-white/10 bg-white/5 text-white hover:bg-white/8"
+                      : "cursor-not-allowed border-white/8 bg-white/5 text-slate-500",
+                  )}
+                >
+                  <CloudDownload className="size-4" />
+                  {!canToggleOffline
+                    ? "Fichier indisponible"
+                    : isCached
+                      ? "Retirer du cache"
+                      : "Ajouter au cache"}
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
