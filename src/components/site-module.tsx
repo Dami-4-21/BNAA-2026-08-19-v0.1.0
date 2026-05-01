@@ -380,6 +380,60 @@ function SiteModuleContent({
   const projectValidationHelper = canRunProjectValidation
     ? `Validation projet affectee a ${assignedProjectApprover?.name ?? "l'equipe projet"}.`
     : `En attente de la validation projet par ${assignedProjectApprover?.name ?? "le chef de projet"}.`;
+  const canSubmitReport = Boolean(
+    canCreateReport &&
+      formState.reportDate &&
+      formState.weather &&
+      formState.workforceCount > 0 &&
+      formState.activities.trim().length > 0,
+  );
+  const reportActionHelper = !canCreateReport
+    ? "Votre role peut consulter les rapports, mais pas en soumettre."
+    : !formState.reportDate || !formState.weather
+      ? "Renseignez la date et la meteo avant de soumettre le rapport."
+      : formState.workforceCount <= 0
+        ? "Indiquez l'effectif present avant de soumettre le rapport."
+        : !formState.activities.trim()
+          ? "Ajoutez au moins une activite realisee pour soumettre le rapport."
+          : editingReportId
+            ? "Mettre a jour ce rapport journalier avec les nouvelles donnees chantier."
+            : "Soumettre le rapport journalier du jour pour validation.";
+  const canSubmitPhoto = Boolean(
+    canAddPhoto &&
+      photoFile &&
+      draftPhoto.title.trim() &&
+      draftPhoto.zone.trim() &&
+      draftPhoto.lot.trim() &&
+      draftPhoto.task.trim(),
+  );
+  const photoActionHelper = !canAddPhoto
+    ? "Votre role peut consulter le journal photo, mais pas y ajouter de nouveaux elements."
+    : !photoFile
+      ? "Choisissez d'abord une photo a joindre au journal."
+      : !draftPhoto.title.trim() || !draftPhoto.zone.trim() || !draftPhoto.lot.trim() || !draftPhoto.task.trim()
+        ? "Renseignez le titre, la zone, le lot et la tache avant l'ajout."
+        : "Ajouter cette photo geolocalisee au journal chantier.";
+  const gpsActionHelper =
+    typeof navigator !== "undefined" && "geolocation" in navigator
+      ? "Recuperer la position GPS de l'appareil pour pre-remplir les coordonnees."
+      : "La geolocalisation n'est pas disponible sur cet appareil.";
+  const canSubmitNcr = Boolean(
+    canCreateNcr &&
+      draftNcr.title.trim() &&
+      draftNcr.owner.trim() &&
+      draftNcr.dueDate.trim() &&
+      draftNcr.description.trim(),
+  );
+  const ncrActionHelper = !canCreateNcr
+    ? "Votre role peut consulter les non-conformites, mais pas en creer."
+    : !draftNcr.title.trim() || !draftNcr.owner.trim() || !draftNcr.dueDate.trim()
+      ? "Renseignez le titre, le responsable et l'echeance avant de creer la fiche."
+      : !draftNcr.description.trim()
+        ? "Ajoutez une description de la non-conformite avant de creer la fiche."
+        : "Creer la fiche de non-conformite et l'affecter au responsable choisi.";
+  const closeNcrHelper = canCloseNcr
+    ? "Cloturer cette non-conformite avec sa preuve de levee."
+    : "Votre role ne peut pas cloturer les non-conformites.";
 
   const deferredSearch = useDeferredValue(searchPhotos);
 
@@ -845,7 +899,6 @@ function SiteModuleContent({
 
               {activeTab === "rjc" ? (
                 <RjcTab
-                  canCreateReport={canCreateReport}
                   editingReportId={editingReportId}
                   formState={formState}
                   setFormState={setFormState}
@@ -855,14 +908,16 @@ function SiteModuleContent({
                     selectTab("overview", editingReportId ? { report: editingReportId } : undefined)
                   }
                   openPhotosTab={() => selectTab("photos")}
+                  projectValidationHelper={projectValidationHelper}
                   resetReportComposer={resetReportComposer}
+                  reportActionHelper={reportActionHelper}
+                  canSubmitReport={canSubmitReport}
                   submitDailyReport={submitDailyReport}
                 />
               ) : null}
 
               {activeTab === "photos" ? (
                 <PhotosTab
-                  canAddPhoto={canAddPhoto}
                   draftPhoto={draftPhoto}
                   photoFile={photoFile}
                   setPhotoFile={setPhotoFile}
@@ -875,6 +930,9 @@ function SiteModuleContent({
                   availableLots={["Tous", ...availableLotOptions]}
                   availableZones={availableZoneOptions}
                   addPhoto={addPhoto}
+                  canSubmitPhoto={canSubmitPhoto}
+                  gpsActionHelper={gpsActionHelper}
+                  photoActionHelper={photoActionHelper}
                   captureGps={captureGps}
                 />
               ) : null}
@@ -882,13 +940,15 @@ function SiteModuleContent({
               {activeTab === "ncr" ? (
                 <NcrTab
                   canCloseNcr={canCloseNcr}
-                  canCreateNcr={canCreateNcr}
                   draftNcr={draftNcr}
                   setDraftNcr={setDraftNcr}
                   ncrs={ncrs}
                   responsibleOptions={responsibleOptions}
                   focusedNcrRef={focusedNcrRef}
+                  closeNcrHelper={closeNcrHelper}
+                  canSubmitNcr={canSubmitNcr}
                   createNcr={createNcr}
+                  ncrActionHelper={ncrActionHelper}
                   closeNcr={closeNcr}
                 />
               ) : null}
@@ -1299,7 +1359,6 @@ function OverviewTab({
 }
 
 function RjcTab({
-  canCreateReport,
   editingReportId,
   formState,
   setFormState,
@@ -1307,10 +1366,12 @@ function RjcTab({
   incidentTemplates,
   openOverviewTab,
   openPhotosTab,
+  projectValidationHelper,
+  reportActionHelper,
+  canSubmitReport,
   resetReportComposer,
   submitDailyReport,
 }: {
-  canCreateReport: boolean;
   editingReportId: string;
   formState: FormState;
   setFormState: React.Dispatch<React.SetStateAction<FormState>>;
@@ -1318,6 +1379,9 @@ function RjcTab({
   incidentTemplates: string[];
   openOverviewTab: () => void;
   openPhotosTab: () => void;
+  projectValidationHelper: string;
+  reportActionHelper: string;
+  canSubmitReport: boolean;
   resetReportComposer: () => void;
   submitDailyReport: () => void;
 }) {
@@ -1508,9 +1572,27 @@ function RjcTab({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <ActionButton icon={Camera} label="Photos" onClick={openPhotosTab} />
-            <ActionButton icon={Signature} label="Validation projet" onClick={openOverviewTab} />
-            <ActionButton icon={FileOutput} label="Preparer PDF" onClick={openOverviewTab} />
+            <ActionButton
+              icon={Camera}
+              label="Photos"
+              helper="Ouvrir le journal photo pour ajouter ou verifier des prises de vue."
+              onClick={openPhotosTab}
+              title="Ouvrir directement le journal photo chantier."
+            />
+            <ActionButton
+              icon={Signature}
+              label="Validation projet"
+              helper={projectValidationHelper}
+              onClick={openOverviewTab}
+              title={projectValidationHelper}
+            />
+            <ActionButton
+              icon={FileOutput}
+              label="Preparer PDF"
+              helper="Revenir a l'overview pour preparer puis telecharger le PDF du RJC."
+              onClick={openOverviewTab}
+              title="Acceder au circuit PDF et validation du rapport."
+            />
           </div>
 
           {editingReportId ? (
@@ -1523,22 +1605,24 @@ function RjcTab({
           ) : null}
 
           <button
-            onClick={() => (canCreateReport ? submitDailyReport() : null)}
-            disabled={!canCreateReport}
+            onClick={() => (canSubmitReport ? submitDailyReport() : null)}
+            disabled={!canSubmitReport}
+            title={reportActionHelper}
             className={cx(
               "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
-              canCreateReport
+              canSubmitReport
                 ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                 : "cursor-not-allowed bg-slate-700 text-slate-400",
             )}
           >
             <CheckCheck className="size-4" />
-            {canCreateReport
+            {canSubmitReport
               ? editingReportId
                 ? "Mettre a jour le RJC"
                 : "Soumettre le RJC du jour"
               : "Lecture seule sur le RJC"}
           </button>
+          <p className="text-xs leading-5 text-slate-400">{reportActionHelper}</p>
         </div>
       </div>
     </div>
@@ -1546,7 +1630,6 @@ function RjcTab({
 }
 
 function PhotosTab({
-  canAddPhoto,
   captureGps,
   draftPhoto,
   photoFile,
@@ -1560,8 +1643,10 @@ function PhotosTab({
   availableLots,
   availableZones,
   addPhoto,
+  canSubmitPhoto,
+  gpsActionHelper,
+  photoActionHelper,
 }: {
-  canAddPhoto: boolean;
   captureGps: () => void;
   draftPhoto: {
     title: string;
@@ -1589,6 +1674,9 @@ function PhotosTab({
   availableLots: string[];
   availableZones: string[];
   addPhoto: () => void;
+  canSubmitPhoto: boolean;
+  gpsActionHelper: string;
+  photoActionHelper: string;
 }) {
   return (
     <div className="space-y-4">
@@ -1651,21 +1739,29 @@ function PhotosTab({
           </label>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <ActionButton icon={MapPin} label="Capturer GPS" onClick={captureGps} />
+            <ActionButton
+              icon={MapPin}
+              label="Capturer GPS"
+              helper={gpsActionHelper}
+              onClick={captureGps}
+              title={gpsActionHelper}
+            />
             <button
-              onClick={() => (canAddPhoto ? addPhoto() : null)}
-              disabled={!canAddPhoto}
+              onClick={() => (canSubmitPhoto ? addPhoto() : null)}
+              disabled={!canSubmitPhoto}
+              title={photoActionHelper}
               className={cx(
                 "flex items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
-                canAddPhoto
+                canSubmitPhoto
                   ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                   : "cursor-not-allowed bg-slate-700 text-slate-400",
               )}
             >
               <Camera className="size-4" />
-              {canAddPhoto ? "Ajouter au journal photo" : "Consultation du journal photo"}
+              {canSubmitPhoto ? "Ajouter au journal photo" : "Ajout photo indisponible"}
             </button>
           </div>
+          <p className="text-xs leading-5 text-slate-400">{photoActionHelper}</p>
         </div>
 
         <div className="space-y-4">
@@ -1745,17 +1841,18 @@ function PhotosTab({
 
 function NcrTab({
   canCloseNcr,
-  canCreateNcr,
   draftNcr,
   setDraftNcr,
   ncrs,
   responsibleOptions,
   focusedNcrRef,
+  closeNcrHelper,
+  canSubmitNcr,
   createNcr,
+  ncrActionHelper,
   closeNcr,
 }: {
   canCloseNcr: boolean;
-  canCreateNcr: boolean;
   draftNcr: {
     title: string;
     owner: string;
@@ -1777,7 +1874,10 @@ function NcrTab({
   ncrs: NcrItem[];
   responsibleOptions: string[];
   focusedNcrRef: string;
+  closeNcrHelper: string;
+  canSubmitNcr: boolean;
   createNcr: () => void;
+  ncrActionHelper: string;
   closeNcr: (ref: string) => void;
 }) {
   return (
@@ -1858,18 +1958,20 @@ function NcrTab({
           </button>
 
           <button
-            onClick={() => (canCreateNcr ? createNcr() : null)}
-            disabled={!canCreateNcr}
+            onClick={() => (canSubmitNcr ? createNcr() : null)}
+            disabled={!canSubmitNcr}
+            title={ncrActionHelper}
             className={cx(
               "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
-              canCreateNcr
+              canSubmitNcr
                 ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                 : "cursor-not-allowed bg-slate-700 text-slate-400",
             )}
           >
             <ShieldAlert className="size-4" />
-            {canCreateNcr ? "Creer la fiche NC" : "Consultation des non-conformites"}
+            {canSubmitNcr ? "Creer la fiche NC" : "Creation NC indisponible"}
           </button>
+          <p className="text-xs leading-5 text-slate-400">{ncrActionHelper}</p>
         </div>
 
         <div className="space-y-3">
@@ -1903,6 +2005,7 @@ function NcrTab({
                   <button
                     onClick={() => (canCloseNcr ? closeNcr(item.ref) : null)}
                     disabled={!canCloseNcr}
+                    title={closeNcrHelper}
                     className={cx(
                       "rounded-2xl px-4 py-2 text-sm font-semibold",
                       canCloseNcr
@@ -1997,26 +2100,34 @@ function InfoStat({ label, value }: { label: string; value: string }) {
 function ActionButton({
   icon: Icon,
   label,
+  helper,
   onClick,
   disabled = false,
+  title,
 }: {
   icon: typeof Camera;
   label: string;
+  helper?: string;
   onClick?: () => void;
   disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={cx(
         "flex items-center justify-between rounded-[22px] border border-dashed border-white/14 bg-white/4 px-4 py-4 text-left",
         disabled ? "cursor-not-allowed opacity-60" : "hover:bg-white/8",
       )}
     >
-      <span className="text-sm font-semibold text-white">{label}</span>
-      <Icon className="size-4 text-slate-400" />
+      <div>
+        <span className="text-sm font-semibold text-white">{label}</span>
+        {helper ? <p className="mt-1 text-xs leading-5 text-slate-400">{helper}</p> : null}
+      </div>
+      <Icon className="size-4 shrink-0 text-slate-400" />
     </button>
   );
 }

@@ -640,7 +640,7 @@ function FinanceModuleContent({
                   manualStatusOptions={manualStatusOptions}
                   invoices={invoices}
                   selectedInvoiceId={selectedInvoiceId}
-                  setSelectedInvoiceId={handleSelectInvoice}
+                  selectInvoice={handleSelectInvoice}
                   selectedInvoice={selectedInvoice}
                   paymentCoverage={paymentCoverage}
                   projectMembers={projectData.projectMembers}
@@ -895,7 +895,7 @@ function InvoicesTab({
   manualStatusOptions,
   invoices,
   selectedInvoiceId,
-  setSelectedInvoiceId,
+  selectInvoice,
   selectedInvoice,
   paymentCoverage,
   projectMembers,
@@ -920,7 +920,7 @@ function InvoicesTab({
   manualStatusOptions: string[];
   invoices: InvoiceItem[];
   selectedInvoiceId: string;
-  setSelectedInvoiceId: (invoiceId: string) => void;
+  selectInvoice: (invoiceId: string) => void;
   selectedInvoice: InvoiceItem | undefined;
   paymentCoverage: number;
   projectMembers: Array<{
@@ -961,7 +961,13 @@ function InvoicesTab({
         {invoices.map((invoice) => (
           <button
             key={invoice.id}
-            onClick={() => setSelectedInvoiceId(invoice.id)}
+            type="button"
+            onClick={() => selectInvoice(invoice.id)}
+            title={
+              selectedInvoiceId === invoice.id
+                ? "Cette facture est deja selectionnee."
+                : "Ouvrir cette facture et synchroniser la selection dans l'URL."
+            }
             className={cx(
               "w-full rounded-[24px] border p-4 text-left",
               selectedInvoiceId === invoice.id

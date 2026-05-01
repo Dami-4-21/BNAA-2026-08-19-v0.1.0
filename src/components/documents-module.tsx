@@ -609,7 +609,7 @@ function DocumentsModuleContent({
                 <LibraryTab
                   documents={filteredDocuments}
                   selectedDocumentId={selectedDocumentId}
-                  setSelectedDocumentId={handleSelectDocument}
+                  selectDocument={handleSelectDocument}
                   search={search}
                   setSearch={setSearch}
                   filter={filter}
@@ -834,7 +834,7 @@ function DocumentsModuleContent({
 function LibraryTab({
   documents,
   selectedDocumentId,
-  setSelectedDocumentId,
+  selectDocument,
   search,
   setSearch,
   filter,
@@ -843,7 +843,7 @@ function LibraryTab({
 }: {
   documents: DocumentFile[];
   selectedDocumentId: string;
-  setSelectedDocumentId: (documentId: string) => void;
+  selectDocument: (documentId: string) => void;
   search: string;
   setSearch: React.Dispatch<React.SetStateAction<string>>;
   filter: string;
@@ -883,7 +883,13 @@ function LibraryTab({
         {documents.map((document) => (
           <button
             key={document.id}
-            onClick={() => setSelectedDocumentId(document.id)}
+            type="button"
+            onClick={() => selectDocument(document.id)}
+            title={
+              selectedDocumentId === document.id
+                ? "Ce document est deja selectionne."
+                : "Ouvrir ce document et synchroniser la selection dans l'URL."
+            }
             className={cx(
               "w-full rounded-[24px] border p-4 text-left",
               selectedDocumentId === document.id
