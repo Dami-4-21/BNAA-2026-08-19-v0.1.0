@@ -93,7 +93,27 @@ export type SiteModuleData = SiteModuleBaseData & {
   projectSetup: ProjectSetupRecord;
 };
 
-export type DocumentsModuleData = DocumentsModuleBaseData & {
+export type DocumentVersionRecord = DocumentsModuleBaseData["files"][number]["versions"][number] & {
+  downloadUrl?: string;
+  fileName?: string;
+  filePath?: string;
+  isCurrent?: boolean;
+  mimeType?: string;
+};
+
+export type DocumentFileRecord = Omit<
+  DocumentsModuleBaseData["files"][number],
+  "versions"
+> & {
+  downloadUrl?: string;
+  fileName?: string;
+  filePath?: string;
+  mimeType?: string;
+  versions: DocumentVersionRecord[];
+};
+
+export type DocumentsModuleData = Omit<DocumentsModuleBaseData, "files"> & {
+  files: DocumentFileRecord[];
   distributionOptions: string[];
   projectMembers: ProjectMemberOption[];
   projectSetup: ProjectSetupRecord;
@@ -108,12 +128,6 @@ export type SitePhotoRecord = SiteModuleBaseData["photoLibrary"][number] & {
   fileName?: string;
   filePath?: string;
   fileUrl?: string;
-  mimeType?: string;
-};
-export type DocumentFileRecord = DocumentsModuleBaseData["files"][number] & {
-  downloadUrl?: string;
-  fileName?: string;
-  filePath?: string;
   mimeType?: string;
 };
 

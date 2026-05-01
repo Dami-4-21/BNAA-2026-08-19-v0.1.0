@@ -10,7 +10,6 @@ import {
 import {
   CheckCheck,
   CloudDownload,
-  FileDiff,
   FileStack,
   FolderOpen,
   HardDriveDownload,
@@ -30,6 +29,7 @@ import {
   StatusBadge,
   cx,
 } from "@/components/ui";
+import { PdfOverlayCompare } from "@/components/pdf-overlay-compare";
 import { formatDate } from "@/lib/format";
 import { apiFetch, apiUpload } from "@/lib/api";
 import type { DocumentsModuleData as DocumentsPayload } from "@/lib/backend/types";
@@ -44,32 +44,7 @@ type DocumentsTab = "library" | "versions" | "distribution" | "offline";
 
 type ActiveTone = "primary" | "success" | "warning" | "danger";
 
-type DocumentFile = {
-  id: string;
-  code: string;
-  title: string;
-  discipline: string;
-  lot: string;
-  phase: string;
-  format: string;
-  revision: string;
-  fileSizeMb: number;
-  uploadedBy: string;
-  publishedAt: string;
-  status: string;
-  tone: ActiveTone;
-  isCurrent: boolean;
-  offlineReady: boolean;
-  lastDistributedAt: string;
-  readCount: number;
-  recipients: number;
-  storage: string;
-  versions: Array<{ version: string; publishedAt: string; status: string }>;
-  compareWith: string;
-  downloadUrl?: string;
-  fileName?: string;
-  mimeType?: string;
-};
+type DocumentFile = DocumentsPayload["files"][number];
 
 type Recipient = {
   id: string;
@@ -209,6 +184,7 @@ function DocumentsModuleContent({
   const [selectedDocumentId, setSelectedDocumentId] = useState(
     projectData.files[0]?.id ?? "",
   );
+  const [comparisonSelections, setComparisonSelections] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Tous");
   const [draftVersion, setDraftVersion] = useState(projectData.draftVersion);
@@ -339,6 +315,9 @@ function DocumentsModuleContent({
     () => recipients.filter((recipient) => recipient.documentId === selectedDocument?.id),
     [recipients, selectedDocument?.id],
   );
+  const selectedCompareVersion = selectedDocument
+    ? comparisonSelections[selectedDocument.id] ?? selectedDocument.compareWith
+    : "";
 
   const documentFilters = useMemo(
     () => [
@@ -654,20 +633,7 @@ function DocumentsModuleContent({
                   ) : null}
 
                   <div className="rounded-[22px] border border-dashed border-sky-400/20 bg-sky-400/8 p-5">
-                    <div className="aspect-[4/3] rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4">
-                      <div className="flex h-full items-end justify-between rounded-[14px] border border-white/6 bg-[#08111f]/65 p-4">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                            Comparaison
-                          </p>
-                          <p className="mt-2 text-sm text-white">
-                            {selectedDocument.compareWith} vs {selectedDocument.revision}
-                          </p>
-                        </div>
-                        <FileDiff className="size-5 text-slate-300" />
-                      </div>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <StatusBadge tone="success">
                         {selectedDocument.isCurrent ? "Version en vigueur" : "Hors vigueur"}
                       </StatusBadge>
@@ -699,6 +665,27 @@ function DocumentsModuleContent({
                         </div>
                       ) : null}
                     </div>
+                    {selectedDocument.format === "PDF" ? (
+                      <div className="mt-4">
+                        <PdfOverlayCompare
+                          document={selectedDocument}
+                          key={`${selectedDocument.id}-${selectedCompareVersion || "default"}`}
+                          onSelectVersion={(version) =>
+                            setComparisonSelections((current) => ({
+                              ...current,
+                              [selectedDocument.id]: version,
+                            }))
+                          }
+                          selectedVersion={selectedCompareVersion}
+                        />
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-[22px] border border-white/8 bg-white/4 px-4 py-5 text-sm leading-6 text-slate-300">
+                        La comparaison visuelle par superposition est disponible pour les revisions
+                        PDF. Les autres formats restent consultables via l&apos;historique et le
+                        telechargement courant.
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : null}

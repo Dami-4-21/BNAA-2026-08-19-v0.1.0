@@ -24,6 +24,7 @@ import type {
   DashboardPageData,
   DatabaseState,
   DocumentFileRecord,
+  DocumentVersionRecord,
   DocumentsModuleData,
   FinanceModuleData,
   GlobalSearchPayload,
@@ -146,6 +147,14 @@ function getSitePhotoUrl(projectId: string, photoId: string) {
 
 function getDocumentDownloadUrl(projectId: string, documentId: string) {
   return `/api/projects/${projectId}/documents/${documentId}/file`;
+}
+
+function getDocumentVersionDownloadUrl(
+  projectId: string,
+  documentId: string,
+  version: string,
+) {
+  return `/api/projects/${projectId}/documents/${documentId}/versions/${encodeURIComponent(version)}/file`;
 }
 
 function getSiteReportPdfUrl(projectId: string, reportId: string) {
@@ -1139,6 +1148,31 @@ async function deriveSiteData(
   };
 }
 
+function enrichDocumentVersions(
+  projectId: string,
+  document: DocumentFileRecord,
+): DocumentVersionRecord[] {
+  return (document.versions ?? []).map((version) => {
+    const isCurrentVersion = version.version === document.revision;
+    const filePath = version.filePath ?? (isCurrentVersion ? document.filePath : undefined);
+    const fileName = version.fileName ?? (isCurrentVersion ? document.fileName : undefined);
+    const mimeType = version.mimeType ?? (isCurrentVersion ? document.mimeType : undefined);
+
+    return {
+      ...version,
+      downloadUrl: filePath
+        ? isCurrentVersion
+          ? getDocumentDownloadUrl(projectId, document.id)
+          : getDocumentVersionDownloadUrl(projectId, document.id, version.version)
+        : undefined,
+      fileName,
+      filePath,
+      isCurrent: isCurrentVersion,
+      mimeType,
+    };
+  });
+}
+
 function deriveDocumentsData(database: DatabaseState, project: ProjectRecord): DocumentsModuleData {
   const documents = clone(project.documents);
   documents.files = documents.files.map((file) => {
@@ -1147,8 +1181,12 @@ function deriveDocumentsData(database: DatabaseState, project: ProjectRecord): D
       ? ({
           ...asset,
           downloadUrl: getDocumentDownloadUrl(project.summary.id, asset.id),
+          versions: enrichDocumentVersions(project.summary.id, asset),
         } as unknown as DocumentsModuleData["files"][number])
-      : file;
+      : ({
+          ...asset,
+          versions: enrichDocumentVersions(project.summary.id, asset),
+        } as unknown as DocumentsModuleData["files"][number]);
   });
   const totalSizeMb = documents.files.reduce(
     (total, file) => total + file.fileSizeMb,
@@ -2949,6 +2987,76 @@ export async function getDocumentFile(token: string, projectId: string, document
   };
 }
 
+export async function getDocumentVersionFile(
+  token: string,
+  projectId: string,
+  documentId: string,
+  versionId: string,
+) {
+  const database = await readDatabase();
+  ensureSystemUsers(database);
+  const user = getUserForSession(database, token);
+  assert(user, 401, "Session invalide ou expiree.");
+  ensurePermission(user, "documents.view");
+  ensureProjectAccess(user, projectId);
+  const project = getProjectRecord(database, projectId);
+  const document = project.documents.files.find((item) => item.id === documentId) as
+    | DocumentFileRecord
+    | undefined;
+
+  assert(document, 404, "Document introuvable.");
+
+  if (document.revision === versionId && document.filePath) {
+    return {
+      fileName:
+        document.fileName ?? `${document.code}-${document.revision}.${document.format.toLowerCase()}`,
+      filePath: document.filePath,
+      mimeType: document.mimeType ?? "application/octet-stream",
+    };
+  }
+
+  const version = (document.versions ?? []).find((item) => item.version === versionId);
+  assert(version, 404, "Revision documentaire introuvable.");
+  assert(version.filePath, 404, "Aucun fichier disponible pour cette revision.");
+
+  return {
+    fileName: version.fileName ?? `${document.code}-${version.version}.${document.format.toLowerCase()}`,
+    filePath: version.filePath,
+    mimeType: version.mimeType ?? "application/octet-stream",
+  };
+}
+
+function archiveCurrentDocumentVersion(document: DocumentFileRecord) {
+  const archivedVersions = (document.versions ?? []).map((version) => {
+    if (version.version !== document.revision) {
+      return version;
+    }
+
+    return {
+      ...version,
+      fileName: version.fileName ?? document.fileName,
+      filePath: version.filePath ?? document.filePath,
+      mimeType: version.mimeType ?? document.mimeType,
+      publishedAt: version.publishedAt ?? document.publishedAt,
+      status: version.status === "Courante" ? "Archive" : version.status,
+    };
+  });
+
+  const hasCurrentVersion = archivedVersions.some((version) => version.version === document.revision);
+  if (!hasCurrentVersion && document.revision) {
+    archivedVersions.push({
+      version: document.revision,
+      publishedAt: document.publishedAt,
+      status: "Archive",
+      fileName: document.fileName,
+      filePath: document.filePath,
+      mimeType: document.mimeType,
+    });
+  }
+
+  document.versions = archivedVersions as DocumentVersionRecord[];
+}
+
 export async function uploadDocumentVersion(
   token: string,
   projectId: string,
@@ -2985,14 +3093,15 @@ export async function uploadDocumentVersion(
       storedName: `${document.code}-${revision}`,
     });
 
-    document.versions = document.versions.map((version) =>
-      version.status === "Courante" ? { ...version, status: "Archive" } : version,
-    );
+    archiveCurrentDocumentVersion(document);
     document.versions.push({
       version: revision,
       publishedAt: todayIso,
       status: "Courante",
-    });
+      fileName: storedFile.fileName,
+      filePath: storedFile.relativePath,
+      mimeType: storedFile.mimeType,
+    } as DocumentVersionRecord);
     document.revision = revision;
     document.format = format;
     document.publishedAt = todayIso;
@@ -3033,9 +3142,9 @@ export async function uploadDocumentVersion(
       entry.code === portfolioEntry.code ? portfolioEntry : entry,
     );
 
-    return deriveDocumentsData(database, project);
-  });
-}
+      return deriveDocumentsData(database, project);
+    });
+  }
 
 export async function mutateDocumentsPayload(
   token: string,
@@ -3060,14 +3169,12 @@ export async function mutateDocumentsPayload(
         const revision = String(payload.revision ?? "").trim();
         const format = String(payload.format ?? document.format).trim();
         assert(revision, 400, "Revision requise.");
-        document.versions = document.versions.map((version) =>
-          version.status === "Courante" ? { ...version, status: "Archive" } : version,
-        );
+        archiveCurrentDocumentVersion(document as DocumentFileRecord);
         document.versions.push({
           version: revision,
           publishedAt: todayIso,
           status: "Courante",
-        });
+        } as DocumentVersionRecord);
         document.revision = revision;
         document.format = format;
         document.publishedAt = todayIso;
