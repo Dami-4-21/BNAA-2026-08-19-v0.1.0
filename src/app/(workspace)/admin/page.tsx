@@ -687,6 +687,7 @@ export default function AdminPage() {
                       key={project.id}
                       type="button"
                       onClick={() => (form.role === "Super Admin" ? null : toggleProject(project.id))}
+                      disabled={form.role === "Super Admin"}
                       className={cx(
                         "rounded-full border px-4 py-2 text-sm font-semibold",
                         checked
@@ -1096,6 +1097,7 @@ export default function AdminPage() {
                             ? null
                             : toggleProjectMember(selectedProject.summary.id, user.id)
                         }
+                        disabled={user.role === "Super Admin" || !isAllowedRole}
                         className={cx(
                           "rounded-[20px] border p-4 text-left",
                           checked

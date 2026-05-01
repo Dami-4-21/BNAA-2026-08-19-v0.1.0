@@ -37,14 +37,25 @@ export default function ProjectsPage() {
   const router = useRouter();
   const { currentUser, setActiveProjectId } = useWorkspace();
   const [data, setData] = useState<ProjectsPageData | null>(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadProjects() {
-      const payload = await apiFetch<ProjectsPageData>("/api/projects", { method: "GET" });
-      if (!cancelled) {
-        setData(payload);
+      try {
+        setError("");
+        const payload = await apiFetch<ProjectsPageData>("/api/projects", { method: "GET" });
+        if (!cancelled) {
+          setData(payload);
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(
+            nextError instanceof Error ? nextError.message : "Chargement portefeuille impossible.",
+          );
+          setData(null);
+        }
       }
     }
 
@@ -54,6 +65,23 @@ export default function ProjectsPage() {
       cancelled = true;
     };
   }, []);
+
+  if (!data && !error) {
+    return (
+      <div className="space-y-6">
+        <SectionHeading eyebrow="Portfolio" title="Chargement des projets" />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="space-y-6">
+        <SectionHeading eyebrow="Portfolio" title="Le portefeuille n'est pas disponible" />
+        <Panel>{error}</Panel>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -74,8 +102,13 @@ export default function ProjectsPage() {
         }
       />
 
+      {data.projects.length === 0 ? (
+        <Panel>
+          Aucun projet accessible pour ce role pour le moment.
+        </Panel>
+      ) : (
       <div className="grid gap-4 lg:grid-cols-3">
-        {(data?.projects ?? []).map((project, index) => {
+        {data.projects.map((project, index) => {
           const Icon = healthIcons[index] ?? ClipboardList;
           const summary = project.summary;
           const tone = getProjectTone(summary.status);
@@ -179,6 +212,7 @@ export default function ProjectsPage() {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

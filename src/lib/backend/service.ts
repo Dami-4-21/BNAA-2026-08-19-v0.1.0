@@ -619,8 +619,7 @@ function normalizeWorkflowOwners(
   (Object.keys(nextOwners) as ProjectWorkflowOwnerKey[]).forEach((key) => {
     const requestedId = draft?.[key] ?? "";
     const eligibleUsers = getEligibleWorkflowOwners(database, projectId, memberIds, key);
-    const resolvedUser =
-      eligibleUsers.find((user) => user.id === requestedId) ?? eligibleUsers[0] ?? null;
+    const resolvedUser = eligibleUsers.find((user) => user.id === requestedId) ?? null;
     nextOwners[key] = resolvedUser?.id ?? "";
   });
 
