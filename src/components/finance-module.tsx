@@ -301,6 +301,18 @@ function FinanceModuleContent({
     : (manualStatusOptions[0] ?? statusDraft);
   const canApplyStatusUpdate =
     canManageManualStatus && manualStatusOptions.includes(selectedStatusValue);
+  const canRegisterPaymentForSelectedInvoice = Boolean(
+    canRecordPayment &&
+      selectedInvoice &&
+      (selectedInvoice.validatedByMo || selectedInvoice.status === "Payee"),
+  );
+  const paymentActionHelper = !canRecordPayment
+    ? "Votre role ne peut pas enregistrer les paiements."
+    : !selectedInvoice
+      ? "Selectionnez une facture pour enregistrer un paiement."
+      : selectedInvoice.validatedByMo || selectedInvoice.status === "Payee"
+        ? "Le paiement peut etre saisi des que l'encaissement est confirme."
+        : "La validation client doit etre finalisee avant l'enregistrement d'un paiement.";
   const paymentCoverage = selectedInvoice
     ? Math.round(
         ((selectedInvoice.status === "Payee"
@@ -385,11 +397,14 @@ function FinanceModuleContent({
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
 
-  function selectTab(nextTab: FinanceTab) {
+  function selectTab(nextTab: FinanceTab, invoiceId?: string) {
     setActiveTab(nextTab);
-    replaceModuleUrl(nextTab, nextTab === "invoices" || nextTab === "vat" || nextTab === "cashflow"
-      ? selectedInvoice?.id
-      : undefined);
+    replaceModuleUrl(
+      nextTab,
+      nextTab === "invoices" || nextTab === "vat" || nextTab === "cashflow"
+        ? (invoiceId ?? selectedInvoice?.id)
+        : undefined,
+    );
   }
 
   useEffect(() => {
@@ -451,8 +466,12 @@ function FinanceModuleContent({
         dmDraft,
         vatRegimeId: vatRegime.id,
       });
-      setSelectedInvoiceId(nextData.invoices[0]?.id ?? "");
-      selectTab("invoices");
+      const nextInvoiceId = nextData.invoices[0]?.id ?? "";
+      setSelectedInvoiceId(nextInvoiceId);
+      if (nextData.invoices[0]) {
+        setStatusDraft(nextData.invoices[0].status);
+      }
+      selectTab("invoices", nextInvoiceId);
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Generation impossible.");
     }
@@ -600,7 +619,8 @@ function FinanceModuleContent({
 
               {activeTab === "invoices" ? (
                 <InvoicesTab
-                  canRecordPayment={canRecordPayment}
+                  canRecordPayment={canRegisterPaymentForSelectedInvoice}
+                  paymentActionHelper={paymentActionHelper}
                   canSendInvoice={canSendInvoice}
                   canUpdateStatus={canApplyStatusUpdate}
                   manualStatusOptions={manualStatusOptions}
@@ -853,6 +873,7 @@ function DecompteTab({
 
 function InvoicesTab({
   canRecordPayment,
+  paymentActionHelper,
   canSendInvoice,
   canUpdateStatus,
   manualStatusOptions,
@@ -875,6 +896,7 @@ function InvoicesTab({
   registerPayment,
 }: {
   canRecordPayment: boolean;
+  paymentActionHelper: string;
   canSendInvoice: boolean;
   canUpdateStatus: boolean;
   manualStatusOptions: string[];
@@ -1149,6 +1171,7 @@ function InvoicesTab({
               <button
                 onClick={() => (canRecordPayment ? registerPayment(selectedInvoice.id) : null)}
                 disabled={!canRecordPayment}
+                title={paymentActionHelper}
                 className={cx(
                   "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
                   canRecordPayment
@@ -1157,8 +1180,9 @@ function InvoicesTab({
                 )}
               >
                 <Landmark className="size-4" />
-                {canRecordPayment ? "Enregistrer le paiement" : "Paiement en lecture seule"}
+                {canRecordPayment ? "Enregistrer le paiement" : "Paiement indisponible"}
               </button>
+              <p className="text-xs leading-5 text-slate-400">{paymentActionHelper}</p>
             </div>
           </div>
         </div>

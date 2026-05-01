@@ -3878,6 +3878,11 @@ export async function mutateFinancePayload(
         const paymentDraft = payload.paymentDraft as FinanceModuleData["paymentDraft"];
         const invoice = project.finance.invoices.find((item) => item.id === invoiceId);
         assert(invoice, 404, "Facture introuvable.");
+        assert(
+          invoice.validatedByMo || invoice.status === "Payee",
+          400,
+          "La facture doit etre validee avant l'enregistrement d'un paiement.",
+        );
         const amount = Number(paymentDraft.amount);
         assert(Number.isFinite(amount) && amount > 0, 400, "Montant de paiement invalide.");
         project.finance.payments.unshift({

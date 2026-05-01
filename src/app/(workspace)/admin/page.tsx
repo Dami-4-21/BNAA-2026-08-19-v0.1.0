@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Building2,
   CheckCheck,
@@ -147,6 +147,8 @@ function sameWorkflowOwners(
 }
 
 export default function AdminPage() {
+  const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { currentUser, refreshWorkspace } = useWorkspace();
   const [data, setData] = useState<AdminPageData | null>(null);
@@ -246,15 +248,29 @@ export default function AdminPage() {
     ) as Record<ProjectWorkflowOwnerKey, AdminPageData["users"]>;
   }, [data, selectedProject, selectedProjectDraft]);
 
+  function replaceSelectedProject(projectId: string) {
+    setSelectedProjectId(projectId);
+    const params = new URLSearchParams(searchParams.toString());
+    if (projectId) {
+      params.set("project", projectId);
+    } else {
+      params.delete("project");
+    }
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
   function applyAdminPayload(payload: AdminPageData) {
     setData(payload);
     setUserDrafts(buildUserDrafts(payload.users));
     setProjectDrafts(buildProjectDrafts(payload.projects));
-    setSelectedProjectId((current) =>
-      payload.projects.some((project) => project.summary.id === current)
-        ? current
-        : (payload.projects[0]?.summary.id ?? ""),
-    );
+    const requestedProjectId = searchParams.get("project") ?? "";
+    const nextProjectId = payload.projects.some((project) => project.summary.id === requestedProjectId)
+      ? requestedProjectId
+      : payload.projects.some((project) => project.summary.id === selectedProjectId)
+        ? selectedProjectId
+        : (payload.projects[0]?.summary.id ?? "");
+    setSelectedProjectId(nextProjectId);
   }
 
   async function handleCreateUser(event: React.FormEvent<HTMLFormElement>) {
@@ -308,6 +324,7 @@ export default function AdminPage() {
 
       applyAdminPayload(payload);
       await refreshWorkspace();
+      replaceSelectedProject(payload.projects[payload.projects.length - 1]?.summary.id ?? "");
       setSuccess("Projet cree et ajoute au portefeuille.");
       setProjectForm({
         name: "",
@@ -848,7 +865,7 @@ export default function AdminPage() {
                     <StatusBadge tone="neutral">{project.summary.progress}%</StatusBadge>
                     <button
                       type="button"
-                      onClick={() => setSelectedProjectId(project.summary.id)}
+                      onClick={() => replaceSelectedProject(project.summary.id)}
                       className={cx(
                         "rounded-full px-4 py-1.5 text-xs font-semibold",
                         selectedProject?.summary.id === project.summary.id
