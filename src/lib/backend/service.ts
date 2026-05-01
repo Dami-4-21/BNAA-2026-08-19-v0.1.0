@@ -17,6 +17,7 @@ import { createSessionExpiry, createSessionToken } from "@/lib/backend/session";
 import { readDatabase, updateDatabase } from "@/lib/backend/store";
 import type {
   AdminPageData,
+  DashboardAlert,
   DashboardPageData,
   DatabaseState,
   DocumentFileRecord,
@@ -24,12 +25,15 @@ import type {
   FinanceModuleData,
   GlobalSearchPayload,
   GlobalSearchResult,
+  NotificationRecord,
+  NotificationType,
   NotificationsPageData,
   ProjectsPageData,
   ProjectRecord,
   SessionRecord,
   SitePhotoRecord,
   SiteModuleData,
+  UserNotification,
   WorkspacePayload,
 } from "@/lib/backend/types";
 
@@ -71,6 +75,50 @@ function toDayMonth(date: string) {
 function toDateTimeLabel(timestamp: string) {
   const [date, time] = timestamp.split("T");
   return `${toDayMonth(date)} ${time.slice(0, 5)}`;
+}
+
+function formatRelativeTime(timestamp: string) {
+  const deltaMs = new Date(nowTimestamp).getTime() - new Date(timestamp).getTime();
+  const deltaMinutes = Math.max(0, Math.round(deltaMs / (1000 * 60)));
+
+  if (deltaMinutes < 1) {
+    return "Maintenant";
+  }
+
+  if (deltaMinutes < 60) {
+    return `Il y a ${deltaMinutes} min`;
+  }
+
+  const deltaHours = Math.round(deltaMinutes / 60);
+  if (deltaHours < 24) {
+    return `Il y a ${deltaHours} h`;
+  }
+
+  const deltaDays = Math.round(deltaHours / 24);
+  if (deltaDays === 1) {
+    return "Hier";
+  }
+
+  if (deltaDays < 7) {
+    return `Il y a ${deltaDays} j`;
+  }
+
+  return toDayMonth(timestamp);
+}
+
+function notificationToneRank(tone: NotificationRecord["tone"]) {
+  switch (tone) {
+    case "danger":
+      return 0;
+    case "warning":
+      return 1;
+    case "primary":
+      return 2;
+    case "success":
+      return 3;
+    default:
+      return 4;
+  }
 }
 
 function toProjectHealth(progress: number, overdueInvoices: number, unreadDocs: number) {
@@ -402,6 +450,81 @@ function syncTenantStats(database: DatabaseState) {
   database.tenant.activeProjects = Object.keys(database.projects).length;
 }
 
+function ensureAuditTrailState(database: DatabaseState) {
+  database.auditTrail = database.auditTrail.map((entry, index) => ({
+    ...entry,
+    createdAt: entry.createdAt ?? nowTimestamp,
+    id: entry.id ?? `AUD-${String(index + 1).padStart(4, "0")}`,
+    projectCode:
+      entry.projectCode ??
+      Object.keys(database.projects).find((code) => entry.context.includes(code)),
+  }));
+}
+
+function ensureNotificationsState(database: DatabaseState) {
+  const defaultRecipients = database.users
+    .filter((user) => hasPermission(user, "notifications.view"))
+    .map((user) => user.id);
+
+  database.notifications = database.notifications.map((entry, index) => {
+    if ("id" in entry && "createdAt" in entry && "readBy" in entry && "recipients" in entry) {
+      const currentEntry = entry as NotificationRecord;
+      return {
+        ...currentEntry,
+        actor: currentEntry.actor ?? "BnaaSaaS",
+        channel: currentEntry.channel ?? "In-app",
+        href: currentEntry.href ?? "/notifications",
+        readBy: currentEntry.readBy ?? [],
+        recipients: currentEntry.recipients?.length ? currentEntry.recipients : defaultRecipients,
+        requiresAction: currentEntry.requiresAction ?? false,
+        tone: currentEntry.tone ?? "primary",
+        type: currentEntry.type ?? "project",
+      };
+    }
+
+    const legacy = entry as {
+      channel?: string;
+      detail: string;
+      title: string;
+      when?: string;
+    };
+
+    return {
+      id: `NTF-${String(index + 1).padStart(4, "0")}`,
+      title: legacy.title,
+      detail: legacy.detail,
+      channel:
+        legacy.channel === "Email"
+          ? "Email"
+          : legacy.channel === "In-app + email"
+            ? "In-app + email"
+            : "In-app",
+      createdAt: nowTimestamp,
+      href:
+        legacy.detail.toLowerCase().includes("facture")
+          ? "/finance"
+          : legacy.detail.toLowerCase().includes("plan")
+            ? "/documents"
+            : "/site",
+      tone: legacy.detail.toLowerCase().includes("echeance") ? "warning" : "primary",
+      type:
+        legacy.detail.toLowerCase().includes("facture")
+          ? "invoice"
+          : legacy.detail.toLowerCase().includes("plan")
+            ? "document"
+            : "report",
+      actor: "BnaaSaaS",
+      projectCode:
+        Object.keys(database.projects).find((code) => legacy.detail.includes(code)) ?? "BN-042",
+      projectId:
+        Object.keys(database.projects).find((code) => legacy.detail.includes(code)) ?? "BN-042",
+      recipients: defaultRecipients,
+      readBy: [],
+      requiresAction: legacy.detail.toLowerCase().includes("validation"),
+    } satisfies NotificationRecord;
+  });
+}
+
 function ensureSystemUsers(database: DatabaseState) {
   for (const seededUser of appUsers) {
     const existingUser = database.users.find(
@@ -422,6 +545,8 @@ function ensureSystemUsers(database: DatabaseState) {
     }
   }
 
+  ensureAuditTrailState(database);
+  ensureNotificationsState(database);
   syncTenantStats(database);
 }
 
@@ -449,8 +574,170 @@ function appendAudit(
     actor,
     action,
     context,
+    createdAt: nowTimestamp,
+    id: `AUD-${randomUUID().slice(0, 8)}`,
+    projectCode: Object.keys(database.projects).find((code) => context.includes(code)),
     at: toDateTimeLabel(nowTimestamp),
   });
+}
+
+function resolveNotificationRecipients(
+  database: DatabaseState,
+  options: {
+    actorId?: string;
+    permission?: AppPermission;
+    projectId?: string;
+    roles?: AppUser["role"][];
+    userIds?: string[];
+  },
+) {
+  const explicitRecipients = options.userIds?.length
+    ? new Set(options.userIds)
+    : null;
+
+  return database.users
+    .filter((candidate) => {
+      if (explicitRecipients) {
+        return explicitRecipients.has(candidate.id);
+      }
+
+      if (options.projectId && !canAccessProject(candidate, options.projectId)) {
+        return false;
+      }
+
+      if (options.permission && !hasPermission(candidate, options.permission)) {
+        return false;
+      }
+
+      if (options.roles?.length && !options.roles.includes(candidate.role)) {
+        return false;
+      }
+
+      return hasPermission(candidate, "notifications.view");
+    })
+    .filter((candidate) => candidate.id !== options.actorId)
+    .map((candidate) => candidate.id);
+}
+
+function appendNotification(
+  database: DatabaseState,
+  options: {
+    actor: string;
+    actorId?: string;
+    channel?: NotificationRecord["channel"];
+    detail: string;
+    href: string;
+    permission?: AppPermission;
+    projectCode?: string;
+    projectId?: string;
+    requiresAction?: boolean;
+    roles?: AppUser["role"][];
+    title: string;
+    tone?: NotificationRecord["tone"];
+    type: NotificationType;
+    userIds?: string[];
+  },
+) {
+  const recipients = resolveNotificationRecipients(database, {
+    actorId: options.actorId,
+    permission: options.permission,
+    projectId: options.projectId,
+    roles: options.roles,
+    userIds: options.userIds,
+  });
+
+  if (recipients.length === 0) {
+    return;
+  }
+
+  database.notifications.unshift({
+    id: `NTF-${randomUUID().slice(0, 8)}`,
+    title: options.title,
+    detail: options.detail,
+    channel: options.channel ?? "In-app",
+    createdAt: nowTimestamp,
+    href: options.href,
+    tone: options.tone ?? "primary",
+    type: options.type,
+    actor: options.actor,
+    projectId: options.projectId,
+    projectCode: options.projectCode,
+    recipients,
+    readBy: [],
+    requiresAction: options.requiresAction ?? false,
+  });
+}
+
+function getUserNotifications(
+  database: DatabaseState,
+  user: AppUser | SafeUser,
+) {
+  return database.notifications
+    .filter((notification) => notification.recipients.includes(user.id))
+    .filter((notification) =>
+      notification.projectId ? canAccessProject(user, notification.projectId) : true,
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+    );
+}
+
+function toUserNotification(
+  notification: NotificationRecord,
+  userId: string,
+): UserNotification {
+  return {
+    ...clone(notification),
+    isRead: notification.readBy.includes(userId),
+    when: formatRelativeTime(notification.createdAt),
+  };
+}
+
+function buildAlertsFromNotifications(
+  notifications: UserNotification[],
+  projectId?: string,
+): DashboardAlert[] {
+  return notifications
+    .filter((notification) => !notification.isRead)
+    .filter((notification) => (projectId ? notification.projectId === projectId : true))
+    .sort((left, right) => {
+      const toneGap = notificationToneRank(left.tone) - notificationToneRank(right.tone);
+      if (toneGap !== 0) {
+        return toneGap;
+      }
+
+      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    })
+    .slice(0, 4)
+    .map((notification) => ({
+      title: notification.title,
+      detail: notification.detail,
+      time: notification.when,
+      tone: notification.tone,
+    }));
+}
+
+function buildUserActivityFeed(
+  database: DatabaseState,
+  user: AppUser | SafeUser,
+) {
+  const accessibleCodes = new Set(
+    getUserAccessibleProjects(database, user).map((project) => project.code),
+  );
+
+  return clone(database.auditTrail)
+    .filter((entry) =>
+      entry.projectCode
+        ? accessibleCodes.has(entry.projectCode)
+        : hasPermission(user, "admin.view"),
+    )
+    .sort((left, right) => {
+      const rightTime = new Date(right.createdAt ?? nowTimestamp).getTime();
+      const leftTime = new Date(left.createdAt ?? nowTimestamp).getTime();
+      return rightTime - leftTime;
+    })
+    .slice(0, 10);
 }
 
 function recomputeProjectSummary(project: ProjectRecord) {
@@ -770,11 +1057,14 @@ function buildDashboardData(
   const site = deriveSiteData(project);
   const documents = deriveDocumentsData(project);
   const finance = deriveFinanceData(project);
+  const userNotifications = getUserNotifications(database, user).map((notification) =>
+    toUserNotification(notification, user.id),
+  );
 
   return {
     dashboardMetrics: buildDashboardMetrics(project),
     teamMembers: clone(database.teamMembers),
-    alerts: clone(database.alerts),
+    alerts: buildAlertsFromNotifications(userNotifications, projectId),
     hero: {
       projectStatus: project.summary.status,
       invoicesDue: project.summary.invoicesDue,
@@ -1166,11 +1456,93 @@ export async function getNotificationsPayload(token: string): Promise<Notificati
   const user = getUserForSession(database, token);
   assert(user, 401, "Session invalide ou expiree.");
   ensurePermission(user, "notifications.view");
+  const notifications = getUserNotifications(database, user).map((notification) =>
+    toUserNotification(notification, user.id),
+  );
 
   return {
-    alerts: clone(database.alerts),
-    notifications: clone(database.notifications),
+    alerts: buildAlertsFromNotifications(notifications),
+    notifications,
+    activity: buildUserActivityFeed(database, user),
+    summary: {
+      actionRequiredCount: notifications.filter(
+        (notification) => notification.requiresAction && !notification.isRead,
+      ).length,
+      readCount: notifications.filter((notification) => notification.isRead).length,
+      totalCount: notifications.length,
+      unreadCount: notifications.filter((notification) => !notification.isRead).length,
+    },
   };
+}
+
+export async function mutateNotificationsPayload(
+  token: string,
+  action: "mark-all-read" | "mark-read" | "mark-unread",
+  payload: {
+    notificationId?: string;
+  },
+) {
+  return updateDatabase(async (database) => {
+    ensureSystemUsers(database);
+    const user = getUserForSession(database, token);
+    assert(user, 401, "Session invalide ou expiree.");
+    ensurePermission(user, "notifications.view");
+
+    switch (action) {
+      case "mark-all-read":
+        database.notifications = database.notifications.map((notification) =>
+          notification.recipients.includes(user.id) && !notification.readBy.includes(user.id)
+            ? { ...notification, readBy: [...notification.readBy, user.id] }
+            : notification,
+        );
+        break;
+      case "mark-read": {
+        const notificationId = String(payload.notificationId ?? "");
+        assert(notificationId, 400, "Notification introuvable.");
+        database.notifications = database.notifications.map((notification) =>
+          notification.id === notificationId &&
+          notification.recipients.includes(user.id) &&
+          !notification.readBy.includes(user.id)
+            ? { ...notification, readBy: [...notification.readBy, user.id] }
+            : notification,
+        );
+        break;
+      }
+      case "mark-unread": {
+        const notificationId = String(payload.notificationId ?? "");
+        assert(notificationId, 400, "Notification introuvable.");
+        database.notifications = database.notifications.map((notification) =>
+          notification.id === notificationId && notification.recipients.includes(user.id)
+            ? {
+                ...notification,
+                readBy: notification.readBy.filter((entry) => entry !== user.id),
+              }
+            : notification,
+        );
+        break;
+      }
+      default:
+        throw new ApiError(400, "Action notification inconnue.");
+    }
+
+    const notifications = getUserNotifications(database, user).map((notification) =>
+      toUserNotification(notification, user.id),
+    );
+
+    return {
+      alerts: buildAlertsFromNotifications(notifications),
+      notifications,
+      activity: buildUserActivityFeed(database, user),
+      summary: {
+        actionRequiredCount: notifications.filter(
+          (notification) => notification.requiresAction && !notification.isRead,
+        ).length,
+        readCount: notifications.filter((notification) => notification.isRead).length,
+        totalCount: notifications.length,
+        unreadCount: notifications.filter((notification) => !notification.isRead).length,
+      },
+    } satisfies NotificationsPageData;
+  });
 }
 
 export async function getAdminPayload(token: string): Promise<AdminPageData> {
@@ -1230,6 +1602,17 @@ export async function createAdminUser(
       "a cree un nouvel utilisateur",
       `${nextUser.name} - ${nextUser.role} - ${projectIds.includes("*") ? "Tous projets" : projectIds.join(", ")}`,
     );
+    appendNotification(database, {
+      actor: actor.name,
+      actorId: actor.id,
+      detail: `${nextUser.name} dispose maintenant d'un acces ${nextUser.role.toLowerCase()} a la plateforme.`,
+      href: "/admin",
+      roles: ["Super Admin"],
+      title: "Nouvel utilisateur ajoute",
+      tone: "primary",
+      type: "admin",
+      userIds: [nextUser.id, ...database.users.filter((user) => user.role === "Super Admin").map((user) => user.id)],
+    });
     return buildAdminPayload(database);
   });
 }
@@ -1267,6 +1650,17 @@ export async function updateAdminUser(
       "a mis a jour un utilisateur",
       `${user.name} - ${user.role} - ${nextProjectIds.includes("*") ? "Tous projets" : nextProjectIds.join(", ")}`,
     );
+    appendNotification(database, {
+      actor: actor.name,
+      actorId: actor.id,
+      detail: `${user.name} a maintenant le role ${user.role} sur ${nextProjectIds.includes("*") ? "tous les projets" : `${nextProjectIds.length} projet(s)`}.`,
+      href: "/admin",
+      roles: ["Super Admin"],
+      title: "Acces utilisateur mis a jour",
+      tone: "warning",
+      type: "admin",
+      userIds: [user.id, ...database.users.filter((entry) => entry.role === "Super Admin").map((entry) => entry.id)],
+    });
 
     return buildAdminPayload(database);
   });
@@ -1351,6 +1745,16 @@ export async function createAdminProject(
       "a cree un projet",
       `${name} - ${code} - ${lots.length} lot(s) / ${zones.length} zone(s)`,
     );
+    appendNotification(database, {
+      actor: actor.name,
+      actorId: actor.id,
+      detail: `${name} (${code}) est pret pour l'affectation des equipes et le demarrage des modules projet.`,
+      href: "/projects",
+      roles: ["Super Admin"],
+      title: "Nouveau projet cree",
+      tone: "primary",
+      type: "project",
+    });
 
     return buildAdminPayload(database);
   });
@@ -1382,6 +1786,17 @@ export async function archiveAdminProject(
       "a cloture un projet",
       `${project.summary.name} - ${project.summary.code}`,
     );
+    appendNotification(database, {
+      actor: actor.name,
+      actorId: actor.id,
+      detail: `${project.summary.name} a ete cloture. Les equipes conservent l'historique pour suivi et audit.`,
+      href: "/projects",
+      projectCode: project.summary.code,
+      projectId: project.summary.id,
+      title: "Projet cloture",
+      tone: "success",
+      type: "project",
+    });
 
     return buildAdminPayload(database);
   });
@@ -1579,6 +1994,19 @@ export async function mutateSitePayload(
           "a soumis un rapport chantier",
           `${project.summary.code} - ${reportId}`,
         );
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          detail: `${project.summary.code} - ${reportId} ${completeness >= 95 ? "est pret pour validation" : "reste a completer avant validation"}.`,
+          href: "/site",
+          permission: "site.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          requiresAction: completeness >= 95,
+          title: "Rapport chantier soumis",
+          tone: completeness >= 95 ? "primary" : "warning",
+          type: "report",
+        });
         break;
       }
       case "update-report": {
@@ -1648,6 +2076,18 @@ export async function mutateSitePayload(
           "a mis a jour un rapport chantier",
           `${project.summary.code} - ${reportId}`,
         );
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          detail: `${project.summary.code} - ${reportId} a ete mis a jour avec les dernieres avancees du terrain.`,
+          href: "/site",
+          permission: "site.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          title: "Rapport chantier mis a jour",
+          tone: "primary",
+          type: "report",
+        });
         break;
       }
       case "mark-pdf-ready": {
@@ -1658,6 +2098,19 @@ export async function mutateSitePayload(
             : report,
         );
         appendAudit(database, user.name, "a prepare le PDF du RJC", reportId);
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          detail: `${project.summary.code} - ${reportId} est pret pour signature et archivage.`,
+          href: "/site",
+          permission: "site.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          requiresAction: true,
+          title: "RJC pret pour signature",
+          tone: "primary",
+          type: "report",
+        });
         break;
       }
       case "sign-report": {
@@ -1668,6 +2121,18 @@ export async function mutateSitePayload(
             : report,
         );
         appendAudit(database, user.name, "a valide un RJC", reportId);
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          detail: `${project.summary.code} - ${reportId} a ete signe et archive dans le projet.`,
+          href: "/site",
+          permission: "site.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          title: "RJC valide",
+          tone: "success",
+          type: "report",
+        });
         break;
       }
       case "add-photo": {
@@ -1720,6 +2185,24 @@ export async function mutateSitePayload(
           "a cree une non-conformite",
           `${project.summary.code} - ${draftNcr.title}`,
         );
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          detail: `${draftNcr.title} est assignee a ${draftNcr.owner} avec echeance au ${toDayMonth(draftNcr.dueDate)}.`,
+          href: "/site",
+          permission: "site.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          requiresAction: true,
+          title: "Nouvelle non-conformite ouverte",
+          tone:
+            draftNcr.severity === "Critique"
+              ? "danger"
+              : draftNcr.severity === "Majeure"
+                ? "warning"
+                : "primary",
+          type: "ncr",
+        });
         break;
       }
       case "close-ncr": {
@@ -1735,6 +2218,18 @@ export async function mutateSitePayload(
             : item,
         );
         appendAudit(database, user.name, "a cloture une non-conformite", ref);
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          detail: `${ref} a ete levee et sortie du suivi prioritaire.`,
+          href: "/site",
+          permission: "site.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          title: "Non-conformite cloturee",
+          tone: "success",
+          type: "ncr",
+        });
         break;
       }
       default:
@@ -1846,6 +2341,20 @@ export async function uploadDocumentVersion(
       "a publie une nouvelle revision",
       `${document.code} ${revision}`,
     );
+    appendNotification(database, {
+      actor: user.name,
+      actorId: user.id,
+      channel: "In-app + email",
+      detail: `${document.code} ${revision} est disponible et doit etre consulte par les equipes terrain et bureau.`,
+      href: "/documents",
+      permission: "documents.view",
+      projectCode: project.summary.code,
+      projectId: project.summary.id,
+      requiresAction: true,
+      title: "Nouvelle revision publiee",
+      tone: "primary",
+      type: "document",
+    });
 
     const { portfolioEntry } = recomputeProjectSummary(project);
     database.portfolio = database.portfolio.map((entry) =>
@@ -1901,6 +2410,20 @@ export async function mutateDocumentsPayload(
           "a publie une nouvelle revision",
           `${document.code} ${revision}`,
         );
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          channel: "In-app + email",
+          detail: `${document.code} ${revision} remplace la revision precedente et attend diffusion controlee.`,
+          href: "/documents",
+          permission: "documents.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          requiresAction: true,
+          title: "Revision documentaire mise a jour",
+          tone: "primary",
+          type: "document",
+        });
         break;
       }
       case "mark-obsolete": {
@@ -1909,6 +2432,19 @@ export async function mutateDocumentsPayload(
         document.tone = "warning";
         document.isCurrent = false;
         appendAudit(database, user.name, "a marque un plan obsolete", document.code);
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          detail: `${document.code} n'est plus en vigueur. Les equipes doivent basculer sur la derniere revision active.`,
+          href: "/documents",
+          permission: "documents.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          requiresAction: true,
+          title: "Plan marque obsolete",
+          tone: "warning",
+          type: "document",
+        });
         break;
       }
       case "update-metadata": {
@@ -1955,6 +2491,20 @@ export async function mutateDocumentsPayload(
           "a diffuse un document",
           `${document.code} vers ${audience}`,
         );
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          channel: "In-app + email",
+          detail: `${document.code} a ete diffuse a ${audience}. Un accuse de lecture est attendu.`,
+          href: "/documents",
+          permission: "documents.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          requiresAction: true,
+          title: "Diffusion de plan en cours",
+          tone: "warning",
+          type: "document",
+        });
         break;
       }
       case "acknowledge": {
@@ -2058,20 +2608,51 @@ export async function mutateFinancePayload(
           "a genere une facture",
           `${project.summary.code} - ${project.finance.invoices[0].invoiceNumber}`,
         );
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          detail: `${project.finance.invoices[0].invoiceNumber} est prete pour envoi et validation client.`,
+          href: "/finance",
+          permission: "finance.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          requiresAction: true,
+          title: "Nouvelle facture generee",
+          tone: "warning",
+          type: "invoice",
+        });
         break;
       }
       case "send-invoice": {
         ensurePermission(user, "finance.invoice.send");
         const invoiceId = String(payload.invoiceId ?? "");
+        const invoice = project.finance.invoices.find((item) => item.id === invoiceId);
+        assert(invoice, 404, "Facture introuvable.");
         project.finance.invoices = project.finance.invoices.map((invoice) =>
           invoice.id === invoiceId ? { ...invoice, status: "Envoyee", tone: "primary" } : invoice,
         );
         appendAudit(database, user.name, "a envoye une facture", invoiceId);
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          channel: "In-app + email",
+          detail: `${invoice.invoiceNumber} a ete envoyee et attend la validation du maitre d'ouvrage.`,
+          href: "/finance",
+          permission: "finance.invoice.validate",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          requiresAction: true,
+          title: "Facture a valider",
+          tone: "warning",
+          type: "invoice",
+        });
         break;
       }
       case "validate-invoice": {
         ensurePermission(user, "finance.invoice.validate");
         const invoiceId = String(payload.invoiceId ?? "");
+        const invoice = project.finance.invoices.find((item) => item.id === invoiceId);
+        assert(invoice, 404, "Facture introuvable.");
         project.finance.invoices = project.finance.invoices.map((invoice) =>
           invoice.id === invoiceId
             ? {
@@ -2084,6 +2665,18 @@ export async function mutateFinancePayload(
             : invoice,
         );
         appendAudit(database, user.name, "a valide une facture", invoiceId);
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          detail: `${invoice.invoiceNumber} a ete validee. Le suivi d'encaissement peut commencer.`,
+          href: "/finance",
+          permission: "finance.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          title: "Facture validee",
+          tone: "primary",
+          type: "invoice",
+        });
         break;
       }
       case "update-invoice-status": {
@@ -2137,6 +2730,19 @@ export async function mutateFinancePayload(
           "a mis a jour le statut d'une facture",
           `${invoiceId} - ${nextStatus}`,
         );
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          detail: `${invoice.invoiceNumber} passe au statut ${nextStatus.toLowerCase()}.`,
+          href: "/finance",
+          permission: "finance.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          requiresAction: nextStatus === "Litigieuse",
+          title: "Statut facture mis a jour",
+          tone: toInvoiceTone(nextStatus),
+          type: "invoice",
+        });
         break;
       }
       case "register-payment": {
@@ -2176,6 +2782,18 @@ export async function mutateFinancePayload(
           "a enregistre un paiement",
           `${invoice.invoiceNumber} - ${amount.toLocaleString("fr-FR")} TND`,
         );
+        appendNotification(database, {
+          actor: user.name,
+          actorId: user.id,
+          detail: `${amount.toLocaleString("fr-FR")} TND recus sur ${invoice.invoiceNumber}.`,
+          href: "/finance",
+          permission: "finance.view",
+          projectCode: project.summary.code,
+          projectId: project.summary.id,
+          title: "Paiement enregistre",
+          tone: "success",
+          type: "finance",
+        });
         break;
       }
       default:

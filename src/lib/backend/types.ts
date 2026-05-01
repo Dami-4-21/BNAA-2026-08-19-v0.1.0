@@ -1,8 +1,5 @@
 import type { AppUser, SafeUser } from "@/lib/auth";
 import type {
-  alerts,
-  auditTrail,
-  notifications,
   projects,
   roleMatrix,
   teamMembers,
@@ -15,12 +12,61 @@ import type {
 
 export type TenantRecord = typeof tenant;
 export type WorkspaceProject = (typeof workspaceProjects)[number];
-export type DashboardAlert = (typeof alerts)[number];
 export type TeamMember = (typeof teamMembers)[number];
-export type NotificationItem = (typeof notifications)[number];
 export type PortfolioProject = (typeof projects)[number];
 export type RoleMatrixItem = (typeof roleMatrix)[number];
-export type AuditTrailItem = (typeof auditTrail)[number];
+export type Tone = "neutral" | "primary" | "success" | "warning" | "danger";
+
+export type DashboardAlert = {
+  title: string;
+  detail: string;
+  time: string;
+  tone: Tone;
+};
+
+export type NotificationType =
+  | "admin"
+  | "document"
+  | "finance"
+  | "invoice"
+  | "ncr"
+  | "project"
+  | "report";
+
+export type NotificationChannel = "In-app" | "In-app + email" | "Email";
+
+export type NotificationRecord = {
+  id: string;
+  title: string;
+  detail: string;
+  channel: NotificationChannel;
+  createdAt: string;
+  href: string;
+  tone: Tone;
+  type: NotificationType;
+  actor: string;
+  projectId?: string;
+  projectCode?: string;
+  recipients: string[];
+  readBy: string[];
+  requiresAction: boolean;
+};
+
+export type UserNotification = Omit<NotificationRecord, "readBy" | "recipients"> & {
+  isRead: boolean;
+  when: string;
+};
+
+export type AuditTrailItem = {
+  actor: string;
+  action: string;
+  context: string;
+  at: string;
+  createdAt?: string;
+  id?: string;
+  projectCode?: string;
+  projectId?: string;
+};
 
 export type SiteModuleData = ReturnType<typeof getSiteModuleData>;
 export type DocumentsModuleData = ReturnType<typeof getDocumentsModuleData>;
@@ -58,7 +104,7 @@ export type DatabaseState = {
   projects: Record<string, ProjectRecord>;
   alerts: DashboardAlert[];
   teamMembers: TeamMember[];
-  notifications: NotificationItem[];
+  notifications: NotificationRecord[];
   portfolio: PortfolioProject[];
   roleMatrix: RoleMatrixItem[];
   auditTrail: AuditTrailItem[];
@@ -133,7 +179,14 @@ export type ProjectsPageData = {
 
 export type NotificationsPageData = {
   alerts: DashboardAlert[];
-  notifications: NotificationItem[];
+  notifications: UserNotification[];
+  activity: AuditTrailItem[];
+  summary: {
+    actionRequiredCount: number;
+    readCount: number;
+    totalCount: number;
+    unreadCount: number;
+  };
 };
 
 export type AdminPageData = {

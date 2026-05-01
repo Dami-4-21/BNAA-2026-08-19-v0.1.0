@@ -25,7 +25,11 @@ import { useAuth } from "@/components/auth-context";
 import { type AppPermission } from "@/lib/auth";
 import { cx } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import type { GlobalSearchPayload, GlobalSearchResult } from "@/lib/backend/types";
+import type {
+  GlobalSearchPayload,
+  GlobalSearchResult,
+  NotificationsPageData,
+} from "@/lib/backend/types";
 import { useWorkspace } from "@/components/workspace-context";
 
 type NavItem = {
@@ -142,11 +146,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return window.localStorage.getItem("bnaasaas-sidebar-collapsed") === "true";
   });
   const [profileOpen, setProfileOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationsData, setNotificationsData] = useState<NotificationsPageData | null>(
+    null,
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
+  const notificationsBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -160,11 +169,45 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (!searchBoxRef.current?.contains(event.target as Node)) {
         setSearchOpen(false);
       }
+
+      if (!notificationsBoxRef.current?.contains(event.target as Node)) {
+        setNotificationsOpen(false);
+      }
     }
 
     window.addEventListener("mousedown", handlePointerDown);
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNotifications() {
+      try {
+        const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
+          method: "GET",
+        });
+
+        if (!cancelled) {
+          setNotificationsData(payload);
+        }
+      } catch {
+        if (!cancelled) {
+          setNotificationsData(null);
+        }
+      }
+    }
+
+    void loadNotifications();
+    const interval = window.setInterval(() => {
+      void loadNotifications();
+    }, 20000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [currentUser.id, pathname]);
 
   useEffect(() => {
     const needle = searchQuery.trim();
@@ -270,6 +313,35 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     setSearchLoading(true);
   }
+
+  async function handleNotificationSelect(
+    notification: NonNullable<NotificationsPageData["notifications"]>[number],
+  ) {
+    if (!notification.isRead) {
+      try {
+        const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
+          method: "POST",
+          body: {
+            action: "mark-read",
+            payload: { notificationId: notification.id },
+          },
+        });
+        setNotificationsData(payload);
+      } catch {
+        // noop for preview navigation
+      }
+    }
+
+    if (notification.projectId) {
+      setActiveProjectId(notification.projectId);
+    }
+
+    setNotificationsOpen(false);
+    router.push(notification.href);
+  }
+
+  const notificationPreview = notificationsData?.notifications.slice(0, 5) ?? [];
+  const unreadNotifications = notificationsData?.summary.unreadCount ?? 0;
 
   return (
     <div className="workspace-light min-h-screen">
@@ -553,10 +625,88 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <button className="relative flex size-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-100">
-                        <Bell className="size-5" />
-                        <span className="absolute right-2 top-2 size-2 rounded-full bg-black" />
-                      </button>
+                      <div ref={notificationsBoxRef} className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setNotificationsOpen((current) => !current)}
+                          className="relative flex size-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-100"
+                        >
+                          <Bell className="size-5" />
+                          {unreadNotifications > 0 ? (
+                            <>
+                              <span className="absolute right-2 top-2 size-2 rounded-full bg-black" />
+                              <span className="absolute -right-1 -top-1 inline-flex min-w-5 items-center justify-center rounded-full bg-black px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                                {unreadNotifications}
+                              </span>
+                            </>
+                          ) : null}
+                        </button>
+
+                        {notificationsOpen ? (
+                          <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 w-[360px] overflow-hidden rounded-[24px] border border-stone-200 bg-white shadow-xl">
+                            <div className="border-b border-stone-200 px-4 py-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">
+                                    Notifications
+                                  </p>
+                                  <p className="mt-1 text-sm text-stone-600">
+                                    {unreadNotifications > 0
+                                      ? `${unreadNotifications} action(s) ou informations en attente`
+                                      : "Aucune notification non lue"}
+                                  </p>
+                                </div>
+                                <Link
+                                  href="/notifications"
+                                  onClick={() => setNotificationsOpen(false)}
+                                  className="text-sm font-semibold text-stone-950 hover:text-stone-600"
+                                >
+                                  Tout voir
+                                </Link>
+                              </div>
+                            </div>
+                            <div className="max-h-[420px] overflow-y-auto p-2">
+                              {notificationPreview.length > 0 ? (
+                                notificationPreview.map((notification) => (
+                                  <button
+                                    key={notification.id}
+                                    onClick={() => void handleNotificationSelect(notification)}
+                                    className="w-full rounded-2xl px-3 py-3 text-left hover:bg-stone-50"
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <p className="truncate text-sm font-semibold text-stone-950">
+                                            {notification.title}
+                                          </p>
+                                          {!notification.isRead ? (
+                                            <span className="rounded-full bg-black px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white">
+                                              Nouveau
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                        <p className="mt-1 line-clamp-2 text-sm text-stone-600">
+                                          {notification.detail}
+                                        </p>
+                                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-stone-500">
+                                          <span>{notification.when}</span>
+                                          {notification.projectCode ? (
+                                            <span>{notification.projectCode}</span>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </button>
+                                ))
+                              ) : (
+                                <div className="px-3 py-8 text-center text-sm text-stone-500">
+                                  Aucun evenement recent.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                       <div className="relative">
                         <button
                           type="button"
