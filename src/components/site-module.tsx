@@ -625,6 +625,33 @@ function SiteModuleContent({
     }
   }
 
+  function captureGps() {
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      setMutationError("La geolocalisation n'est pas disponible sur cet appareil.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const latitude = position.coords.latitude.toFixed(5);
+        const longitude = position.coords.longitude.toFixed(5);
+        setDraftPhoto((current) => ({
+          ...current,
+          geo: `${latitude}, ${longitude}`,
+        }));
+        setMutationError("");
+      },
+      () => {
+        setMutationError("Impossible de recuperer la position GPS.");
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 60000,
+        timeout: 10000,
+      },
+    );
+  }
+
   async function createNcr() {
     try {
       await runSiteAction("create-ncr", { draftNcr });
@@ -763,6 +790,8 @@ function SiteModuleContent({
                   setFormState={setFormState}
                   reportCompleteness={reportCompleteness}
                   incidentTemplates={projectData.incidentTemplates}
+                  openOverviewTab={() => setActiveTab("overview")}
+                  openPhotosTab={() => setActiveTab("photos")}
                   resetReportComposer={resetReportComposer}
                   submitDailyReport={submitDailyReport}
                 />
@@ -783,6 +812,7 @@ function SiteModuleContent({
                   availableLots={["Tous", ...availableLotOptions]}
                   availableZones={availableZoneOptions}
                   addPhoto={addPhoto}
+                  captureGps={captureGps}
                 />
               ) : null}
 
@@ -1196,6 +1226,8 @@ function RjcTab({
   setFormState,
   reportCompleteness,
   incidentTemplates,
+  openOverviewTab,
+  openPhotosTab,
   resetReportComposer,
   submitDailyReport,
 }: {
@@ -1205,6 +1237,8 @@ function RjcTab({
   setFormState: React.Dispatch<React.SetStateAction<FormState>>;
   reportCompleteness: number;
   incidentTemplates: string[];
+  openOverviewTab: () => void;
+  openPhotosTab: () => void;
   resetReportComposer: () => void;
   submitDailyReport: () => void;
 }) {
@@ -1395,9 +1429,9 @@ function RjcTab({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <ActionButton icon={Camera} label="Photos" />
-            <ActionButton icon={Signature} label="Validation projet" />
-            <ActionButton icon={FileOutput} label="Preparer PDF" />
+            <ActionButton icon={Camera} label="Photos" onClick={openPhotosTab} />
+            <ActionButton icon={Signature} label="Validation projet" onClick={openOverviewTab} />
+            <ActionButton icon={FileOutput} label="Preparer PDF" onClick={openOverviewTab} />
           </div>
 
           {editingReportId ? (
@@ -1434,6 +1468,7 @@ function RjcTab({
 
 function PhotosTab({
   canAddPhoto,
+  captureGps,
   draftPhoto,
   photoFile,
   setPhotoFile,
@@ -1448,6 +1483,7 @@ function PhotosTab({
   addPhoto,
 }: {
   canAddPhoto: boolean;
+  captureGps: () => void;
   draftPhoto: {
     title: string;
     zone: string;
@@ -1536,7 +1572,7 @@ function PhotosTab({
           </label>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <ActionButton icon={MapPin} label="Capturer GPS" />
+            <ActionButton icon={MapPin} label="Capturer GPS" onClick={captureGps} />
             <button
               onClick={() => (canAddPhoto ? addPhoto() : null)}
               disabled={!canAddPhoto}
@@ -1875,12 +1911,24 @@ function InfoStat({ label, value }: { label: string; value: string }) {
 function ActionButton({
   icon: Icon,
   label,
+  onClick,
+  disabled = false,
 }: {
   icon: typeof Camera;
   label: string;
+  onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <button className="flex items-center justify-between rounded-[22px] border border-dashed border-white/14 bg-white/4 px-4 py-4 text-left hover:bg-white/8">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cx(
+        "flex items-center justify-between rounded-[22px] border border-dashed border-white/14 bg-white/4 px-4 py-4 text-left",
+        disabled ? "cursor-not-allowed opacity-60" : "hover:bg-white/8",
+      )}
+    >
       <span className="text-sm font-semibold text-white">{label}</span>
       <Icon className="size-4 text-slate-400" />
     </button>

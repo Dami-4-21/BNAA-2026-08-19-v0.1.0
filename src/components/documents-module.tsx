@@ -94,6 +94,7 @@ export function DocumentsModule() {
   const { activeProject, can, currentUser } = useWorkspace();
   const [projectData, setProjectData] = useState<DocumentsPayload | null>(null);
   const [error, setError] = useState("");
+  const canAcknowledge = can("documents.view");
   const canPublishVersion = can("documents.version.publish");
   const canDistribute = can("documents.distribute");
   const canMarkObsolete = can("documents.obsolete.mark");
@@ -150,6 +151,7 @@ export function DocumentsModule() {
       activeProjectId={activeProject.id}
       key={activeProject.id}
       canDistribute={canDistribute}
+      canAcknowledge={canAcknowledge}
       canMarkObsolete={canMarkObsolete}
       canPublishVersion={canPublishVersion}
       currentUserRole={currentUser.role}
@@ -159,6 +161,7 @@ export function DocumentsModule() {
 }
 
 function DocumentsModuleContent({
+  canAcknowledge,
   activeProjectId,
   canDistribute,
   canMarkObsolete,
@@ -166,6 +169,7 @@ function DocumentsModuleContent({
   currentUserRole,
   projectData,
 }: {
+  canAcknowledge: boolean;
   activeProjectId: string;
   canDistribute: boolean;
   canMarkObsolete: boolean;
@@ -542,6 +546,7 @@ function DocumentsModuleContent({
 
               {activeTab === "distribution" ? selectedDocument ? (
                 <DistributionTab
+                  canAcknowledge={canAcknowledge}
                   canDistribute={canDistribute}
                   selectedDocument={selectedDocument}
                   recipients={recipientsForSelected}
@@ -956,6 +961,7 @@ function VersionsTab({
 }
 
 function DistributionTab({
+  canAcknowledge,
   canDistribute,
   selectedDocument,
   recipients,
@@ -965,6 +971,7 @@ function DistributionTab({
   distributeSelected,
   acknowledgeRecipient,
 }: {
+  canAcknowledge: boolean;
   canDistribute: boolean;
   selectedDocument: DocumentFile;
   recipients: Recipient[];
@@ -1082,11 +1089,11 @@ function DistributionTab({
               </p>
               {recipient.status !== "Lu" ? (
                 <button
-                  onClick={() => (canDistribute ? acknowledgeRecipient(recipient.id) : null)}
-                  disabled={!canDistribute}
+                  onClick={() => (canAcknowledge ? acknowledgeRecipient(recipient.id) : null)}
+                  disabled={!canAcknowledge}
                   className={cx(
                     "mt-3 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm",
-                    canDistribute
+                    canAcknowledge
                       ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
                       : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
                   )}

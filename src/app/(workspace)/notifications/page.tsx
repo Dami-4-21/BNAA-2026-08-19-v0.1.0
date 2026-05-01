@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   BellRing,
@@ -15,6 +15,7 @@ import {
 import { Panel, SectionHeading, StatusBadge, cx } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import type { NotificationsPageData } from "@/lib/backend/types";
+import { useWorkspace } from "@/components/workspace-context";
 
 type NotificationAction = "mark-all-read" | "mark-read" | "mark-unread";
 
@@ -37,6 +38,8 @@ const emailLabelByStatus = {
 } as const;
 
 export default function NotificationsPage() {
+  const router = useRouter();
+  const { setActiveProjectId } = useWorkspace();
   const [data, setData] = useState<NotificationsPageData | null>(null);
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("unread");
@@ -141,6 +144,20 @@ export default function NotificationsPage() {
     } finally {
       setPendingAction("");
     }
+  }
+
+  async function openNotification(
+    notification: NonNullable<NotificationsPageData["notifications"]>[number],
+  ) {
+    if (!notification.isRead) {
+      await runNotificationAction("mark-read", notification.id);
+    }
+
+    if (notification.projectId) {
+      setActiveProjectId(notification.projectId);
+    }
+
+    router.push(notification.href);
   }
 
   if (!data && !error) {
@@ -372,13 +389,14 @@ export default function NotificationsPage() {
                     >
                       {notification.isRead ? "Marquer non lue" : "Marquer lue"}
                     </button>
-                    <Link
-                      href={notification.href}
+                    <button
+                      type="button"
+                      onClick={() => void openNotification(notification)}
                       className="inline-flex items-center gap-2 rounded-2xl border border-stone-200 bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800"
                     >
                       Ouvrir
                       <ExternalLink className="size-4" />
-                    </Link>
+                    </button>
                   </div>
                 </div>
               </div>

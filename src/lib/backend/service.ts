@@ -872,6 +872,32 @@ function ensurePermission(user: AppUser | SafeUser, permission: AppPermission) {
   assert(hasPermission(user, permission), 403, "Action non autorisee pour ce role.");
 }
 
+function ensureAssignedWorkflowOwner(
+  user: AppUser | SafeUser,
+  project: ProjectRecord,
+  workflowOwnerKey: ProjectWorkflowOwnerKey,
+) {
+  if (user.role === "Super Admin") {
+    return;
+  }
+
+  const assignedOwnerId = project.setup.workflowOwners?.[workflowOwnerKey];
+  if (assignedOwnerId) {
+    assert(
+      user.id === assignedOwnerId,
+      403,
+      `${workflowOwnerLabelMap[workflowOwnerKey]} assigne requis pour cette validation.`,
+    );
+    return;
+  }
+
+  assert(
+    user.role === workflowOwnerRoleMap[workflowOwnerKey],
+    403,
+    `${workflowOwnerLabelMap[workflowOwnerKey]} requis pour cette validation.`,
+  );
+}
+
 function appendAudit(
   database: DatabaseState,
   actor: string,
@@ -2980,6 +3006,7 @@ export async function mutateSitePayload(
           | undefined;
         assert(report, 404, "Rapport chantier introuvable.");
         assert(report.completeness >= 95, 400, "Le rapport doit etre complet avant validation.");
+        ensureAssignedWorkflowOwner(user, project, "projectManagerId");
         report.signedByMoe = true;
         report.pdfReady = true;
         report.status = "Valide";
@@ -3666,15 +3693,9 @@ export async function mutateFinancePayload(
             })
           | undefined;
         assert(invoice, 404, "Facture introuvable.");
-        const isProjectApprover = user.role === "Chef de projet" || user.role === "Super Admin";
-        const isClientApprover = user.role === "Maitre d'ouvrage" || user.role === "Super Admin";
 
         if (!invoice.validatedByMoe) {
-          assert(
-            isProjectApprover,
-            403,
-            "La validation projet doit etre effectuee par le chef de projet.",
-          );
+          ensureAssignedWorkflowOwner(user, project, "projectManagerId");
           invoice.validatedByMoe = true;
           invoice.moeValidatedBy = user.name;
           invoice.moeValidatedAt = toDateTimeLabel(nowTimestamp);
@@ -3698,7 +3719,7 @@ export async function mutateFinancePayload(
           break;
         }
 
-        assert(isClientApprover, 403, "La validation finale doit etre effectuee par le maitre d'ouvrage.");
+        ensureAssignedWorkflowOwner(user, project, "clientApproverId");
         assert(invoice.validatedByMoe, 400, "La validation projet doit etre finalisee avant la validation client.");
         if (invoice.validatedByMo) {
           throw new ApiError(400, "Cette facture a deja ete validee.");
