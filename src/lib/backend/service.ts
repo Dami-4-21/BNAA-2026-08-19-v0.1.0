@@ -12,6 +12,7 @@ import {
   type SafeUser,
 } from "@/lib/auth";
 import { saveUploadedFile } from "@/lib/backend/files";
+import { buildDailyReportPdf, buildInvoicePdf } from "@/lib/backend/pdf";
 import { financeVatRegimes } from "@/lib/mock-data";
 import { createSessionExpiry, createSessionToken } from "@/lib/backend/session";
 import { readDatabase, updateDatabase } from "@/lib/backend/store";
@@ -139,6 +140,14 @@ function getSitePhotoUrl(projectId: string, photoId: string) {
 
 function getDocumentDownloadUrl(projectId: string, documentId: string) {
   return `/api/projects/${projectId}/documents/${documentId}/file`;
+}
+
+function getSiteReportPdfUrl(projectId: string, reportId: string) {
+  return `/api/projects/${projectId}/site/reports/${reportId}/pdf`;
+}
+
+function getInvoicePdfUrl(projectId: string, invoiceId: string) {
+  return `/api/projects/${projectId}/finance/invoices/${invoiceId}/pdf`;
 }
 
 function getPhotoAccent(index: number) {
@@ -929,6 +938,10 @@ function deriveProjectMemberOptions(database: DatabaseState, project: ProjectRec
 
 function deriveSiteData(database: DatabaseState, project: ProjectRecord): SiteModuleData {
   const site = clone(project.site);
+  site.reports = site.reports.map((report) => ({
+    ...report,
+    pdfUrl: getSiteReportPdfUrl(project.summary.id, report.id),
+  })) as SiteModuleData["reports"];
   site.photoLibrary = site.photoLibrary.map((photo) => {
     const asset = photo as SitePhotoRecord;
     return asset.filePath
@@ -1099,6 +1112,10 @@ function deriveDocumentsData(database: DatabaseState, project: ProjectRecord): D
 
 function deriveFinanceData(database: DatabaseState, project: ProjectRecord): FinanceModuleData {
   const finance = clone(project.finance);
+  finance.invoices = finance.invoices.map((invoice) => ({
+    ...invoice,
+    pdfUrl: getInvoicePdfUrl(project.summary.id, invoice.id),
+  })) as FinanceModuleData["invoices"];
   if (finance.dmDraft.progressPct === 0 && project.summary.progress > 0) {
     finance.dmDraft.progressPct = project.summary.progress;
   }
@@ -2279,6 +2296,59 @@ export async function getSitePayload(token: string, projectId: string) {
   return deriveSiteData(database, getProjectRecord(database, projectId));
 }
 
+export async function downloadSiteReportPdf(token: string, projectId: string, reportId: string) {
+  const database = await readDatabase();
+  ensureSystemUsers(database);
+  const user = getUserForSession(database, token);
+  assert(user, 401, "Session invalide ou expiree.");
+  ensurePermission(user, "site.view");
+  ensureProjectAccess(user, projectId);
+  const project = getProjectRecord(database, projectId);
+  const report = project.site.reports.find((item) => item.id === reportId) as
+    | ((typeof project.site.reports)[number] & {
+        activities?: string;
+        incidents?: string;
+        note?: string;
+        progressByLot?: SiteModuleData["lotProgress"];
+      })
+    | undefined;
+  assert(report, 404, "Rapport chantier introuvable.");
+
+  const bytes = await buildDailyReportPdf({
+    generatedAt: nowTimestamp,
+    generatedBy: user.name,
+    project: {
+      client: project.summary.client,
+      code: project.summary.code,
+      location: project.summary.location,
+      name: project.summary.name,
+    },
+    report: {
+      activities: report.activities,
+      author: report.author,
+      completeness: report.completeness,
+      date: report.date,
+      id: report.id,
+      incidents: report.incidents,
+      note: report.note,
+      pdfReady: report.pdfReady,
+      progress: report.progress,
+      progressByLot: report.progressByLot,
+      signedByCt: report.signedByCt,
+      signedByMoe: report.signedByMoe,
+      status: report.status,
+      summary: report.summary,
+      weather: report.weather,
+      workforce: report.workforce,
+    },
+  });
+
+  return {
+    bytes,
+    fileName: `${project.summary.code}-${report.id}.pdf`,
+  };
+}
+
 export async function getSitePhotoFile(token: string, projectId: string, photoId: string) {
   const database = await readDatabase();
   ensureSystemUsers(database);
@@ -3015,6 +3085,61 @@ export async function getFinancePayload(token: string, projectId: string) {
   ensurePermission(user, "finance.view");
   ensureProjectAccess(user, projectId);
   return deriveFinanceData(database, getProjectRecord(database, projectId));
+}
+
+export async function downloadInvoicePdf(token: string, projectId: string, invoiceId: string) {
+  const database = await readDatabase();
+  ensureSystemUsers(database);
+  const user = getUserForSession(database, token);
+  assert(user, 401, "Session invalide ou expiree.");
+  ensurePermission(user, "finance.view");
+  ensureProjectAccess(user, projectId);
+  const project = getProjectRecord(database, projectId);
+  const invoice = project.finance.invoices.find((item) => item.id === invoiceId);
+  assert(invoice, 404, "Facture introuvable.");
+
+  const bytes = await buildInvoicePdf({
+    declarationStatus: project.finance.declaration.status,
+    generatedAt: nowTimestamp,
+    generatedBy: user.name,
+    invoice: {
+      advanceDeduction: invoice.advanceDeduction,
+      amountHt: invoice.amountHt,
+      amountTtc: invoice.amountTtc,
+      dueDate: invoice.dueDate,
+      id: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      paidAt: invoice.paidAt,
+      periodMonth: invoice.periodMonth,
+      project: invoice.project,
+      retentionAmount: invoice.retentionAmount,
+      sourceProgress: invoice.sourceProgress,
+      status: invoice.status,
+      tvaAmount: invoice.tvaAmount,
+      tvaRate: invoice.tvaRate,
+      validatedByMo: invoice.validatedByMo,
+      validatedByMoe: invoice.validatedByMoe,
+    },
+    payments: project.finance.payments
+      .filter((payment) => payment.invoiceId === invoiceId)
+      .map((payment) => ({
+        amount: payment.amount,
+        method: payment.method,
+        paidAt: payment.paidAt,
+        reference: payment.reference,
+      })),
+    project: {
+      client: project.summary.client,
+      code: project.summary.code,
+      location: project.summary.location,
+      name: project.summary.name,
+    },
+  });
+
+  return {
+    bytes,
+    fileName: `${invoice.invoiceNumber}.pdf`,
+  };
 }
 
 export async function mutateFinancePayload(

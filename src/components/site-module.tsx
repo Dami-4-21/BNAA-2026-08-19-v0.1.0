@@ -57,6 +57,7 @@ type ReportItem = {
   incidents?: string;
   note?: string;
   progressByLot?: FormState["progressByLot"];
+  pdfUrl?: string;
 };
 
 type PhotoItem = {
@@ -174,6 +175,18 @@ function createFormState(projectData: SitePayload): FormState {
       tone: item.tone,
     })),
   };
+}
+
+function openPdf(url?: string) {
+  if (!url || typeof window === "undefined") {
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.click();
 }
 
 export function SiteModule() {
@@ -387,7 +400,11 @@ function SiteModuleContent({
 
   async function markPdfReady(reportId: string) {
     try {
-      await runSiteAction("mark-pdf-ready", { reportId });
+      const nextData = await runSiteAction("mark-pdf-ready", { reportId });
+      const nextReport = nextData.reports.find((report) => report.id === reportId) as
+        | ReportItem
+        | undefined;
+      openPdf(nextReport?.pdfUrl);
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "PDF indisponible.");
     }
@@ -399,6 +416,10 @@ function SiteModuleContent({
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Signature impossible.");
     }
+  }
+
+  function downloadReportPdf(report: ReportItem) {
+    openPdf(report.pdfUrl);
   }
 
   async function addPhoto() {
@@ -519,6 +540,7 @@ function SiteModuleContent({
             <div className="rounded-[28px] border border-white/8 bg-white/4 p-5">
               {activeTab === "overview" ? (
                 <OverviewTab
+                  downloadReportPdf={downloadReportPdf}
                   latestReport={latestReport}
                   reports={reports}
                   ncrs={ncrs}
@@ -749,6 +771,14 @@ function SiteModuleContent({
                           Generer PDF
                         </button>
                       ) : null}
+                      {report.pdfReady && report.pdfUrl ? (
+                        <button
+                          onClick={() => downloadReportPdf(report)}
+                          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+                        >
+                          Telecharger PDF
+                        </button>
+                      ) : null}
                       {!report.signedByMoe ? (
                         <button
                           onClick={() => (canCreateReport ? signAsMoe(report.id) : null)}
@@ -807,11 +837,13 @@ function SiteModuleContent({
 }
 
 function OverviewTab({
+  downloadReportPdf,
   latestReport,
   reports,
   ncrs,
   signatures,
 }: {
+  downloadReportPdf: (report: ReportItem) => void;
   latestReport: ReportItem | undefined;
   reports: ReportItem[];
   ncrs: NcrItem[];
@@ -845,6 +877,15 @@ function OverviewTab({
                   tone={latestReport.completeness >= 95 ? "success" : "warning"}
                 />
               </div>
+              {latestReport.pdfReady && latestReport.pdfUrl ? (
+                <button
+                  onClick={() => downloadReportPdf(latestReport)}
+                  className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8"
+                >
+                  <FileOutput className="size-4" />
+                  Telecharger le PDF
+                </button>
+              ) : null}
             </>
           ) : null}
         </div>

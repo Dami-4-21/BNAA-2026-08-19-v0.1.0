@@ -57,6 +57,7 @@ type InvoiceItem = {
   sourceProgress: number;
   validatedByMoe: boolean;
   validatedByMo: boolean;
+  pdfUrl?: string;
 };
 
 type PaymentItem = {
@@ -93,6 +94,18 @@ const tabs: Array<{ key: FinanceTab; label: string; helper: string }> = [
 ];
 
 const metricIcons = [Wallet, Receipt, CircleDollarSign, BadgePercent];
+
+function openPdf(url?: string) {
+  if (!url || typeof window === "undefined") {
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.click();
+}
 
 export function FinanceModule() {
   const { activeProject, can, currentUser } = useWorkspace();
@@ -284,7 +297,11 @@ function FinanceModuleContent({
 
   async function sendInvoice(invoiceId: string) {
     try {
-      await runFinanceAction("send-invoice", { invoiceId });
+      const nextData = await runFinanceAction("send-invoice", { invoiceId });
+      const nextInvoice = nextData.invoices.find((invoice) => invoice.id === invoiceId) as
+        | InvoiceItem
+        | undefined;
+      openPdf(nextInvoice?.pdfUrl);
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Envoi impossible.");
     }
@@ -322,6 +339,10 @@ function FinanceModuleContent({
     if (nextInvoice) {
       setStatusDraft(nextInvoice.status);
     }
+  }
+
+  function downloadInvoicePdf(invoice: InvoiceItem) {
+    openPdf(invoice.pdfUrl);
   }
 
   return (
@@ -423,6 +444,7 @@ function FinanceModuleContent({
                   setStatusDraft={setStatusDraft}
                   updateInvoiceStatus={updateInvoiceStatus}
                   validateInvoice={validateInvoice}
+                  downloadInvoicePdf={downloadInvoicePdf}
                   paymentDraft={paymentDraft}
                   setPaymentDraft={setPaymentDraft}
                   registerPayment={registerPayment}
@@ -672,6 +694,7 @@ function InvoicesTab({
   setStatusDraft,
   updateInvoiceStatus,
   validateInvoice,
+  downloadInvoicePdf,
   paymentDraft,
   setPaymentDraft,
   registerPayment,
@@ -696,6 +719,7 @@ function InvoicesTab({
   setStatusDraft: React.Dispatch<React.SetStateAction<string>>;
   updateInvoiceStatus: (invoiceId: string) => void;
   validateInvoice: (invoiceId: string) => void;
+  downloadInvoicePdf: (invoice: InvoiceItem) => void;
   paymentDraft: {
     amount: string;
     method: string;
@@ -830,6 +854,15 @@ function InvoicesTab({
               </button>
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
+              {selectedInvoice.pdfUrl ? (
+                <button
+                  onClick={() => downloadInvoicePdf(selectedInvoice)}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8"
+                >
+                  <FileText className="size-4" />
+                  Telecharger le PDF
+                </button>
+              ) : null}
               <button
                 onClick={() => (canSendInvoice ? sendInvoice(selectedInvoice.id) : null)}
                 disabled={!canSendInvoice}
