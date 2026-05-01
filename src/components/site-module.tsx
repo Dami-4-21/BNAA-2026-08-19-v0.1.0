@@ -296,6 +296,7 @@ export function SiteModule() {
       canCloseNcr={canCloseNcr}
       canCreateNcr={canCreateNcr}
       canCreateReport={canCreateReport}
+      currentUserId={currentUser.id}
       canValidateReport={canValidateReport}
       currentUserRole={currentUser.role}
       projectData={projectData}
@@ -309,6 +310,7 @@ function SiteModuleContent({
   canCloseNcr,
   canCreateNcr,
   canCreateReport,
+  currentUserId,
   canValidateReport,
   currentUserRole,
   projectData,
@@ -318,6 +320,7 @@ function SiteModuleContent({
   canCloseNcr: boolean;
   canCreateNcr: boolean;
   canCreateReport: boolean;
+  currentUserId: string;
   canValidateReport: boolean;
   currentUserRole: string;
   projectData: SitePayload;
@@ -354,6 +357,22 @@ function SiteModuleContent({
   const availableLotOptions = projectData.projectSetup.lots;
   const availableZoneOptions = projectData.projectSetup.zones;
   const responsibleOptions = projectData.projectMembers.map((member) => member.name);
+  const assignedProjectApprover = useMemo(
+    () =>
+      projectData.projectMembers.find(
+        (member) => member.id === projectData.projectSetup.workflowOwners.projectManagerId,
+      ),
+    [projectData.projectMembers, projectData.projectSetup.workflowOwners.projectManagerId],
+  );
+  const canRunProjectValidation =
+    canValidateReport &&
+    (currentUserRole === "Super Admin" ||
+      (assignedProjectApprover
+        ? assignedProjectApprover.id === currentUserId
+        : currentUserRole === "Chef de projet"));
+  const projectValidationHelper = canRunProjectValidation
+    ? `Validation projet affectee a ${assignedProjectApprover?.name ?? "l'equipe projet"}.`
+    : `En attente de la validation projet par ${assignedProjectApprover?.name ?? "le chef de projet"}.`;
 
   const deferredSearch = useDeferredValue(searchPhotos);
 
@@ -778,6 +797,7 @@ function SiteModuleContent({
                   latestReport={latestReport}
                   reports={reports}
                   ncrs={ncrs}
+                  projectValidationHelper={projectValidationHelper}
                   signatures={signatureQueue}
                 />
               ) : null}
@@ -1028,11 +1048,12 @@ function SiteModuleContent({
                       ) : null}
                       {!report.signedByMoe ? (
                         <button
-                          onClick={() => (canValidateReport ? signAsMoe(report.id) : null)}
-                          disabled={!canValidateReport}
+                          onClick={() => (canRunProjectValidation ? signAsMoe(report.id) : null)}
+                          disabled={!canRunProjectValidation}
+                          title={projectValidationHelper}
                           className={cx(
                             "rounded-2xl px-4 py-2 text-sm font-semibold",
-                            canValidateReport
+                            canRunProjectValidation
                               ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                               : "cursor-not-allowed bg-slate-700 text-slate-400",
                           )}
@@ -1088,12 +1109,14 @@ function OverviewTab({
   latestReport,
   reports,
   ncrs,
+  projectValidationHelper,
   signatures,
 }: {
   downloadReportPdf: (report: ReportItem) => void;
   latestReport: ReportItem | undefined;
   reports: ReportItem[];
   ncrs: NcrItem[];
+  projectValidationHelper: string;
   signatures: SignatureItem[];
 }) {
   return (
@@ -1152,6 +1175,9 @@ function OverviewTab({
                   <StatusBadge tone={item.tone}>{item.state}</StatusBadge>
                 </div>
                 <p className="mt-2 text-sm text-slate-300">{item.note}</p>
+                {item.role.includes("projet") ? (
+                  <p className="mt-2 text-xs text-slate-500">{projectValidationHelper}</p>
+                ) : null}
               </div>
             ))}
           </div>

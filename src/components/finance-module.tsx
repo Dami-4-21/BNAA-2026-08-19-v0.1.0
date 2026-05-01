@@ -192,6 +192,7 @@ export function FinanceModule() {
       canCreateInvoice={canCreateInvoice}
       canRecordPayment={canRecordPayment}
       canSendInvoice={canSendInvoice}
+      currentUserId={currentUser.id}
       canValidateInvoice={canValidateInvoice}
       currentUserRole={currentUser.role}
       projectData={projectData}
@@ -204,6 +205,7 @@ function FinanceModuleContent({
   canCreateInvoice,
   canRecordPayment,
   canSendInvoice,
+  currentUserId,
   canValidateInvoice,
   currentUserRole,
   projectData,
@@ -212,6 +214,7 @@ function FinanceModuleContent({
   canCreateInvoice: boolean;
   canRecordPayment: boolean;
   canSendInvoice: boolean;
+  currentUserId: string;
   canValidateInvoice: boolean;
   currentUserRole: string;
   projectData: FinancePayload;
@@ -282,14 +285,25 @@ function FinanceModuleContent({
       };
     }
 
-    const projectApprover = currentUserRole === "Chef de projet" || currentUserRole === "Super Admin";
-    const clientApprover = currentUserRole === "Maitre d'ouvrage" || currentUserRole === "Super Admin";
+    const isSuperAdmin = currentUserRole === "Super Admin";
+    const projectApprover =
+      canValidateInvoice &&
+      (isSuperAdmin ||
+        (workflowOwners.projectManagerId?.id
+          ? workflowOwners.projectManagerId.id === currentUserId
+          : currentUserRole === "Chef de projet"));
+    const clientApprover =
+      canValidateInvoice &&
+      (isSuperAdmin ||
+        (workflowOwners.clientApproverId?.id
+          ? workflowOwners.clientApproverId.id === currentUserId
+          : currentUserRole === "Maitre d'ouvrage"));
     const projectApproverName = workflowOwners.projectManagerId?.name ?? "le chef de projet";
     const clientApproverName = workflowOwners.clientApproverId?.name ?? "le maitre d'ouvrage";
 
     if (!selectedInvoice.validatedByMoe) {
       return {
-        canRun: canValidateInvoice && projectApprover,
+        canRun: projectApprover,
         helper: projectApprover
           ? `Validation projet requise avant validation client. Responsable cible: ${projectApproverName}.`
           : `En attente de la validation projet par ${projectApproverName}.`,
@@ -299,7 +313,7 @@ function FinanceModuleContent({
 
     if (!selectedInvoice.validatedByMo) {
       return {
-        canRun: canValidateInvoice && clientApprover,
+        canRun: clientApprover,
         helper: clientApprover
           ? `Validation finale client requise pour cloturer le circuit. Responsable cible: ${clientApproverName}.`
           : `En attente de la validation finale par ${clientApproverName}.`,
@@ -312,7 +326,14 @@ function FinanceModuleContent({
       helper: "Facture deja validee sur l'ensemble du circuit.",
       label: "Facture validee",
     };
-  }, [canValidateInvoice, currentUserRole, selectedInvoice, workflowOwners.clientApproverId?.name, workflowOwners.projectManagerId?.name]);
+  }, [
+    canValidateInvoice,
+    currentUserId,
+    currentUserRole,
+    selectedInvoice,
+    workflowOwners.clientApproverId,
+    workflowOwners.projectManagerId,
+  ]);
 
   function applyProjectData(nextData: FinancePayload) {
     startTransition(() => {
