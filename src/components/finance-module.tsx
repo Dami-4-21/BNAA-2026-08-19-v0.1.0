@@ -399,6 +399,7 @@ function FinanceModuleContent({
                   canCreateInvoice={canCreateInvoice}
                   dmDraft={dmDraft}
                   setDmDraft={setDmDraft}
+                  availableLots={projectData.projectSetup.lots}
                   vatRegime={vatRegime}
                   draftValues={draftValues}
                   generateMonthlyStatement={generateMonthlyStatement}
@@ -416,6 +417,7 @@ function FinanceModuleContent({
                   setSelectedInvoiceId={handleSelectInvoice}
                   selectedInvoice={selectedInvoice}
                   paymentCoverage={paymentCoverage}
+                  projectMembers={projectData.projectMembers}
                   sendInvoice={sendInvoice}
                   statusDraft={statusDraft}
                   setStatusDraft={setStatusDraft}
@@ -511,6 +513,7 @@ function DecompteTab({
   canCreateInvoice,
   dmDraft,
   setDmDraft,
+  availableLots,
   vatRegime,
   draftValues,
   generateMonthlyStatement,
@@ -532,6 +535,7 @@ function DecompteTab({
       advanceDeduction: number;
     }>
   >;
+  availableLots: string[];
   vatRegime: { id: string; label: string; rate: number; helper: string };
   draftValues: {
     retentionAmount: number;
@@ -545,6 +549,21 @@ function DecompteTab({
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-4">
+          <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              Lots relies au decompte
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {availableLots.map((lot) => (
+                <span
+                  key={lot}
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+                >
+                  {lot}
+                </span>
+              ))}
+            </div>
+          </div>
           <Field
             label="Mois de decompte"
             value={dmDraft.periodMonth}
@@ -647,6 +666,7 @@ function InvoicesTab({
   setSelectedInvoiceId,
   selectedInvoice,
   paymentCoverage,
+  projectMembers,
   sendInvoice,
   statusDraft,
   setStatusDraft,
@@ -665,6 +685,12 @@ function InvoicesTab({
   setSelectedInvoiceId: (invoiceId: string) => void;
   selectedInvoice: InvoiceItem | undefined;
   paymentCoverage: number;
+  projectMembers: Array<{
+    id: string;
+    initials: string;
+    name: string;
+    role: string;
+  }>;
   sendInvoice: (invoiceId: string) => void;
   statusDraft: string;
   setStatusDraft: React.Dispatch<React.SetStateAction<string>>;
@@ -746,6 +772,31 @@ function InvoicesTab({
                 <p className="mt-2 text-sm text-white">
                   {selectedInvoice.validatedByMo ? "Validee" : "En attente"}
                 </p>
+              </div>
+            </div>
+            <div className="mt-4 rounded-[20px] border border-white/8 bg-white/4 p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                Circuit projet disponible
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {projectMembers
+                  .filter((member) =>
+                    [
+                      "Chef de projet",
+                      "Bureau d'etudes",
+                      "Maitre d'ouvrage",
+                      "Comptable",
+                      "Super Admin",
+                    ].includes(member.role),
+                  )
+                  .map((member) => (
+                    <span
+                      key={member.id}
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+                    >
+                      {member.name} - {member.role}
+                    </span>
+                  ))}
               </div>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">

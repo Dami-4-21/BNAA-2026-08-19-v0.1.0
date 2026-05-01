@@ -277,6 +277,8 @@ function DocumentsModuleContent({
       const matchesFilter =
         filter === "Tous" ||
         filter === document.discipline ||
+        filter === `Lot ${document.lot}` ||
+        filter === `Phase ${document.phase}` ||
         (filter === "Courants" && document.status === "Courante") ||
         (filter === "Obsoletes" && document.status === "Obsolete");
 
@@ -293,10 +295,12 @@ function DocumentsModuleContent({
     () => [
       "Tous",
       ...new Set(documents.map((document) => document.discipline)),
+      ...projectData.projectSetup.lots.map((lot) => `Lot ${lot}`),
+      ...projectData.projectSetup.phases.map((phase) => `Phase ${phase}`),
       "Courants",
       "Obsoletes",
     ],
-    [documents],
+    [documents, projectData.projectSetup.lots, projectData.projectSetup.phases],
   );
 
   async function publishNewVersion() {
@@ -492,6 +496,7 @@ function DocumentsModuleContent({
                   recipients={recipientsForSelected}
                   draftVersion={draftVersion}
                   setDraftVersion={setDraftVersion}
+                  distributionOptions={projectData.distributionOptions}
                   distributeSelected={distributeSelected}
                   acknowledgeRecipient={acknowledgeRecipient}
                 />
@@ -547,16 +552,18 @@ function DocumentsModuleContent({
                         setMetadataDraft((current) => ({ ...current, discipline: value }))
                       }
                     />
-                    <Field
+                    <SelectField
                       label="Lot"
                       value={metadataDraft.lot}
+                      options={projectData.projectSetup.lots}
                       onChange={(value) =>
                         setMetadataDraft((current) => ({ ...current, lot: value }))
                       }
                     />
-                    <Field
+                    <SelectField
                       label="Phase"
                       value={metadataDraft.phase}
+                      options={projectData.projectSetup.phases}
                       onChange={(value) =>
                         setMetadataDraft((current) => ({ ...current, phase: value }))
                       }
@@ -894,6 +901,7 @@ function DistributionTab({
   recipients,
   draftVersion,
   setDraftVersion,
+  distributionOptions,
   distributeSelected,
   acknowledgeRecipient,
 }: {
@@ -912,6 +920,7 @@ function DistributionTab({
       audience: string;
     }>
   >;
+  distributionOptions: string[];
   distributeSelected: () => void;
   acknowledgeRecipient: (recipientId: string) => void;
 }) {
@@ -919,13 +928,34 @@ function DistributionTab({
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-4">
-          <Field
+          <SelectField
             label="Liste de diffusion"
             value={draftVersion.audience}
+            options={distributionOptions}
             onChange={(value) =>
               setDraftVersion((current) => ({ ...current, audience: value }))
             }
           />
+
+          <div className="flex flex-wrap gap-2">
+            {distributionOptions.slice(0, 6).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() =>
+                  setDraftVersion((current) => ({ ...current, audience: option }))
+                }
+                className={cx(
+                  "rounded-full border px-4 py-2 text-sm font-semibold",
+                  draftVersion.audience === option
+                    ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
+                    : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
+                )}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
 
           <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1117,6 +1147,37 @@ function Field({
         onChange={(event) => onChange(event.target.value)}
         className="mt-3 w-full bg-transparent text-white outline-none"
       />
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+      <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
+      >
+        {options.map((option) => (
+          <option key={`${label}-${option}`} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

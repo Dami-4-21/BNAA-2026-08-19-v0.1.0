@@ -68,16 +68,40 @@ export type AuditTrailItem = {
   projectId?: string;
 };
 
-export type SiteModuleData = ReturnType<typeof getSiteModuleData>;
-export type DocumentsModuleData = ReturnType<typeof getDocumentsModuleData>;
-export type FinanceModuleData = ReturnType<typeof getFinanceModuleData>;
-export type SitePhotoRecord = SiteModuleData["photoLibrary"][number] & {
+export type ProjectMemberOption = {
+  id: string;
+  initials: string;
+  name: string;
+  role: string;
+};
+
+export type SiteModuleBaseData = ReturnType<typeof getSiteModuleData>;
+export type DocumentsModuleBaseData = ReturnType<typeof getDocumentsModuleData>;
+export type FinanceModuleBaseData = ReturnType<typeof getFinanceModuleData>;
+
+export type SiteModuleData = SiteModuleBaseData & {
+  projectMembers: ProjectMemberOption[];
+  projectSetup: ProjectSetupRecord;
+};
+
+export type DocumentsModuleData = DocumentsModuleBaseData & {
+  distributionOptions: string[];
+  projectMembers: ProjectMemberOption[];
+  projectSetup: ProjectSetupRecord;
+};
+
+export type FinanceModuleData = FinanceModuleBaseData & {
+  projectMembers: ProjectMemberOption[];
+  projectSetup: ProjectSetupRecord;
+};
+
+export type SitePhotoRecord = SiteModuleBaseData["photoLibrary"][number] & {
   fileName?: string;
   filePath?: string;
   fileUrl?: string;
   mimeType?: string;
 };
-export type DocumentFileRecord = DocumentsModuleData["files"][number] & {
+export type DocumentFileRecord = DocumentsModuleBaseData["files"][number] & {
   downloadUrl?: string;
   fileName?: string;
   filePath?: string;
@@ -101,9 +125,9 @@ export type ProjectSetupRecord = {
 export type ProjectRecord = {
   summary: WorkspaceProject;
   setup: ProjectSetupRecord;
-  site: SiteModuleData;
-  documents: DocumentsModuleData;
-  finance: FinanceModuleData;
+  site: SiteModuleBaseData;
+  documents: DocumentsModuleBaseData;
+  finance: FinanceModuleBaseData;
 };
 
 export type DatabaseState = {

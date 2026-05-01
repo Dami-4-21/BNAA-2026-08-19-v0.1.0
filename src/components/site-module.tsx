@@ -281,6 +281,9 @@ function SiteModuleContent({
   const [draftPhoto, setDraftPhoto] = useState(projectData.draftPhoto);
   const [draftNcr, setDraftNcr] = useState(projectData.draftNcr);
   const [mutationError, setMutationError] = useState("");
+  const availableLotOptions = projectData.projectSetup.lots;
+  const availableZoneOptions = projectData.projectSetup.zones;
+  const responsibleOptions = projectData.projectMembers.map((member) => member.name);
 
   const deferredSearch = useDeferredValue(searchPhotos);
 
@@ -548,10 +551,8 @@ function SiteModuleContent({
                   setSearchPhotos={setSearchPhotos}
                   photoLotFilter={photoLotFilter}
                   setPhotoLotFilter={setPhotoLotFilter}
-                  availableLots={[
-                    "Tous",
-                    ...new Set(projectData.photoLibrary.map((photo) => photo.lot)),
-                  ]}
+                  availableLots={["Tous", ...availableLotOptions]}
+                  availableZones={availableZoneOptions}
                   addPhoto={addPhoto}
                 />
               ) : null}
@@ -563,6 +564,7 @@ function SiteModuleContent({
                   draftNcr={draftNcr}
                   setDraftNcr={setDraftNcr}
                   ncrs={ncrs}
+                  responsibleOptions={responsibleOptions}
                   createNcr={createNcr}
                   closeNcr={closeNcr}
                 />
@@ -1184,6 +1186,7 @@ function PhotosTab({
   photoLotFilter,
   setPhotoLotFilter,
   availableLots,
+  availableZones,
   addPhoto,
 }: {
   canAddPhoto: boolean;
@@ -1211,6 +1214,7 @@ function PhotosTab({
   photoLotFilter: string;
   setPhotoLotFilter: React.Dispatch<React.SetStateAction<string>>;
   availableLots: string[];
+  availableZones: string[];
   addPhoto: () => void;
 }) {
   return (
@@ -1225,16 +1229,18 @@ function PhotosTab({
                 setDraftPhoto((current) => ({ ...current, title: value }))
               }
             />
-            <Field
+            <SelectField
               label="Zone"
               value={draftPhoto.zone}
+              options={availableZones}
               onChange={(value) =>
                 setDraftPhoto((current) => ({ ...current, zone: value }))
               }
             />
-            <Field
+            <SelectField
               label="Lot"
               value={draftPhoto.lot}
+              options={availableLots.filter((lot) => lot !== "Tous")}
               onChange={(value) =>
                 setDraftPhoto((current) => ({ ...current, lot: value }))
               }
@@ -1370,6 +1376,7 @@ function NcrTab({
   draftNcr,
   setDraftNcr,
   ncrs,
+  responsibleOptions,
   createNcr,
   closeNcr,
 }: {
@@ -1394,6 +1401,7 @@ function NcrTab({
     }>
   >;
   ncrs: NcrItem[];
+  responsibleOptions: string[];
   createNcr: () => void;
   closeNcr: (ref: string) => void;
 }) {
@@ -1409,9 +1417,10 @@ function NcrTab({
             }
           />
           <div className="grid gap-4 md:grid-cols-2">
-            <Field
+            <SelectField
               label="Responsable"
               value={draftNcr.owner}
+              options={responsibleOptions}
               onChange={(value) =>
                 setDraftNcr((current) => ({ ...current, owner: value }))
               }
@@ -1561,6 +1570,37 @@ function Field({
         onChange={(event) => onChange(event.target.value)}
         className="mt-3 w-full bg-transparent text-white outline-none"
       />
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+      <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
+      >
+        {options.map((option) => (
+          <option key={`${label}-${option}`} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

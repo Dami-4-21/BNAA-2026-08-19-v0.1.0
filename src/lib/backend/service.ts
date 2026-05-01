@@ -915,7 +915,19 @@ function recomputeProjectSummary(project: ProjectRecord) {
   return { health, portfolioEntry };
 }
 
-function deriveSiteData(project: ProjectRecord): SiteModuleData {
+function deriveProjectMemberOptions(database: DatabaseState, project: ProjectRecord) {
+  return project.setup.memberIds
+    .map((memberId) => database.users.find((entry) => entry.id === memberId))
+    .filter((member): member is AppUser => Boolean(member))
+    .map((member) => ({
+      id: member.id,
+      initials: member.initials,
+      name: member.name,
+      role: member.role,
+    }));
+}
+
+function deriveSiteData(database: DatabaseState, project: ProjectRecord): SiteModuleData {
   const site = clone(project.site);
   site.photoLibrary = site.photoLibrary.map((photo) => {
     const asset = photo as SitePhotoRecord;
@@ -1004,10 +1016,14 @@ function deriveSiteData(project: ProjectRecord): SiteModuleData {
     },
   ];
 
-  return site;
+  return {
+    ...site,
+    projectMembers: deriveProjectMemberOptions(database, project),
+    projectSetup: clone(project.setup),
+  };
 }
 
-function deriveDocumentsData(project: ProjectRecord): DocumentsModuleData {
+function deriveDocumentsData(database: DatabaseState, project: ProjectRecord): DocumentsModuleData {
   const documents = clone(project.documents);
   documents.files = documents.files.map((file) => {
     const asset = file as DocumentFileRecord;
@@ -1067,11 +1083,25 @@ function deriveDocumentsData(project: ProjectRecord): DocumentsModuleData {
     cachedFiles,
   };
 
-  return documents;
+  const projectMembers = deriveProjectMemberOptions(database, project);
+
+  return {
+    ...documents,
+    distributionOptions: [
+      "Equipe projet complete",
+      ...project.setup.lots.map((lot) => `Lot ${lot}`),
+      ...projectMembers.map((member) => `${member.name} - ${member.role}`),
+    ],
+    projectMembers,
+    projectSetup: clone(project.setup),
+  };
 }
 
-function deriveFinanceData(project: ProjectRecord): FinanceModuleData {
+function deriveFinanceData(database: DatabaseState, project: ProjectRecord): FinanceModuleData {
   const finance = clone(project.finance);
+  if (finance.dmDraft.progressPct === 0 && project.summary.progress > 0) {
+    finance.dmDraft.progressPct = project.summary.progress;
+  }
   const paidInvoices = finance.invoices.filter((invoice) => invoice.paidAt);
   const overdueInvoices = finance.invoices.filter(
     (invoice) => !invoice.paidAt && invoice.dueDate < todayIso,
@@ -1137,7 +1167,11 @@ function deriveFinanceData(project: ProjectRecord): FinanceModuleData {
       ? `${overdueInvoices.length} facture(s) en retard doivent etre traitees pour detendre la tresorerie du projet.`
       : "Tresorerie sous controle sur le cycle courant.";
 
-  return finance;
+  return {
+    ...finance,
+    projectMembers: deriveProjectMemberOptions(database, project),
+    projectSetup: clone(project.setup),
+  };
 }
 
 function deriveProjectTeamMembers(database: DatabaseState, projectId: string) {
@@ -1317,9 +1351,9 @@ function buildDashboardData(
 ): DashboardPageData {
   ensureProjectAccess(user, projectId);
   const project = getProjectRecord(database, projectId);
-  const site = deriveSiteData(project);
-  const documents = deriveDocumentsData(project);
-  const finance = deriveFinanceData(project);
+  const site = deriveSiteData(database, project);
+  const documents = deriveDocumentsData(database, project);
+  const finance = deriveFinanceData(database, project);
   const userNotifications = getUserNotifications(database, user).map((notification) =>
     toUserNotification(notification, user.id),
   );
@@ -2242,7 +2276,7 @@ export async function getSitePayload(token: string, projectId: string) {
   assert(user, 401, "Session invalide ou expiree.");
   ensurePermission(user, "site.view");
   ensureProjectAccess(user, projectId);
-  return deriveSiteData(getProjectRecord(database, projectId));
+  return deriveSiteData(database, getProjectRecord(database, projectId));
 }
 
 export async function getSitePhotoFile(token: string, projectId: string, photoId: string) {
@@ -2345,7 +2379,7 @@ export async function uploadSitePhoto(
       entry.code === portfolioEntry.code ? portfolioEntry : entry,
     );
 
-    return deriveSiteData(project);
+    return deriveSiteData(database, project);
   });
 }
 
@@ -2674,7 +2708,7 @@ export async function mutateSitePayload(
       entry.code === portfolioEntry.code ? portfolioEntry : entry,
     );
 
-    return deriveSiteData(project);
+    return deriveSiteData(database, project);
   });
 }
 
@@ -2685,7 +2719,7 @@ export async function getDocumentsPayload(token: string, projectId: string) {
   assert(user, 401, "Session invalide ou expiree.");
   ensurePermission(user, "documents.view");
   ensureProjectAccess(user, projectId);
-  return deriveDocumentsData(getProjectRecord(database, projectId));
+  return deriveDocumentsData(database, getProjectRecord(database, projectId));
 }
 
 export async function getDocumentFile(token: string, projectId: string, documentId: string) {
@@ -2794,7 +2828,7 @@ export async function uploadDocumentVersion(
       entry.code === portfolioEntry.code ? portfolioEntry : entry,
     );
 
-    return deriveDocumentsData(project);
+    return deriveDocumentsData(database, project);
   });
 }
 
@@ -2969,7 +3003,7 @@ export async function mutateDocumentsPayload(
       entry.code === portfolioEntry.code ? portfolioEntry : entry,
     );
 
-    return deriveDocumentsData(project);
+    return deriveDocumentsData(database, project);
   });
 }
 
@@ -2980,7 +3014,7 @@ export async function getFinancePayload(token: string, projectId: string) {
   assert(user, 401, "Session invalide ou expiree.");
   ensurePermission(user, "finance.view");
   ensureProjectAccess(user, projectId);
-  return deriveFinanceData(getProjectRecord(database, projectId));
+  return deriveFinanceData(database, getProjectRecord(database, projectId));
 }
 
 export async function mutateFinancePayload(
@@ -3238,6 +3272,6 @@ export async function mutateFinancePayload(
       entry.code === portfolioEntry.code ? portfolioEntry : entry,
     );
 
-    return deriveFinanceData(project);
+    return deriveFinanceData(database, project);
   });
 }
