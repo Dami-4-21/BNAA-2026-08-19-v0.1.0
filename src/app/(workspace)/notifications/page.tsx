@@ -20,6 +20,22 @@ type NotificationAction = "mark-all-read" | "mark-read" | "mark-unread";
 
 type FilterStatus = "all" | "action" | "read" | "unread";
 
+const emailToneByStatus = {
+  captured: "warning",
+  failed: "danger",
+  not_applicable: "neutral",
+  queued: "primary",
+  sent: "success",
+} as const;
+
+const emailLabelByStatus = {
+  captured: "Email capture",
+  failed: "Email erreur",
+  not_applicable: "Sans email",
+  queued: "Email en file",
+  sent: "Email envoye",
+} as const;
+
 export default function NotificationsPage() {
   const [data, setData] = useState<NotificationsPageData | null>(null);
   const [error, setError] = useState("");
@@ -330,8 +346,16 @@ export default function NotificationsPage() {
                         <MailCheck className="size-3.5" />
                         {notification.channel}
                       </span>
+                      <StatusBadge tone={emailToneByStatus[notification.emailStatus]}>
+                        {emailLabelByStatus[notification.emailStatus]}
+                      </StatusBadge>
                       <span>{notification.actor}</span>
                     </div>
+                    {notification.emailError ? (
+                      <p className="text-xs leading-5 text-stone-500">
+                        {notification.emailError}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">

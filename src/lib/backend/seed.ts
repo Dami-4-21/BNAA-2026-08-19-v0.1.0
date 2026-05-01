@@ -48,6 +48,15 @@ export function createSeedDatabase(): DatabaseState {
       projectCode: "BN-042",
       recipients: notificationRecipients,
       readBy: [],
+      emailDeliveredAt: undefined,
+      emailError:
+        notification.channel === "Email" || notification.channel === "In-app + email"
+          ? "Notification creee avant l'activation du canal email."
+          : undefined,
+      emailStatus:
+        notification.channel === "Email" || notification.channel === "In-app + email"
+          ? "captured"
+          : "not_applicable",
       requiresAction: index !== 1,
     }),
   );

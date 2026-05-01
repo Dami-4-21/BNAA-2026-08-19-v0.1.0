@@ -34,6 +34,12 @@ export type NotificationType =
   | "report";
 
 export type NotificationChannel = "In-app" | "In-app + email" | "Email";
+export type NotificationEmailStatus =
+  | "captured"
+  | "failed"
+  | "not_applicable"
+  | "queued"
+  | "sent";
 
 export type NotificationRecord = {
   id: string;
@@ -50,6 +56,9 @@ export type NotificationRecord = {
   recipients: string[];
   readBy: string[];
   requiresAction: boolean;
+  emailDeliveredAt?: string;
+  emailError?: string;
+  emailStatus: NotificationEmailStatus;
 };
 
 export type UserNotification = Omit<NotificationRecord, "readBy" | "recipients"> & {

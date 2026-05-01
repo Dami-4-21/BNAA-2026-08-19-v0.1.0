@@ -12,6 +12,7 @@ import {
   type SafeUser,
 } from "@/lib/auth";
 import { saveUploadedFile } from "@/lib/backend/files";
+import { dispatchNotificationEmail as sendNotificationEmail } from "@/lib/backend/mail";
 import { buildDailyReportPdf, buildInvoicePdf } from "@/lib/backend/pdf";
 import { financeVatRegimes } from "@/lib/mock-data";
 import { createSessionExpiry, createSessionToken } from "@/lib/backend/session";
@@ -120,6 +121,10 @@ function notificationToneRank(tone: NotificationRecord["tone"]) {
     default:
       return 4;
   }
+}
+
+function channelSupportsEmail(channel: NotificationRecord["channel"]) {
+  return channel === "Email" || channel === "In-app + email";
 }
 
 function toProjectHealth(progress: number, overdueInvoices: number, unreadDocs: number) {
@@ -613,6 +618,13 @@ function ensureNotificationsState(database: DatabaseState) {
         ...currentEntry,
         actor: currentEntry.actor ?? "BnaaSaaS",
         channel: currentEntry.channel ?? "In-app",
+        emailDeliveredAt: currentEntry.emailDeliveredAt,
+        emailError: currentEntry.emailError,
+        emailStatus:
+          currentEntry.emailStatus ??
+          (channelSupportsEmail(currentEntry.channel ?? "In-app")
+            ? "captured"
+            : "not_applicable"),
         href: currentEntry.href ?? "/notifications",
         readBy: currentEntry.readBy ?? [],
         recipients: currentEntry.recipients?.length ? currentEntry.recipients : defaultRecipients,
@@ -660,6 +672,25 @@ function ensureNotificationsState(database: DatabaseState) {
         Object.keys(database.projects).find((code) => legacy.detail.includes(code)) ?? "BN-042",
       recipients: defaultRecipients,
       readBy: [],
+      emailDeliveredAt: undefined,
+      emailError: channelSupportsEmail(
+        legacy.channel === "Email"
+          ? "Email"
+          : legacy.channel === "In-app + email"
+            ? "In-app + email"
+            : "In-app",
+      )
+        ? "Notification creee avant l'activation du canal email."
+        : undefined,
+      emailStatus: channelSupportsEmail(
+        legacy.channel === "Email"
+          ? "Email"
+          : legacy.channel === "In-app + email"
+            ? "In-app + email"
+            : "In-app",
+      )
+        ? "captured"
+        : "not_applicable",
       requiresAction: legacy.detail.toLowerCase().includes("validation"),
     } satisfies NotificationRecord;
   });
@@ -791,7 +822,7 @@ function appendNotification(
     return;
   }
 
-  database.notifications.unshift({
+  const notification: NotificationRecord = {
     id: `NTF-${randomUUID().slice(0, 8)}`,
     title: options.title,
     detail: options.detail,
@@ -806,7 +837,65 @@ function appendNotification(
     recipients,
     readBy: [],
     requiresAction: options.requiresAction ?? false,
-  });
+    emailDeliveredAt: undefined,
+    emailError: undefined,
+    emailStatus: channelSupportsEmail(options.channel ?? "In-app")
+      ? "queued"
+      : "not_applicable",
+  };
+
+  database.notifications.unshift(notification);
+
+  if (channelSupportsEmail(notification.channel)) {
+    void processNotificationEmail(notification.id);
+  }
+}
+
+async function processNotificationEmail(notificationId: string) {
+  try {
+    await updateDatabase(async (database) => {
+      ensureSystemUsers(database);
+      const notification = database.notifications.find((entry) => entry.id === notificationId);
+      if (!notification || !channelSupportsEmail(notification.channel)) {
+        return;
+      }
+
+      if (notification.emailStatus === "sent") {
+        return;
+      }
+
+      const recipients = database.users.filter((user) =>
+        notification.recipients.includes(user.id),
+      );
+      const projectName = notification.projectId
+        ? database.projects[notification.projectId]?.summary.name
+        : undefined;
+      const result = await sendNotificationEmail({
+        notification,
+        projectName,
+        recipients,
+      });
+
+      notification.emailStatus = result.status;
+      notification.emailError =
+        result.status === "failed" || result.status === "captured"
+          ? result.detail
+          : undefined;
+      notification.emailDeliveredAt = result.deliveredAt;
+    });
+  } catch (error) {
+    await updateDatabase((database) => {
+      ensureSystemUsers(database);
+      const notification = database.notifications.find((entry) => entry.id === notificationId);
+      if (!notification) {
+        return;
+      }
+
+      notification.emailStatus = "failed";
+      notification.emailError =
+        error instanceof Error ? error.message : "Erreur email inconnue.";
+    });
+  }
 }
 
 function getUserNotifications(
@@ -2663,6 +2752,7 @@ export async function mutateSitePayload(
         appendNotification(database, {
           actor: user.name,
           actorId: user.id,
+          channel: "In-app + email",
           detail: `${project.summary.code} - ${reportId} est pret pour signature et archivage.`,
           href: "/site",
           roles: ["Chef de projet", "Bureau d'etudes", "Super Admin"],

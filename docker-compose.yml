@@ -10,7 +10,14 @@ services:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
       PORT: 3000
+      BNAASAAS_APP_URL: ${BNAASAAS_APP_URL:-http://192.168.100.211:3000}
       BNAASAAS_DATA_FILE: /data/database.json
+      BNAASAAS_SMTP_HOST: ${BNAASAAS_SMTP_HOST:-}
+      BNAASAAS_SMTP_PORT: ${BNAASAAS_SMTP_PORT:-587}
+      BNAASAAS_SMTP_USER: ${BNAASAAS_SMTP_USER:-}
+      BNAASAAS_SMTP_PASS: ${BNAASAAS_SMTP_PASS:-}
+      BNAASAAS_SMTP_FROM: ${BNAASAAS_SMTP_FROM:-}
+      BNAASAAS_SMTP_SECURE: ${BNAASAAS_SMTP_SECURE:-false}
     volumes:
       - bnaasaas_data:/data
     restart: unless-stopped
