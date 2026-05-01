@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   startTransition,
   useEffect,
@@ -178,6 +179,9 @@ function DocumentsModuleContent({
   currentUserRole: string;
   projectData: DocumentsPayload;
 }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<DocumentsTab>("library");
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
@@ -203,6 +207,26 @@ function DocumentsModuleContent({
   const [mutationError, setMutationError] = useState("");
 
   const deferredSearch = useDeferredValue(search);
+
+  function replaceModuleUrl(nextTab: DocumentsTab, documentId?: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", nextTab);
+    if (documentId) {
+      params.set("document", documentId);
+    } else {
+      params.delete("document");
+    }
+
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  function selectTab(nextTab: DocumentsTab) {
+    setActiveTab(nextTab);
+    replaceModuleUrl(nextTab, nextTab === "library" || nextTab === "versions" || nextTab === "distribution"
+      ? selectedDocument?.id
+      : undefined);
+  }
 
   function applyProjectData(nextData: DocumentsPayload) {
     startTransition(() => {
@@ -281,6 +305,31 @@ function DocumentsModuleContent({
   const selectedDocument =
     documents.find((item) => item.id === selectedDocumentId) ?? documents[0];
 
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    const documentId = searchParams.get("document");
+    const nextDocument =
+      documentId && documents.some((item) => item.id === documentId)
+        ? documents.find((item) => item.id === documentId)
+        : undefined;
+
+    startTransition(() => {
+      if (tab && tabs.some((item) => item.key === tab)) {
+        setActiveTab(tab as DocumentsTab);
+      }
+
+      if (documentId && nextDocument) {
+        setSelectedDocumentId(documentId);
+        setMetadataDraft({
+          title: nextDocument.title,
+          discipline: nextDocument.discipline,
+          lot: nextDocument.lot,
+          phase: nextDocument.phase,
+        });
+      }
+    });
+  }, [documents, searchParams]);
+
   function handleSelectDocument(documentId: string) {
     const nextDocument = documents.find((item) => item.id === documentId);
     setSelectedDocumentId(documentId);
@@ -292,6 +341,7 @@ function DocumentsModuleContent({
         phase: nextDocument.phase,
       });
     }
+    replaceModuleUrl(activeTab, documentId);
   }
 
   const filteredDocuments = useMemo(() => {
@@ -318,7 +368,7 @@ function DocumentsModuleContent({
 
   const recipientsForSelected = useMemo(
     () => recipients.filter((recipient) => recipient.documentId === selectedDocument?.id),
-    [recipients, selectedDocument?.id],
+    [recipients, selectedDocument],
   );
   const selectedCompareVersion = selectedDocument
     ? comparisonSelections[selectedDocument.id] ?? selectedDocument.compareWith
@@ -449,7 +499,7 @@ function DocumentsModuleContent({
         title="Controle documentaire et diffusion des plans"
         action={
           <button
-            onClick={() => (canPublishVersion ? setActiveTab("versions") : null)}
+            onClick={() => (canPublishVersion ? selectTab("versions") : null)}
             disabled={!canPublishVersion}
             className={cx(
               "rounded-2xl px-4 py-3 text-sm font-semibold",
@@ -503,7 +553,7 @@ function DocumentsModuleContent({
               {tabs.map((tab) => (
                 <button
                   key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
+                  onClick={() => selectTab(tab.key)}
                   className={cx(
                     "rounded-[20px] border px-4 py-3 text-left",
                     activeTab === tab.key

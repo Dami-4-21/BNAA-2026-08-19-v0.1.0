@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   startTransition,
   useEffect,
@@ -229,6 +230,9 @@ function FinanceModuleContent({
   currentUserRole: string;
   projectData: FinancePayload;
 }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<FinanceTab>("dm");
   const [overview, setOverview] = useState(projectData.overview);
   const [invoices, setInvoices] = useState<InvoiceItem[]>(projectData.invoices);
@@ -368,6 +372,46 @@ function FinanceModuleContent({
     workflowOwners.projectManagerId,
   ]);
 
+  function replaceModuleUrl(nextTab: FinanceTab, invoiceId?: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", nextTab);
+    if (invoiceId) {
+      params.set("invoice", invoiceId);
+    } else {
+      params.delete("invoice");
+    }
+
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  function selectTab(nextTab: FinanceTab) {
+    setActiveTab(nextTab);
+    replaceModuleUrl(nextTab, nextTab === "invoices" || nextTab === "vat" || nextTab === "cashflow"
+      ? selectedInvoice?.id
+      : undefined);
+  }
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    const invoiceId = searchParams.get("invoice");
+    const nextInvoice =
+      invoiceId && invoices.some((invoice) => invoice.id === invoiceId)
+        ? invoices.find((invoice) => invoice.id === invoiceId)
+        : undefined;
+
+    startTransition(() => {
+      if (tab && tabs.some((item) => item.key === tab)) {
+        setActiveTab(tab as FinanceTab);
+      }
+
+      if (invoiceId && nextInvoice) {
+        setSelectedInvoiceId(invoiceId);
+        setStatusDraft(nextInvoice.status);
+      }
+    });
+  }, [invoices, searchParams]);
+
   function applyProjectData(nextData: FinancePayload) {
     startTransition(() => {
       setOverview(nextData.overview);
@@ -408,7 +452,7 @@ function FinanceModuleContent({
         vatRegimeId: vatRegime.id,
       });
       setSelectedInvoiceId(nextData.invoices[0]?.id ?? "");
-      setActiveTab("invoices");
+      selectTab("invoices");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Generation impossible.");
     }
@@ -443,7 +487,7 @@ function FinanceModuleContent({
         invoiceId,
         paymentDraft,
       });
-      setActiveTab("cashflow");
+      selectTab("cashflow");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Paiement impossible.");
     }
@@ -466,6 +510,7 @@ function FinanceModuleContent({
     if (nextInvoice) {
       setStatusDraft(nextInvoice.status);
     }
+    replaceModuleUrl(activeTab, invoiceId);
   }
 
   function downloadInvoicePdf(invoice: InvoiceItem) {
@@ -479,7 +524,7 @@ function FinanceModuleContent({
         title="Facturation, encaissements et tresorerie"
         action={
           <button
-            onClick={() => (canCreateInvoice ? setActiveTab("dm") : null)}
+            onClick={() => (canCreateInvoice ? selectTab("dm") : null)}
             disabled={!canCreateInvoice}
             className={cx(
               "rounded-2xl px-4 py-3 text-sm font-semibold",
@@ -526,7 +571,7 @@ function FinanceModuleContent({
               {tabs.map((tab) => (
                 <button
                   key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
+                  onClick={() => selectTab(tab.key)}
                   className={cx(
                     "rounded-[20px] border px-4 py-3 text-left",
                     activeTab === tab.key

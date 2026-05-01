@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   startTransition,
   useCallback,
@@ -326,6 +327,9 @@ function SiteModuleContent({
   currentUserRole: string;
   projectData: SitePayload;
 }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const initialSavedDraft =
     typeof window === "undefined" ? null : loadSiteDraft<FormState>(activeProject.id);
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
@@ -358,6 +362,8 @@ function SiteModuleContent({
   const availableLotOptions = projectData.projectSetup.lots;
   const availableZoneOptions = projectData.projectSetup.zones;
   const responsibleOptions = projectData.projectMembers.map((member) => member.name);
+  const focusedReportId = searchParams.get("report") ?? "";
+  const focusedNcrRef = searchParams.get("ncr") ?? "";
   const assignedProjectApprover = useMemo(
     () =>
       projectData.projectMembers.find(
@@ -376,6 +382,29 @@ function SiteModuleContent({
     : `En attente de la validation projet par ${assignedProjectApprover?.name ?? "le chef de projet"}.`;
 
   const deferredSearch = useDeferredValue(searchPhotos);
+
+  function replaceModuleUrl(nextTab: TabKey, query?: { ncr?: string; report?: string }) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", nextTab);
+    if (query?.report) {
+      params.set("report", query.report);
+    } else {
+      params.delete("report");
+    }
+    if (query?.ncr) {
+      params.set("ncr", query.ncr);
+    } else {
+      params.delete("ncr");
+    }
+
+    const nextQuery = params.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+  }
+
+  function selectTab(nextTab: TabKey, query?: { ncr?: string; report?: string }) {
+    setActiveTab(nextTab);
+    replaceModuleUrl(nextTab, query);
+  }
 
   function applyProjectData(nextData: SitePayload) {
     startTransition(() => {
@@ -396,6 +425,15 @@ function SiteModuleContent({
   useEffect(() => {
     saveSiteDraft(activeProject.id, formState);
   }, [activeProject.id, formState]);
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    startTransition(() => {
+      if (tab && tabs.some((item) => item.key === tab)) {
+        setActiveTab(tab as TabKey);
+      }
+    });
+  }, [searchParams]);
 
   useEffect(() => {
     function updateNetworkStatus() {
@@ -535,7 +573,7 @@ function SiteModuleContent({
       });
       clearSiteDraft(activeProject.id);
       setSyncNotice("");
-      setActiveTab("overview");
+      selectTab("overview");
     } catch (error) {
       if (isOfflineFailure(error)) {
         const queued = enqueuePendingSiteReport({
@@ -555,7 +593,7 @@ function SiteModuleContent({
         setSyncNotice(
           "Rapport enregistre hors ligne. Il sera synchronise automatiquement au retour du reseau.",
         );
-        setActiveTab("overview");
+        selectTab("overview");
         return;
       }
 
@@ -583,12 +621,13 @@ function SiteModuleContent({
           tone: item.tone,
         })),
     });
-    setActiveTab("rjc");
+    selectTab("rjc", { report: report.id });
   }
 
   function resetReportComposer() {
     setEditingReportId("");
     setFormState(createFormState(projectData));
+    replaceModuleUrl("rjc");
   }
 
   async function markPdfReady(reportId: string) {
@@ -639,7 +678,7 @@ function SiteModuleContent({
 
       setMutationError("");
       applyProjectData(nextData);
-      setActiveTab("photos");
+      selectTab("photos");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Ajout photo impossible.");
     }
@@ -675,7 +714,7 @@ function SiteModuleContent({
   async function createNcr() {
     try {
       await runSiteAction("create-ncr", { draftNcr });
-      setActiveTab("ncr");
+      selectTab("ncr");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Creation NC impossible.");
     }
@@ -696,7 +735,7 @@ function SiteModuleContent({
         title="Pilotage terrain en temps reel"
         action={
           <button
-            onClick={() => (canCreateReport ? setActiveTab("rjc") : null)}
+            onClick={() => (canCreateReport ? selectTab("rjc") : null)}
             disabled={!canCreateReport}
             className={cx(
               "rounded-2xl px-4 py-3 text-sm font-semibold",
@@ -777,7 +816,7 @@ function SiteModuleContent({
               {tabs.map((tab) => (
                 <button
                   key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
+                  onClick={() => selectTab(tab.key)}
                   className={cx(
                     "rounded-[20px] border px-4 py-3 text-left",
                     activeTab === tab.key
@@ -795,6 +834,7 @@ function SiteModuleContent({
               {activeTab === "overview" ? (
                 <OverviewTab
                   downloadReportPdf={downloadReportPdf}
+                  focusedReportId={focusedReportId}
                   latestReport={latestReport}
                   reports={reports}
                   ncrs={ncrs}
@@ -811,8 +851,10 @@ function SiteModuleContent({
                   setFormState={setFormState}
                   reportCompleteness={reportCompleteness}
                   incidentTemplates={projectData.incidentTemplates}
-                  openOverviewTab={() => setActiveTab("overview")}
-                  openPhotosTab={() => setActiveTab("photos")}
+                  openOverviewTab={() =>
+                    selectTab("overview", editingReportId ? { report: editingReportId } : undefined)
+                  }
+                  openPhotosTab={() => selectTab("photos")}
                   resetReportComposer={resetReportComposer}
                   submitDailyReport={submitDailyReport}
                 />
@@ -845,6 +887,7 @@ function SiteModuleContent({
                   setDraftNcr={setDraftNcr}
                   ncrs={ncrs}
                   responsibleOptions={responsibleOptions}
+                  focusedNcrRef={focusedNcrRef}
                   createNcr={createNcr}
                   closeNcr={closeNcr}
                 />
@@ -968,7 +1011,12 @@ function SiteModuleContent({
             {reports.map((report) => (
               <div
                 key={report.id}
-                className="rounded-[24px] border border-white/8 bg-white/4 p-4"
+                className={cx(
+                  "rounded-[24px] border bg-white/4 p-4",
+                  report.id === focusedReportId
+                    ? "border-sky-400/40 ring-1 ring-sky-400/30"
+                    : "border-white/8",
+                )}
               >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -1107,6 +1155,7 @@ function SiteModuleContent({
 
 function OverviewTab({
   downloadReportPdf,
+  focusedReportId,
   latestReport,
   reports,
   ncrs,
@@ -1114,43 +1163,46 @@ function OverviewTab({
   signatures,
 }: {
   downloadReportPdf: (report: ReportItem) => void;
+  focusedReportId: string;
   latestReport: ReportItem | undefined;
   reports: ReportItem[];
   ncrs: NcrItem[];
   projectValidationHelper: string;
   signatures: SignatureItem[];
 }) {
+  const highlightedReport = reports.find((report) => report.id === focusedReportId) ?? latestReport;
+
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
           <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-            Dernier RJC
+            {focusedReportId ? "Rapport cible" : "Dernier RJC"}
           </p>
-          {latestReport ? (
+          {highlightedReport ? (
             <>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <p className="font-display text-2xl font-semibold text-white">
-                  {latestReport.id}
+                  {highlightedReport.id}
                 </p>
-                <StatusBadge tone={latestReport.tone}>{latestReport.status}</StatusBadge>
+                <StatusBadge tone={highlightedReport.tone}>{highlightedReport.status}</StatusBadge>
               </div>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                {latestReport.summary}
+                {highlightedReport.summary}
               </p>
               <div className="mt-4">
                 <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-slate-500">
                   <span>Completude</span>
-                  <span>{latestReport.completeness}%</span>
+                  <span>{highlightedReport.completeness}%</span>
                 </div>
                 <ProgressBar
-                  value={latestReport.completeness}
-                  tone={latestReport.completeness >= 95 ? "success" : "warning"}
+                  value={highlightedReport.completeness}
+                  tone={highlightedReport.completeness >= 95 ? "success" : "warning"}
                 />
               </div>
-              {latestReport.pdfReady && latestReport.pdfUrl ? (
+              {highlightedReport.pdfReady && highlightedReport.pdfUrl ? (
                 <button
-                  onClick={() => downloadReportPdf(latestReport)}
+                  onClick={() => downloadReportPdf(highlightedReport)}
                   className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8"
                 >
                   <FileOutput className="size-4" />
@@ -1698,6 +1750,7 @@ function NcrTab({
   setDraftNcr,
   ncrs,
   responsibleOptions,
+  focusedNcrRef,
   createNcr,
   closeNcr,
 }: {
@@ -1723,6 +1776,7 @@ function NcrTab({
   >;
   ncrs: NcrItem[];
   responsibleOptions: string[];
+  focusedNcrRef: string;
   createNcr: () => void;
   closeNcr: (ref: string) => void;
 }) {
@@ -1822,7 +1876,12 @@ function NcrTab({
           {ncrs.map((item) => (
             <div
               key={item.ref}
-              className="rounded-[22px] border border-white/8 bg-white/4 p-4"
+              className={cx(
+                "rounded-[22px] border bg-white/4 p-4",
+                item.ref === focusedNcrRef
+                  ? "border-sky-400/40 ring-1 ring-sky-400/30"
+                  : "border-white/8",
+              )}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>

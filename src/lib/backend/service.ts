@@ -551,6 +551,21 @@ function searchIncludes(haystack: string, needle: string) {
   return haystack.includes(needle);
 }
 
+function buildModuleHref(
+  path: "/site" | "/documents" | "/finance",
+  query: Record<string, string | undefined>,
+) {
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([key, value]) => {
+    if (value) {
+      params.set(key, value);
+    }
+  });
+
+  const search = params.toString();
+  return search ? `${path}?${search}` : path;
+}
+
 function toInvoiceTone(status: string) {
   switch (status) {
     case "Payee":
@@ -2015,7 +2030,10 @@ export async function getGlobalSearchPayload(
             id: `report-${project.summary.id}-${report.id}`,
             label: `${report.id} · ${report.summary}`,
             meta: `${project.summary.code} · ${toDayMonth(report.date)} · ${report.status}`,
-            href: "/site",
+            href: buildModuleHref("/site", {
+              report: report.id,
+              tab: "overview",
+            }),
             projectId: project.summary.id,
             projectCode: project.summary.code,
             section: "report",
@@ -2040,7 +2058,10 @@ export async function getGlobalSearchPayload(
             id: `document-${project.summary.id}-${document.id}`,
             label: `${document.code} · ${document.title}`,
             meta: `${project.summary.code} · ${document.discipline} · ${document.revision}`,
-            href: "/documents",
+            href: buildModuleHref("/documents", {
+              document: document.id,
+              tab: "versions",
+            }),
             projectId: project.summary.id,
             projectCode: project.summary.code,
             section: "document",
@@ -2064,7 +2085,10 @@ export async function getGlobalSearchPayload(
             id: `invoice-${project.summary.id}-${invoice.id}`,
             label: `${invoice.invoiceNumber} · ${invoice.status}`,
             meta: `${project.summary.code} · ${invoice.amountTtc.toLocaleString("fr-FR")} TND · echeance ${toDayMonth(invoice.dueDate)}`,
-            href: "/finance",
+            href: buildModuleHref("/finance", {
+              invoice: invoice.id,
+              tab: "invoices",
+            }),
             projectId: project.summary.id,
             projectCode: project.summary.code,
             section: "invoice",
@@ -2878,7 +2902,7 @@ export async function mutateSitePayload(
           actor: user.name,
           actorId: user.id,
           detail: `${project.summary.code} - ${reportId} ${completeness >= 95 ? "est pret pour validation" : "reste a completer avant validation"}.`,
-          href: "/site",
+          href: buildModuleHref("/site", { report: reportId, tab: "overview" }),
           permission: "site.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -2971,7 +2995,7 @@ export async function mutateSitePayload(
           actor: user.name,
           actorId: user.id,
           detail: `${project.summary.code} - ${reportId} a ete mis a jour avec les dernieres avancees du terrain.`,
-          href: "/site",
+          href: buildModuleHref("/site", { report: reportId, tab: "overview" }),
           permission: "site.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3000,7 +3024,7 @@ export async function mutateSitePayload(
           actorId: user.id,
           channel: "In-app + email",
           detail: `${project.summary.code} - ${reportId} est pret pour signature et archivage.`,
-          href: "/site",
+          href: buildModuleHref("/site", { report: reportId, tab: "overview" }),
           roles: ["Chef de projet", "Bureau d'etudes", "Super Admin"],
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3034,7 +3058,7 @@ export async function mutateSitePayload(
           actor: user.name,
           actorId: user.id,
           detail: `${project.summary.code} - ${reportId} a ete signe et archive dans le projet.`,
-          href: "/site",
+          href: buildModuleHref("/site", { report: reportId, tab: "overview" }),
           permission: "site.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3071,8 +3095,9 @@ export async function mutateSitePayload(
       case "create-ncr": {
         ensurePermission(user, "site.ncr.create");
         const draftNcr = payload.draftNcr as SiteModuleData["draftNcr"];
+        const ncrRef = `NC-${String(project.site.ncrs.length + 1).padStart(3, "0")}`;
         project.site.ncrs.unshift({
-          ref: `NC-${String(project.site.ncrs.length + 1).padStart(3, "0")}`,
+          ref: ncrRef,
           title: draftNcr.title,
           owner: draftNcr.owner,
           dueDate: draftNcr.dueDate,
@@ -3098,7 +3123,7 @@ export async function mutateSitePayload(
           actor: user.name,
           actorId: user.id,
           detail: `${draftNcr.title} est assignee a ${draftNcr.owner} avec echeance au ${toDayMonth(draftNcr.dueDate)}.`,
-          href: "/site",
+          href: buildModuleHref("/site", { ncr: ncrRef, tab: "ncr" }),
           permission: "site.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3131,7 +3156,7 @@ export async function mutateSitePayload(
           actor: user.name,
           actorId: user.id,
           detail: `${ref} a ete levee et sortie du suivi prioritaire.`,
-          href: "/site",
+          href: buildModuleHref("/site", { ncr: ref, tab: "ncr" }),
           permission: "site.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3326,7 +3351,7 @@ export async function uploadDocumentVersion(
       actorId: user.id,
       channel: "In-app + email",
       detail: `${document.code} ${revision} est disponible et doit etre consulte par les equipes terrain et bureau.`,
-      href: "/documents",
+      href: buildModuleHref("/documents", { document: document.id, tab: "versions" }),
       permission: "documents.view",
       projectCode: project.summary.code,
       projectId: project.summary.id,
@@ -3393,7 +3418,7 @@ export async function mutateDocumentsPayload(
           actorId: user.id,
           channel: "In-app + email",
           detail: `${document.code} ${revision} remplace la revision precedente et attend diffusion controlee.`,
-          href: "/documents",
+          href: buildModuleHref("/documents", { document: document.id, tab: "versions" }),
           permission: "documents.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3414,7 +3439,7 @@ export async function mutateDocumentsPayload(
           actor: user.name,
           actorId: user.id,
           detail: `${document.code} n'est plus en vigueur. Les equipes doivent basculer sur la derniere revision active.`,
-          href: "/documents",
+          href: buildModuleHref("/documents", { document: document.id, tab: "distribution" }),
           permission: "documents.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3474,7 +3499,7 @@ export async function mutateDocumentsPayload(
           actorId: user.id,
           channel: "In-app + email",
           detail: `${document.code} a ete diffuse a ${audience}. Un accuse de lecture est attendu.`,
-          href: "/documents",
+          href: buildModuleHref("/documents", { document: document.id, tab: "distribution" }),
           permission: "documents.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3649,7 +3674,10 @@ export async function mutateFinancePayload(
           actor: user.name,
           actorId: user.id,
           detail: `${project.finance.invoices[0].invoiceNumber} est prete pour envoi et validation client.`,
-          href: "/finance",
+          href: buildModuleHref("/finance", {
+            invoice: project.finance.invoices[0].id,
+            tab: "invoices",
+          }),
           permission: "finance.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3686,7 +3714,7 @@ export async function mutateFinancePayload(
           actorId: user.id,
           channel: "In-app + email",
           detail: `${invoice.invoiceNumber} a ete envoyee et attend la validation cote projet avant transmission finale au client.`,
-          href: "/finance",
+          href: buildModuleHref("/finance", { invoice: invoice.id, tab: "invoices" }),
           roles: ["Chef de projet", "Super Admin"],
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3723,7 +3751,7 @@ export async function mutateFinancePayload(
             actorId: user.id,
             channel: "In-app + email",
             detail: `${invoice.invoiceNumber} est validee cote projet et attend maintenant la validation du maitre d'ouvrage.`,
-            href: "/finance",
+            href: buildModuleHref("/finance", { invoice: invoice.id, tab: "invoices" }),
             roles: ["Maitre d'ouvrage", "Super Admin"],
             projectCode: project.summary.code,
             projectId: project.summary.id,
@@ -3751,7 +3779,7 @@ export async function mutateFinancePayload(
           actor: user.name,
           actorId: user.id,
           detail: `${invoice.invoiceNumber} a ete validee. Le suivi d'encaissement peut commencer.`,
-          href: "/finance",
+          href: buildModuleHref("/finance", { invoice: invoice.id, tab: "invoices" }),
           permission: "finance.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3833,7 +3861,7 @@ export async function mutateFinancePayload(
           actor: user.name,
           actorId: user.id,
           detail: `${invoice.invoiceNumber} passe au statut ${nextStatus.toLowerCase()}.`,
-          href: "/finance",
+          href: buildModuleHref("/finance", { invoice: invoice.id, tab: "invoices" }),
           permission: "finance.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
@@ -3885,7 +3913,7 @@ export async function mutateFinancePayload(
           actor: user.name,
           actorId: user.id,
           detail: `${amount.toLocaleString("fr-FR")} TND recus sur ${invoice.invoiceNumber}.`,
-          href: "/finance",
+          href: buildModuleHref("/finance", { invoice: invoice.id, tab: "invoices" }),
           permission: "finance.view",
           projectCode: project.summary.code,
           projectId: project.summary.id,
