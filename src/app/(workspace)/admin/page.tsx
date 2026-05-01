@@ -405,10 +405,22 @@ export default function AdminPage() {
       return;
     }
 
+    const isRemoving = currentDraft.memberIds.includes(userId);
+    const nextMemberIds = isRemoving
+      ? currentDraft.memberIds.filter((entry) => entry !== userId)
+      : [...currentDraft.memberIds, userId];
+    const nextWorkflowOwners = isRemoving
+      ? Object.fromEntries(
+          Object.entries(currentDraft.workflowOwners).map(([key, value]) => [
+            key,
+            value === userId ? "" : value,
+          ]),
+        ) as ProjectDrafts[string]["workflowOwners"]
+      : currentDraft.workflowOwners;
+
     updateProjectDraft(projectId, {
-      memberIds: currentDraft.memberIds.includes(userId)
-        ? currentDraft.memberIds.filter((entry) => entry !== userId)
-        : [...currentDraft.memberIds, userId],
+      memberIds: nextMemberIds,
+      workflowOwners: nextWorkflowOwners,
     });
   }
 
@@ -1258,6 +1270,7 @@ export default function AdminPage() {
                           key={`${user.id}-${project.id}`}
                           type="button"
                           onClick={() => toggleUserProject(user.id, project.id)}
+                          disabled={draft.role === "Super Admin"}
                           className={cx(
                             "rounded-full border px-4 py-2 text-sm font-semibold",
                             checked
@@ -1354,7 +1367,7 @@ function TokenEditor({
             onClick={() => onChange(values.filter((entry) => entry !== value))}
             className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
           >
-            {value} <span className="ml-1 text-slate-400">×</span>
+            {value} <span className="ml-1 text-slate-400">x</span>
           </button>
         ))}
       </div>
@@ -1375,7 +1388,13 @@ function TokenEditor({
         <button
           type="button"
           onClick={addToken}
-          className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100"
+          disabled={!draft.trim()}
+          className={cx(
+            "rounded-2xl px-4 py-3 text-sm font-semibold",
+            draft.trim()
+              ? "bg-white text-slate-950 hover:bg-slate-100"
+              : "cursor-not-allowed bg-stone-200 text-stone-500",
+          )}
         >
           Ajouter
         </button>
