@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Building2,
   CheckCheck,
@@ -20,7 +21,7 @@ import {
 import { AvatarStack, Panel, SectionHeading, StatusBadge, cx } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import type { UserRole } from "@/lib/auth";
-import type { AdminPageData } from "@/lib/backend/types";
+import type { AdminPageData, ProjectWorkflowOwnerKey } from "@/lib/backend/types";
 import { useWorkspace } from "@/components/workspace-context";
 
 const roleOptions: UserRole[] = [
@@ -33,6 +34,44 @@ const roleOptions: UserRole[] = [
 ];
 
 const projectStatusOptions = ["Configuration", "En execution", "Phase encaissement"];
+
+const workflowOwnerFields: Array<{
+  helper: string;
+  key: ProjectWorkflowOwnerKey;
+  label: string;
+  role: UserRole;
+}> = [
+  {
+    key: "projectManagerId",
+    label: "Chef de projet",
+    role: "Chef de projet",
+    helper: "Pilote la coordination et les validations cote projet.",
+  },
+  {
+    key: "siteLeadId",
+    label: "Conducteur terrain",
+    role: "Conductrice travaux",
+    helper: "Reference terrain pour rapports, avancement et non-conformites.",
+  },
+  {
+    key: "designLeadId",
+    label: "Referent documents",
+    role: "Bureau d'etudes",
+    helper: "Porte les revisions et la diffusion des plans.",
+  },
+  {
+    key: "financeLeadId",
+    label: "Referent finance",
+    role: "Comptable",
+    helper: "Suit la facturation, les encaissements et la tresorerie.",
+  },
+  {
+    key: "clientApproverId",
+    label: "Validation client",
+    role: "Maitre d'ouvrage",
+    helper: "Valide les jalons et les factures cote client.",
+  },
+];
 
 type UserDrafts = Record<
   string,
@@ -54,6 +93,7 @@ type ProjectDrafts = Record<
     nextMilestone: string;
     phases: string[];
     status: string;
+    workflowOwners: Record<ProjectWorkflowOwnerKey, string>;
     zones: string[];
   }
 >;
@@ -87,6 +127,7 @@ function buildProjectDrafts(projects: AdminPageData["projects"]): ProjectDrafts 
         nextMilestone: project.summary.nextMilestone,
         lots: [...project.setup.lots],
         phases: [...project.setup.phases],
+        workflowOwners: { ...project.setup.workflowOwners },
         zones: [...project.setup.zones],
         memberIds: [...project.setup.memberIds],
       },
@@ -98,7 +139,15 @@ function sameStringList(left: string[], right: string[]) {
   return left.length === right.length && left.every((value) => right.includes(value));
 }
 
+function sameWorkflowOwners(
+  left: Record<ProjectWorkflowOwnerKey, string>,
+  right: Record<ProjectWorkflowOwnerKey, string>,
+) {
+  return workflowOwnerFields.every((field) => (left[field.key] ?? "") === (right[field.key] ?? ""));
+}
+
 export default function AdminPage() {
+  const searchParams = useSearchParams();
   const { currentUser, refreshWorkspace } = useWorkspace();
   const [data, setData] = useState<AdminPageData | null>(null);
   const [error, setError] = useState("");
@@ -145,7 +194,12 @@ export default function AdminPage() {
           setData(payload);
           setUserDrafts(buildUserDrafts(payload.users));
           setProjectDrafts(buildProjectDrafts(payload.projects));
-          setSelectedProjectId((current) => current || payload.projects[0]?.summary.id || "");
+          const requestedProjectId = searchParams.get("project") ?? "";
+          setSelectedProjectId((current) =>
+            payload.projects.some((project) => project.summary.id === requestedProjectId)
+              ? requestedProjectId
+              : (current || payload.projects[0]?.summary.id || ""),
+          );
         }
       } catch (nextError) {
         if (!cancelled) {
@@ -159,7 +213,7 @@ export default function AdminPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [searchParams]);
 
   const projectCountLabel = useMemo(
     () => `${data?.availableProjects.length ?? 0}`,
@@ -172,6 +226,25 @@ export default function AdminPage() {
   const selectedProjectDraft = selectedProject
     ? projectDrafts[selectedProject.summary.id]
     : null;
+  const workflowOwnerOptions = useMemo(() => {
+    if (!selectedProject || !selectedProjectDraft || !data) {
+      return {} as Record<ProjectWorkflowOwnerKey, AdminPageData["users"]>;
+    }
+
+    return Object.fromEntries(
+      workflowOwnerFields.map((field) => [
+        field.key,
+        data.users.filter((user) => {
+          const hasProjectAccess =
+            user.role === "Super Admin" ||
+            user.projectIds.includes("*") ||
+            selectedProjectDraft.memberIds.includes(user.id);
+          const matchesRole = user.role === field.role || user.role === "Super Admin";
+          return hasProjectAccess && matchesRole;
+        }),
+      ]),
+    ) as Record<ProjectWorkflowOwnerKey, AdminPageData["users"]>;
+  }, [data, selectedProject, selectedProjectDraft]);
 
   function applyAdminPayload(payload: AdminPageData) {
     setData(payload);
@@ -313,6 +386,13 @@ export default function AdminPage() {
           phases: [],
           zones: [],
           memberIds: [],
+          workflowOwners: {
+            clientApproverId: "",
+            designLeadId: "",
+            financeLeadId: "",
+            projectManagerId: "",
+            siteLeadId: "",
+          },
         }),
         ...patch,
       },
@@ -357,6 +437,7 @@ export default function AdminPage() {
             nextMilestone: draft.nextMilestone,
             lots: draft.lots,
             phases: draft.phases,
+            workflowOwners: draft.workflowOwners,
             zones: draft.zones,
           },
         },
@@ -885,6 +966,59 @@ export default function AdminPage() {
                 />
               </div>
 
+              <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Responsables du workflow</p>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Choisissez les referents qui piloteront le terrain, les documents, la finance et les validations.
+                    </p>
+                  </div>
+                  <StatusBadge tone="primary">Affectations clefs</StatusBadge>
+                </div>
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  {workflowOwnerFields.map((field) => {
+                    const options = workflowOwnerOptions[field.key] ?? [];
+
+                    return (
+                      <label
+                        key={`${selectedProject.summary.id}-${field.key}`}
+                        className="rounded-[22px] border border-white/8 bg-black/10 p-4"
+                      >
+                        <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                          {field.label}
+                        </span>
+                        <select
+                          value={selectedProjectDraft.workflowOwners[field.key] ?? ""}
+                          onChange={(event) =>
+                            updateProjectDraft(selectedProject.summary.id, {
+                              workflowOwners: {
+                                ...selectedProjectDraft.workflowOwners,
+                                [field.key]: event.target.value,
+                              },
+                            })
+                          }
+                          className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
+                        >
+                          <option value="">
+                            {options.length
+                              ? `Selectionner ${field.label.toLowerCase()}`
+                              : "Aucun membre eligible"}
+                          </option>
+                          {options.map((user) => (
+                            <option key={`${field.key}-${user.id}`} value={user.id}>
+                              {user.name} - {user.role}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="mt-3 text-sm leading-6 text-slate-400">{field.helper}</p>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="flex justify-end">
                 <button
                   type="button"
@@ -899,7 +1033,11 @@ export default function AdminPage() {
                       selectedProjectDraft.nextMilestone === selectedProject.summary.nextMilestone &&
                       sameStringList(selectedProjectDraft.lots, selectedProject.setup.lots) &&
                       sameStringList(selectedProjectDraft.phases, selectedProject.setup.phases) &&
-                      sameStringList(selectedProjectDraft.zones, selectedProject.setup.zones))
+                      sameStringList(selectedProjectDraft.zones, selectedProject.setup.zones) &&
+                      sameWorkflowOwners(
+                        selectedProjectDraft.workflowOwners,
+                        selectedProject.setup.workflowOwners,
+                      ))
                   }
                   className={cx(
                     "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
@@ -960,6 +1098,21 @@ export default function AdminPage() {
                             <p className="text-sm font-semibold text-white">{user.name}</p>
                             <p className="mt-1 text-sm text-slate-300">{user.role}</p>
                             <p className="mt-2 text-xs text-slate-400">{user.email}</p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {workflowOwnerFields
+                                .filter(
+                                  (field) =>
+                                    selectedProjectDraft.workflowOwners[field.key] === user.id,
+                                )
+                                .map((field) => (
+                                  <span
+                                    key={`${user.id}-${field.key}`}
+                                    className="rounded-full border border-sky-400/25 bg-sky-400/12 px-3 py-1 text-xs font-semibold text-sky-100"
+                                  >
+                                    {field.label}
+                                  </span>
+                                ))}
+                            </div>
                           </div>
                           {checked ? (
                             <CheckSquare className="size-5 text-emerald-300" />

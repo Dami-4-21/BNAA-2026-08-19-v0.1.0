@@ -77,6 +77,14 @@ export async function POST(request: NextRequest) {
           phases: Array.isArray(payloadBody.phases)
             ? payloadBody.phases.map((entry) => String(entry))
             : [],
+          workflowOwners:
+            payloadBody.workflowOwners && typeof payloadBody.workflowOwners === "object"
+              ? Object.fromEntries(
+                  Object.entries(payloadBody.workflowOwners as Record<string, unknown>).map(
+                    ([key, value]) => [key, String(value ?? "")],
+                  ),
+                )
+              : {},
           zones: Array.isArray(payloadBody.zones)
             ? payloadBody.zones.map((entry) => String(entry))
             : [],

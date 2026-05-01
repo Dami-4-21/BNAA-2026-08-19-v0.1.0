@@ -98,6 +98,13 @@ export function createSeedDatabase(): DatabaseState {
                 .filter((user) => user.projectIds.includes("*") || user.projectIds.includes(project.id))
                 .map((user) => user.id),
               phases: uniquePhases.length > 0 ? uniquePhases : ["EXE"],
+              workflowOwners: {
+                clientApproverId: "",
+                designLeadId: "",
+                financeLeadId: "",
+                projectManagerId: "",
+                siteLeadId: "",
+              },
               zones: uniqueZones.length > 0 ? uniqueZones : ["Zone principale"],
             },
             site,

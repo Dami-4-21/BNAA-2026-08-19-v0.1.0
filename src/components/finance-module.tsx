@@ -74,6 +74,24 @@ type PaymentItem = {
   paidAt: string;
 };
 
+type WorkflowOwnerDisplay = {
+  clientApproverId?: {
+    id: string;
+    name: string;
+    role: string;
+  };
+  financeLeadId?: {
+    id: string;
+    name: string;
+    role: string;
+  };
+  projectManagerId?: {
+    id: string;
+    name: string;
+    role: string;
+  };
+};
+
 const tabs: Array<{ key: FinanceTab; label: string; helper: string }> = [
   {
     key: "dm",
@@ -245,6 +263,16 @@ function FinanceModuleContent({
       )
     : 0;
 
+  const workflowOwners = useMemo(() => {
+    const membersById = new Map(projectData.projectMembers.map((member) => [member.id, member]));
+
+    return {
+      clientApproverId: membersById.get(projectData.projectSetup.workflowOwners.clientApproverId),
+      financeLeadId: membersById.get(projectData.projectSetup.workflowOwners.financeLeadId),
+      projectManagerId: membersById.get(projectData.projectSetup.workflowOwners.projectManagerId),
+    } satisfies WorkflowOwnerDisplay;
+  }, [projectData.projectMembers, projectData.projectSetup.workflowOwners]);
+
   const validationAction = useMemo(() => {
     if (!selectedInvoice) {
       return {
@@ -256,13 +284,15 @@ function FinanceModuleContent({
 
     const projectApprover = currentUserRole === "Chef de projet" || currentUserRole === "Super Admin";
     const clientApprover = currentUserRole === "Maitre d'ouvrage" || currentUserRole === "Super Admin";
+    const projectApproverName = workflowOwners.projectManagerId?.name ?? "le chef de projet";
+    const clientApproverName = workflowOwners.clientApproverId?.name ?? "le maitre d'ouvrage";
 
     if (!selectedInvoice.validatedByMoe) {
       return {
         canRun: canValidateInvoice && projectApprover,
         helper: projectApprover
-          ? "Validation projet requise avant la validation client."
-          : "En attente de la validation projet par le chef de projet.",
+          ? `Validation projet requise avant validation client. Responsable cible: ${projectApproverName}.`
+          : `En attente de la validation projet par ${projectApproverName}.`,
         label: "Valider cote projet",
       };
     }
@@ -271,8 +301,8 @@ function FinanceModuleContent({
       return {
         canRun: canValidateInvoice && clientApprover,
         helper: clientApprover
-          ? "Validation finale client requise pour cloturer le circuit."
-          : "En attente de la validation finale par le maitre d'ouvrage.",
+          ? `Validation finale client requise pour cloturer le circuit. Responsable cible: ${clientApproverName}.`
+          : `En attente de la validation finale par ${clientApproverName}.`,
         label: "Valider cote client",
       };
     }
@@ -282,7 +312,7 @@ function FinanceModuleContent({
       helper: "Facture deja validee sur l'ensemble du circuit.",
       label: "Facture validee",
     };
-  }, [canValidateInvoice, currentUserRole, selectedInvoice]);
+  }, [canValidateInvoice, currentUserRole, selectedInvoice, workflowOwners.clientApproverId?.name, workflowOwners.projectManagerId?.name]);
 
   function applyProjectData(nextData: FinancePayload) {
     startTransition(() => {
@@ -480,6 +510,7 @@ function FinanceModuleContent({
                   selectedInvoice={selectedInvoice}
                   paymentCoverage={paymentCoverage}
                   projectMembers={projectData.projectMembers}
+                  workflowOwners={workflowOwners}
                   sendInvoice={sendInvoice}
                   statusDraft={statusDraft}
                   setStatusDraft={setStatusDraft}
@@ -730,6 +761,7 @@ function InvoicesTab({
   selectedInvoice,
   paymentCoverage,
   projectMembers,
+  workflowOwners,
   sendInvoice,
   statusDraft,
   setStatusDraft,
@@ -755,6 +787,7 @@ function InvoicesTab({
     name: string;
     role: string;
   }>;
+  workflowOwners: WorkflowOwnerDisplay;
   sendInvoice: (invoiceId: string) => void;
   statusDraft: string;
   setStatusDraft: React.Dispatch<React.SetStateAction<string>>;
@@ -856,27 +889,55 @@ function InvoicesTab({
             </div>
             <div className="mt-4 rounded-[20px] border border-white/8 bg-white/4 p-4">
               <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                Circuit projet disponible
+                Circuit de validation affecte
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {projectMembers
-                  .filter((member) =>
-                    [
-                      "Chef de projet",
-                      "Bureau d'etudes",
-                      "Maitre d'ouvrage",
-                      "Comptable",
-                      "Super Admin",
-                    ].includes(member.role),
-                  )
-                  .map((member) => (
+                {(workflowOwners.projectManagerId || workflowOwners.clientApproverId || workflowOwners.financeLeadId) ? (
+                  [
+                    workflowOwners.projectManagerId
+                      ? {
+                          label: "Chef de projet",
+                          ...workflowOwners.projectManagerId,
+                        }
+                      : null,
+                    workflowOwners.financeLeadId
+                      ? {
+                          label: "Referent finance",
+                          ...workflowOwners.financeLeadId,
+                        }
+                      : null,
+                    workflowOwners.clientApproverId
+                      ? {
+                          label: "Validation client",
+                          ...workflowOwners.clientApproverId,
+                        }
+                      : null,
+                  ]
+                    .filter((member): member is NonNullable<typeof member> => Boolean(member))
+                    .map((member) => (
+                      <span
+                        key={`${member.id}-${member.label}`}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+                      >
+                        {member.label} - {member.name}
+                      </span>
+                    ))
+                ) : (
+                  projectMembers
+                    .filter((member) =>
+                      ["Chef de projet", "Maitre d'ouvrage", "Comptable", "Super Admin"].includes(
+                        member.role,
+                      ),
+                    )
+                    .map((member) => (
                     <span
                       key={member.id}
                       className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
                     >
                       {member.name} - {member.role}
                     </span>
-                  ))}
+                    ))
+                )}
               </div>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">

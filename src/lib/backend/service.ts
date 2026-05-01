@@ -10,6 +10,7 @@ import {
   type AppPermission,
   type AppUser,
   type SafeUser,
+  type UserRole,
 } from "@/lib/auth";
 import { saveUploadedFile } from "@/lib/backend/files";
 import { dispatchNotificationEmail as sendNotificationEmail } from "@/lib/backend/mail";
@@ -34,6 +35,8 @@ import type {
   NotificationsPageData,
   ProjectsPageData,
   ProjectRecord,
+  ProjectWorkflowOwnerKey,
+  ProjectWorkflowOwnersRecord,
   SessionRecord,
   SitePhotoRecord,
   SiteModuleData,
@@ -44,6 +47,20 @@ import type {
 const todayIso = "2026-04-30";
 const nowTimestamp = "2026-04-30T18:00:00.000Z";
 const defaultProjectRoles = Array.from(new Set(appUsers.map((user) => user.role))) as AppUser["role"][];
+const workflowOwnerRoleMap: Record<ProjectWorkflowOwnerKey, UserRole> = {
+  clientApproverId: "Maitre d'ouvrage",
+  designLeadId: "Bureau d'etudes",
+  financeLeadId: "Comptable",
+  projectManagerId: "Chef de projet",
+  siteLeadId: "Conductrice travaux",
+};
+const workflowOwnerLabelMap: Record<ProjectWorkflowOwnerKey, string> = {
+  clientApproverId: "Validation client",
+  designLeadId: "Referent documents",
+  financeLeadId: "Referent finance",
+  projectManagerId: "Chef de projet",
+  siteLeadId: "Conducteur terrain",
+};
 
 class ApiError extends Error {
   constructor(
@@ -202,18 +219,27 @@ function normalizeSetupEntries(values: string[], fallback: string) {
 }
 
 function applyProjectSetup(
+  database: DatabaseState,
   project: ProjectRecord,
   setup: {
     lots: string[];
     memberIds?: string[];
     phases: string[];
+    workflowOwners?: Partial<ProjectWorkflowOwnersRecord>;
     zones: string[];
   },
 ) {
+  const memberIds = Array.from(new Set(setup.memberIds ?? project.setup?.memberIds ?? []));
   project.setup = {
     lots: normalizeSetupEntries(setup.lots, "General"),
-    memberIds: Array.from(new Set(setup.memberIds ?? project.setup?.memberIds ?? [])),
+    memberIds,
     phases: normalizeSetupEntries(setup.phases, "EXE"),
+    workflowOwners: normalizeWorkflowOwners(
+      database,
+      project.summary.id,
+      memberIds,
+      setup.workflowOwners ?? project.setup?.workflowOwners,
+    ),
     zones: normalizeSetupEntries(setup.zones, "Zone principale"),
   };
 
@@ -240,7 +266,7 @@ function applyProjectSetup(
 
   project.site.draftNcr = {
     ...project.site.draftNcr,
-    owner: project.setup.lots[0] ?? "General",
+    owner: resolveWorkflowOwnerName(database, project, "siteLeadId"),
   };
 
   project.documents.tree = [
@@ -553,6 +579,89 @@ function buildInitials(name: string) {
     .toUpperCase();
 }
 
+function createEmptyWorkflowOwners(): ProjectWorkflowOwnersRecord {
+  return {
+    clientApproverId: "",
+    designLeadId: "",
+    financeLeadId: "",
+    projectManagerId: "",
+    siteLeadId: "",
+  };
+}
+
+function getEligibleWorkflowOwners(
+  database: DatabaseState,
+  projectId: string,
+  memberIds: string[],
+  workflowOwnerKey: ProjectWorkflowOwnerKey,
+) {
+  const expectedRole = workflowOwnerRoleMap[workflowOwnerKey];
+  const eligibleIds = new Set(memberIds);
+
+  return database.users.filter((user) => {
+    const hasAccess = user.projectIds.includes("*") || eligibleIds.has(user.id);
+    if (!hasAccess) {
+      return false;
+    }
+
+    return user.role === expectedRole || user.role === "Super Admin";
+  });
+}
+
+function normalizeWorkflowOwners(
+  database: DatabaseState,
+  projectId: string,
+  memberIds: string[],
+  draft?: Partial<ProjectWorkflowOwnersRecord>,
+) {
+  const nextOwners = createEmptyWorkflowOwners();
+
+  (Object.keys(nextOwners) as ProjectWorkflowOwnerKey[]).forEach((key) => {
+    const requestedId = draft?.[key] ?? "";
+    const eligibleUsers = getEligibleWorkflowOwners(database, projectId, memberIds, key);
+    const resolvedUser =
+      eligibleUsers.find((user) => user.id === requestedId) ?? eligibleUsers[0] ?? null;
+    nextOwners[key] = resolvedUser?.id ?? "";
+  });
+
+  return nextOwners;
+}
+
+function resolveWorkflowOwner(
+  database: DatabaseState,
+  project: ProjectRecord,
+  workflowOwnerKey: ProjectWorkflowOwnerKey,
+) {
+  const ownerId = project.setup.workflowOwners?.[workflowOwnerKey];
+  if (!ownerId) {
+    return null;
+  }
+
+  const owner = database.users.find((user) => user.id === ownerId);
+  if (!owner) {
+    return null;
+  }
+
+  return {
+    id: owner.id,
+    initials: owner.initials,
+    label: workflowOwnerLabelMap[workflowOwnerKey],
+    name: owner.name,
+    role: owner.role,
+  };
+}
+
+function resolveWorkflowOwnerName(
+  database: DatabaseState,
+  project: ProjectRecord,
+  workflowOwnerKey: ProjectWorkflowOwnerKey,
+) {
+  return (
+    resolveWorkflowOwner(database, project, workflowOwnerKey)?.name ??
+    workflowOwnerLabelMap[workflowOwnerKey]
+  );
+}
+
 function syncTenantStats(database: DatabaseState) {
   database.tenant.users = database.users.length;
   database.tenant.activeProjects = Object.keys(database.projects).length;
@@ -560,9 +669,16 @@ function syncTenantStats(database: DatabaseState) {
 
 function syncProjectSetupMembers(database: DatabaseState) {
   Object.values(database.projects).forEach((project) => {
-    project.setup.memberIds = database.users
+    const memberIds = database.users
       .filter((user) => canAccessProject(user, project.summary.id))
       .map((user) => user.id);
+    project.setup.memberIds = memberIds;
+    project.setup.workflowOwners = normalizeWorkflowOwners(
+      database,
+      project.summary.id,
+      memberIds,
+      project.setup.workflowOwners,
+    );
   });
 }
 
@@ -587,20 +703,30 @@ function ensureProjectSetupState(database: DatabaseState) {
       ),
     );
 
-    project.setup = {
-      lots: project.setup?.lots?.length ? project.setup.lots : lots.length ? lots : ["General"],
-      memberIds:
-        project.setup?.memberIds?.length
-          ? project.setup.memberIds
+      project.setup = {
+        lots: project.setup?.lots?.length ? project.setup.lots : lots.length ? lots : ["General"],
+        memberIds:
+          project.setup?.memberIds?.length
+            ? project.setup.memberIds
           : database.users
               .filter((user) => canAccessProject(user, project.summary.id))
               .map((user) => user.id),
-      phases:
-        project.setup?.phases?.length ? project.setup.phases : phases.length ? phases : ["EXE"],
-      zones:
-        project.setup?.zones?.length ? project.setup.zones : zones.length ? zones : ["Zone principale"],
-    };
-  });
+        phases:
+          project.setup?.phases?.length ? project.setup.phases : phases.length ? phases : ["EXE"],
+        workflowOwners: normalizeWorkflowOwners(
+          database,
+          project.summary.id,
+          project.setup?.memberIds?.length
+            ? project.setup.memberIds
+            : database.users
+                .filter((user) => canAccessProject(user, project.summary.id))
+                .map((user) => user.id),
+          project.setup?.workflowOwners,
+        ),
+        zones:
+          project.setup?.zones?.length ? project.setup.zones : zones.length ? zones : ["Zone principale"],
+      };
+    });
 
   syncProjectSetupMembers(database);
 }
@@ -1031,8 +1157,24 @@ function deriveProjectMemberOptions(database: DatabaseState, project: ProjectRec
       id: member.id,
       initials: member.initials,
       name: member.name,
-      role: member.role,
-    }));
+        role: member.role,
+      }));
+}
+
+function deriveProjectWorkflowOwners(database: DatabaseState, project: ProjectRecord) {
+  return (Object.keys(workflowOwnerLabelMap) as ProjectWorkflowOwnerKey[])
+    .map((key) => resolveWorkflowOwner(database, project, key))
+    .filter(
+      (
+        owner,
+      ): owner is {
+        id: string;
+        initials: string;
+        label: string;
+        name: string;
+        role: UserRole;
+      } => Boolean(owner),
+    );
 }
 
 async function deriveSiteData(
@@ -1111,7 +1253,7 @@ async function deriveSiteData(
       note: latestReport
         ? latestReport.signedByCt
           ? `${latestReport.id} signe par ${(latestReport as { ctSignatureBy?: string }).ctSignatureBy ?? latestReport.author}${(latestReport as { ctSignatureAt?: string }).ctSignatureAt ? ` le ${(latestReport as { ctSignatureAt?: string }).ctSignatureAt}` : ""}`
-          : `Dernier RJC ${latestReport.id} - signature en attente`
+          : `Dernier RJC ${latestReport.id} - signature attendue de ${resolveWorkflowOwnerName(database, project, "siteLeadId")}`
         : "Aucun rapport disponible",
       tone: latestReport?.signedByCt ? "success" : "warning",
     },
@@ -1121,7 +1263,7 @@ async function deriveSiteData(
       note: latestReport
         ? latestReport.signedByMoe
           ? `${latestReport.id} valide par ${(latestReport as { moeSignatureBy?: string }).moeSignatureBy ?? "l'approbateur"}${(latestReport as { moeSignatureAt?: string }).moeSignatureAt ? ` le ${(latestReport as { moeSignatureAt?: string }).moeSignatureAt}` : ""}`
-          : `Rapport ${latestReport.id} a valider`
+          : `Rapport ${latestReport.id} a valider par ${resolveWorkflowOwnerName(database, project, "projectManagerId")}`
         : "Aucun rapport disponible",
       tone: latestReport?.signedByMoe ? "success" : "warning",
     },
@@ -1753,7 +1895,18 @@ export async function getProjectsPayload(token: string): Promise<ProjectsPageDat
   );
 
   return {
-    projects: clone(database.portfolio).filter((project) => accessibleCodes.has(project.code)),
+    projects: Object.values(database.projects)
+      .filter((project) => accessibleCodes.has(project.summary.code))
+      .map((project) => ({
+        summary: clone(project.summary),
+        memberCount: project.setup.memberIds.length,
+        workflowOwners: deriveProjectWorkflowOwners(database, project).map((owner) => ({
+          id: owner.id,
+          label: owner.label,
+          name: owner.name,
+          role: owner.role,
+        })),
+      })),
   };
 }
 
@@ -2197,13 +2350,14 @@ export async function createAdminProject(
           .filter((entry) => canAccessProject(entry, code))
           .map((entry) => entry.id),
         phases,
+        workflowOwners: createEmptyWorkflowOwners(),
         zones,
       },
       site: createEmptySiteModule({ lots, projectName: name, zones }),
       documents: createEmptyDocumentsModule({ lots, phases, projectName: name }),
       finance: createEmptyFinanceModule(),
     };
-    applyProjectSetup(database.projects[code], {
+    applyProjectSetup(database, database.projects[code], {
       lots,
       phases,
       zones,
@@ -2296,6 +2450,7 @@ export async function updateAdminProjectSetup(
     phases: string[];
     projectId: string;
     status: string;
+    workflowOwners: Partial<ProjectWorkflowOwnersRecord>;
     zones: string[];
   },
 ) {
@@ -2327,12 +2482,13 @@ export async function updateAdminProjectSetup(
     project.summary.status = status;
     project.summary.budgetTnd = budgetTnd;
     project.summary.nextMilestone = nextMilestone;
-    applyProjectSetup(project, {
-      lots,
-      memberIds: project.setup.memberIds,
-      phases,
-      zones,
-    });
+      applyProjectSetup(database, project, {
+        lots,
+        memberIds: project.setup.memberIds,
+        phases,
+        workflowOwners: payload.workflowOwners,
+        zones,
+      });
 
     const { portfolioEntry } = recomputeProjectSummary(project);
     database.portfolio = database.portfolio.map((entry) =>
@@ -2348,8 +2504,8 @@ export async function updateAdminProjectSetup(
     appendNotification(database, {
       actor: actor.name,
       actorId: actor.id,
-      detail: `${project.summary.code} a un parametrage projet mis a jour avec ${lots.length} lot(s), ${zones.length} zone(s) et ${phases.length} phase(s).`,
-      href: "/admin",
+        detail: `${project.summary.code} a un parametrage projet mis a jour avec ${lots.length} lot(s), ${zones.length} zone(s) et ${phases.length} phase(s).`,
+        href: "/admin",
       projectCode: project.summary.code,
       projectId: project.summary.id,
       title: "Parametrage projet actualise",

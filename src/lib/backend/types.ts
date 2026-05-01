@@ -138,10 +138,20 @@ export type SessionRecord = {
   expiresAt: string;
 };
 
+export type ProjectWorkflowOwnerKey =
+  | "clientApproverId"
+  | "designLeadId"
+  | "financeLeadId"
+  | "projectManagerId"
+  | "siteLeadId";
+
+export type ProjectWorkflowOwnersRecord = Record<ProjectWorkflowOwnerKey, string>;
+
 export type ProjectSetupRecord = {
   lots: string[];
   memberIds: string[];
   phases: string[];
+  workflowOwners: ProjectWorkflowOwnersRecord;
   zones: string[];
 };
 
@@ -242,7 +252,16 @@ export type DashboardPageData = {
 };
 
 export type ProjectsPageData = {
-  projects: PortfolioProject[];
+  projects: Array<{
+    summary: WorkspaceProject;
+    memberCount: number;
+    workflowOwners: Array<{
+      id: string;
+      label: string;
+      name: string;
+      role: string;
+    }>;
+  }>;
 };
 
 export type NotificationsPageData = {
