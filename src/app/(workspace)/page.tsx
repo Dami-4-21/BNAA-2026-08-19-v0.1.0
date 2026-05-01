@@ -7,7 +7,7 @@ import {
   FileCheck2,
   ShieldAlert,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   AvatarStack,
@@ -29,12 +29,27 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardPageData | null>(null);
   const [error, setError] = useState("");
 
+  const loadDashboard = useCallback(async () => {
+    try {
+      setError("");
+      setData(null);
+      const payload = await apiFetch<DashboardPageData>(
+        `/api/projects/${activeProject.id}/dashboard`,
+        { method: "GET" },
+      );
+      setData(payload);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Erreur tableau de bord.");
+    }
+  }, [activeProject.id]);
+
   useEffect(() => {
     let cancelled = false;
 
-    async function loadDashboard() {
+    async function loadScopedDashboard() {
       try {
         setError("");
+        setData(null);
         const payload = await apiFetch<DashboardPageData>(
           `/api/projects/${activeProject.id}/dashboard`,
           { method: "GET" },
@@ -50,12 +65,30 @@ export default function DashboardPage() {
       }
     }
 
-    void loadDashboard();
+    void loadScopedDashboard();
 
     return () => {
       cancelled = true;
     };
   }, [activeProject.id]);
+
+  useEffect(() => {
+    function refreshOnForeground() {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      void loadDashboard();
+    }
+
+    window.addEventListener("focus", refreshOnForeground);
+    document.addEventListener("visibilitychange", refreshOnForeground);
+
+    return () => {
+      window.removeEventListener("focus", refreshOnForeground);
+      document.removeEventListener("visibilitychange", refreshOnForeground);
+    };
+  }, [loadDashboard]);
 
   if (!data && !error) {
     return (

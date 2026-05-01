@@ -111,6 +111,24 @@ export function WorkspaceProvider({
     };
   }, [currentUserId, refreshWorkspace]);
 
+  useEffect(() => {
+    function syncOnForeground() {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+
+      void refreshWorkspace();
+    }
+
+    window.addEventListener("focus", syncOnForeground);
+    document.addEventListener("visibilitychange", syncOnForeground);
+
+    return () => {
+      window.removeEventListener("focus", syncOnForeground);
+      document.removeEventListener("visibilitychange", syncOnForeground);
+    };
+  }, [refreshWorkspace]);
+
   const availableProjects = useMemo(
     () => workspace?.availableProjects ?? [],
     [workspace],

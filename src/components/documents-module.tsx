@@ -105,6 +105,7 @@ export function DocumentsModule() {
     async function loadDocuments() {
       try {
         setError("");
+        setProjectData(null);
         const payload = await apiFetch<DocumentsPayload>(
           `/api/projects/${activeProject.id}/documents`,
           { method: "GET" },

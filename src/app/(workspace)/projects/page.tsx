@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowUpRight,
@@ -39,12 +39,27 @@ export default function ProjectsPage() {
   const [data, setData] = useState<ProjectsPageData | null>(null);
   const [error, setError] = useState("");
 
+  const loadProjects = useCallback(async () => {
+    try {
+      setError("");
+      setData(null);
+      const payload = await apiFetch<ProjectsPageData>("/api/projects", { method: "GET" });
+      setData(payload);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error ? nextError.message : "Chargement portefeuille impossible.",
+      );
+      setData(null);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
-    async function loadProjects() {
+    async function loadScopedProjects() {
       try {
         setError("");
+        setData(null);
         const payload = await apiFetch<ProjectsPageData>("/api/projects", { method: "GET" });
         if (!cancelled) {
           setData(payload);
@@ -59,12 +74,30 @@ export default function ProjectsPage() {
       }
     }
 
-    void loadProjects();
+    void loadScopedProjects();
 
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    function refreshOnForeground() {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      void loadProjects();
+    }
+
+    window.addEventListener("focus", refreshOnForeground);
+    document.addEventListener("visibilitychange", refreshOnForeground);
+
+    return () => {
+      window.removeEventListener("focus", refreshOnForeground);
+      document.removeEventListener("visibilitychange", refreshOnForeground);
+    };
+  }, [loadProjects]);
 
   if (!data && !error) {
     return (

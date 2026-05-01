@@ -246,6 +246,7 @@ export function SiteModule() {
     async function loadProjectData() {
       try {
         setError("");
+        setProjectData(null);
         const payload = await apiFetch<SitePayload>(`/api/projects/${activeProject.id}/site`, {
           method: "GET",
         });

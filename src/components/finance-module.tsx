@@ -153,6 +153,7 @@ export function FinanceModule() {
     async function loadFinance() {
       try {
         setError("");
+        setProjectData(null);
         const payload = await apiFetch<FinancePayload>(
           `/api/projects/${activeProject.id}/finance`,
           { method: "GET" },
