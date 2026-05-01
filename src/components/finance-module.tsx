@@ -306,6 +306,17 @@ function FinanceModuleContent({
       selectedInvoice &&
       (selectedInvoice.validatedByMo || selectedInvoice.status === "Payee"),
   );
+  const createInvoiceHelper = canCreateInvoice
+    ? "Le decompte mensuel sera converti en facture brouillon."
+    : "Votre role peut consulter la finance, mais pas creer de facture.";
+  const statusActionHelper = !canManageManualStatus
+    ? "Seul le referent finance assigne peut mettre a jour le statut manuel."
+    : !selectedInvoice
+      ? "Selectionnez une facture pour mettre a jour son statut."
+      : "Les statuts manuels restent limites au circuit autorise pour votre role.";
+  const sendInvoiceHelper = canSendInvoice
+    ? "Genere ou regenere le PDF de la facture selectionnee avant son envoi."
+    : "Votre role ne peut pas generer ou envoyer les factures.";
   const paymentActionHelper = !canRecordPayment
     ? "Votre role ne peut pas enregistrer les paiements."
     : !selectedInvoice
@@ -545,6 +556,7 @@ function FinanceModuleContent({
           <button
             onClick={() => (canCreateInvoice ? selectTab("dm") : null)}
             disabled={!canCreateInvoice}
+            title={createInvoiceHelper}
             className={cx(
               "rounded-2xl px-4 py-3 text-sm font-semibold",
               canCreateInvoice
@@ -622,7 +634,9 @@ function FinanceModuleContent({
                   canRecordPayment={canRegisterPaymentForSelectedInvoice}
                   paymentActionHelper={paymentActionHelper}
                   canSendInvoice={canSendInvoice}
+                  sendInvoiceHelper={sendInvoiceHelper}
                   canUpdateStatus={canApplyStatusUpdate}
+                  statusActionHelper={statusActionHelper}
                   manualStatusOptions={manualStatusOptions}
                   invoices={invoices}
                   selectedInvoiceId={selectedInvoiceId}
@@ -875,7 +889,9 @@ function InvoicesTab({
   canRecordPayment,
   paymentActionHelper,
   canSendInvoice,
+  sendInvoiceHelper,
   canUpdateStatus,
+  statusActionHelper,
   manualStatusOptions,
   invoices,
   selectedInvoiceId,
@@ -898,7 +914,9 @@ function InvoicesTab({
   canRecordPayment: boolean;
   paymentActionHelper: string;
   canSendInvoice: boolean;
+  sendInvoiceHelper: string;
   canUpdateStatus: boolean;
+  statusActionHelper: string;
   manualStatusOptions: string[];
   invoices: InvoiceItem[];
   selectedInvoiceId: string;
@@ -1073,6 +1091,7 @@ function InvoicesTab({
                   value={statusValue}
                   onChange={(event) => setStatusDraft(event.target.value)}
                   disabled={!manualStatusOptions.length || !canUpdateStatus}
+                  title={statusActionHelper}
                   className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
                 >
                   {manualStatusOptions.map((status) => (
@@ -1085,6 +1104,7 @@ function InvoicesTab({
               <button
                 onClick={() => (canUpdateStatus ? updateInvoiceStatus(selectedInvoice.id) : null)}
                 disabled={!canUpdateStatus}
+                title={statusActionHelper}
                 className={cx(
                   "self-end rounded-2xl px-4 py-3 text-sm font-semibold",
                   canUpdateStatus
@@ -1095,6 +1115,7 @@ function InvoicesTab({
                 Mettre a jour
               </button>
             </div>
+            <p className="text-xs leading-5 text-slate-400">{statusActionHelper}</p>
             <div className="mt-4 rounded-[20px] border border-white/8 bg-white/4 p-4 text-sm leading-6 text-slate-300">
               {validationAction.helper}
             </div>
@@ -1111,6 +1132,7 @@ function InvoicesTab({
               <button
                 onClick={() => (canSendInvoice ? sendInvoice(selectedInvoice.id) : null)}
                 disabled={!canSendInvoice}
+                title={sendInvoiceHelper}
                 className={cx(
                   "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
                   canSendInvoice
@@ -1124,6 +1146,7 @@ function InvoicesTab({
               <button
                 onClick={() => (validationAction.canRun ? validateInvoice(selectedInvoice.id) : null)}
                 disabled={!validationAction.canRun}
+                title={validationAction.helper}
                 className={cx(
                   "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
                   validationAction.canRun
@@ -1147,27 +1170,29 @@ function InvoicesTab({
               </StatusBadge>
             </div>
             <div className="mt-4 space-y-4">
-              <Field
-                label="Montant recu"
-                value={paymentDraft.amount}
-                onChange={(value) =>
-                  setPaymentDraft((current) => ({ ...current, amount: value }))
-                }
-              />
-              <Field
-                label="Mode"
-                value={paymentDraft.method}
-                onChange={(value) =>
-                  setPaymentDraft((current) => ({ ...current, method: value }))
-                }
-              />
-              <Field
-                label="Reference paiement"
-                value={paymentDraft.reference}
-                onChange={(value) =>
-                  setPaymentDraft((current) => ({ ...current, reference: value }))
-                }
-              />
+              <fieldset disabled={!canRecordPayment} className="space-y-4 disabled:opacity-70">
+                <Field
+                  label="Montant recu"
+                  value={paymentDraft.amount}
+                  onChange={(value) =>
+                    setPaymentDraft((current) => ({ ...current, amount: value }))
+                  }
+                />
+                <Field
+                  label="Mode"
+                  value={paymentDraft.method}
+                  onChange={(value) =>
+                    setPaymentDraft((current) => ({ ...current, method: value }))
+                  }
+                />
+                <Field
+                  label="Reference paiement"
+                  value={paymentDraft.reference}
+                  onChange={(value) =>
+                    setPaymentDraft((current) => ({ ...current, reference: value }))
+                  }
+                />
+              </fieldset>
               <button
                 onClick={() => (canRecordPayment ? registerPayment(selectedInvoice.id) : null)}
                 disabled={!canRecordPayment}

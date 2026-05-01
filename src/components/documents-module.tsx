@@ -370,6 +370,43 @@ function DocumentsModuleContent({
     () => recipients.filter((recipient) => recipient.documentId === selectedDocument?.id),
     [recipients, selectedDocument],
   );
+  const hasMetadataChanges = Boolean(
+    selectedDocument &&
+      (metadataDraft.title !== selectedDocument.title ||
+        metadataDraft.discipline !== selectedDocument.discipline ||
+        metadataDraft.lot !== selectedDocument.lot ||
+        metadataDraft.phase !== selectedDocument.phase),
+  );
+  const canSubmitMetadataUpdate = Boolean(canPublishVersion && selectedDocument && hasMetadataChanges);
+  const metadataActionHelper = !canPublishVersion
+    ? "Votre role peut consulter les metadonnees, mais pas les modifier."
+    : !selectedDocument
+      ? "Selectionnez un document pour modifier ses metadonnees."
+      : hasMetadataChanges
+        ? "Les metadonnees modifiees seront enregistrees sur la revision courante."
+        : "Aucune modification de metadonnees a enregistrer.";
+  const canPublishSelectedVersion = Boolean(canPublishVersion && versionFile);
+  const publishVersionHelper = !canPublishVersion
+    ? "Votre role ne peut pas publier de nouvelle revision."
+    : versionFile
+      ? "La nouvelle revision sera publiee comme version courante."
+      : "Ajoutez un fichier avant de publier une nouvelle revision.";
+  const canMarkSelectedObsolete = Boolean(
+    canMarkObsolete && selectedDocument && selectedDocument.status !== "Obsolete",
+  );
+  const markObsoleteHelper = !canMarkObsolete
+    ? "Votre role ne peut pas marquer un plan comme obsolete."
+    : selectedDocument?.status === "Obsolete"
+      ? "Ce plan est deja marque obsolete."
+      : "Le plan sera retire des revisions en vigueur.";
+  const canDistributeSelected = Boolean(
+    canDistribute && selectedDocument && draftVersion.audience.trim(),
+  );
+  const distributeActionHelper = !canDistribute
+    ? "Votre role peut consulter la diffusion, mais pas la lancer."
+    : draftVersion.audience.trim()
+      ? "La liste selectionnee recevra une diffusion controlee avec accuse de lecture."
+      : "Choisissez d'abord une liste de diffusion.";
   const selectedCompareVersion = selectedDocument
     ? comparisonSelections[selectedDocument.id] ?? selectedDocument.compareWith
     : "";
@@ -583,8 +620,10 @@ function DocumentsModuleContent({
 
               {activeTab === "versions" ? selectedDocument ? (
                 <VersionsTab
-                  canMarkObsolete={canMarkObsolete}
-                  canPublishVersion={canPublishVersion}
+                  canMarkSelectedObsolete={canMarkSelectedObsolete}
+                  canPublishSelectedVersion={canPublishSelectedVersion}
+                  markObsoleteHelper={markObsoleteHelper}
+                  publishVersionHelper={publishVersionHelper}
                   selectedDocument={selectedDocument}
                   draftVersion={draftVersion}
                   versionFile={versionFile}
@@ -598,7 +637,8 @@ function DocumentsModuleContent({
               {activeTab === "distribution" ? selectedDocument ? (
                 <DistributionTab
                   canAcknowledge={canAcknowledge}
-                  canDistribute={canDistribute}
+                  canDistributeSelected={canDistributeSelected}
+                  distributeActionHelper={distributeActionHelper}
                   selectedDocument={selectedDocument}
                   recipients={recipientsForSelected}
                   draftVersion={draftVersion}
@@ -678,15 +718,21 @@ function DocumentsModuleContent({
                     />
                   </div>
 
-                  {canPublishVersion ? (
-                    <button
-                      onClick={() => void updateMetadata()}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8"
-                    >
-                      <CheckCheck className="size-4" />
-                      Mettre a jour les metadonnees
-                    </button>
-                  ) : null}
+                  <button
+                    onClick={() => (canSubmitMetadataUpdate ? void updateMetadata() : null)}
+                    disabled={!canSubmitMetadataUpdate}
+                    title={metadataActionHelper}
+                    className={cx(
+                      "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
+                      canSubmitMetadataUpdate
+                        ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
+                        : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
+                    )}
+                  >
+                    <CheckCheck className="size-4" />
+                    Mettre a jour les metadonnees
+                  </button>
+                  <p className="text-xs leading-5 text-slate-400">{metadataActionHelper}</p>
 
                   <div className="rounded-[22px] border border-dashed border-sky-400/20 bg-sky-400/8 p-5">
                     <div className="flex flex-wrap gap-2">
@@ -874,8 +920,10 @@ function LibraryTab({
 }
 
 function VersionsTab({
-  canMarkObsolete,
-  canPublishVersion,
+  canMarkSelectedObsolete,
+  canPublishSelectedVersion,
+  markObsoleteHelper,
+  publishVersionHelper,
   selectedDocument,
   draftVersion,
   versionFile,
@@ -884,8 +932,10 @@ function VersionsTab({
   publishNewVersion,
   markObsolete,
 }: {
-  canMarkObsolete: boolean;
-  canPublishVersion: boolean;
+  canMarkSelectedObsolete: boolean;
+  canPublishSelectedVersion: boolean;
+  markObsoleteHelper: string;
+  publishVersionHelper: string;
   selectedDocument: DocumentFile;
   draftVersion: {
     revision: string;
@@ -941,24 +991,26 @@ function VersionsTab({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <button
-              onClick={() => (canPublishVersion ? publishNewVersion() : null)}
-              disabled={!canPublishVersion}
+              onClick={() => (canPublishSelectedVersion ? publishNewVersion() : null)}
+              disabled={!canPublishSelectedVersion}
+              title={publishVersionHelper}
               className={cx(
                 "flex items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
-                canPublishVersion
+                canPublishSelectedVersion
                   ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                   : "cursor-not-allowed bg-slate-700 text-slate-400",
               )}
             >
               <Upload className="size-4" />
-              {canPublishVersion ? "Publier nouvelle version" : "Lecture seule des versions"}
+              {canPublishSelectedVersion ? "Publier nouvelle version" : "Publication indisponible"}
             </button>
             <button
-              onClick={() => (canMarkObsolete ? markObsolete(selectedDocument.id) : null)}
-              disabled={!canMarkObsolete}
+              onClick={() => (canMarkSelectedObsolete ? markObsolete(selectedDocument.id) : null)}
+              disabled={!canMarkSelectedObsolete}
+              title={markObsoleteHelper}
               className={cx(
                 "flex items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
-                canMarkObsolete
+                canMarkSelectedObsolete
                   ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
                   : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
               )}
@@ -966,6 +1018,10 @@ function VersionsTab({
               <ShieldCheck className="size-4" />
               Marquer obsolete
             </button>
+          </div>
+          <div className="grid gap-2 text-xs leading-5 text-slate-400 sm:grid-cols-2">
+            <p>{publishVersionHelper}</p>
+            <p>{markObsoleteHelper}</p>
           </div>
         </div>
 
@@ -1013,7 +1069,8 @@ function VersionsTab({
 
 function DistributionTab({
   canAcknowledge,
-  canDistribute,
+  canDistributeSelected,
+  distributeActionHelper,
   selectedDocument,
   recipients,
   draftVersion,
@@ -1023,7 +1080,8 @@ function DistributionTab({
   acknowledgeRecipient,
 }: {
   canAcknowledge: boolean;
-  canDistribute: boolean;
+  canDistributeSelected: boolean;
+  distributeActionHelper: string;
   selectedDocument: DocumentFile;
   recipients: Recipient[];
   draftVersion: {
@@ -1104,18 +1162,20 @@ function DistributionTab({
           </div>
 
           <button
-            onClick={() => (canDistribute ? distributeSelected() : null)}
-            disabled={!canDistribute}
+            onClick={() => (canDistributeSelected ? distributeSelected() : null)}
+            disabled={!canDistributeSelected}
+            title={distributeActionHelper}
             className={cx(
               "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
-              canDistribute
+              canDistributeSelected
                 ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
                 : "cursor-not-allowed bg-slate-700 text-slate-400",
             )}
           >
             <Send className="size-4" />
-            {canDistribute ? "Creer la diffusion controlee" : "Lecture seule de la diffusion"}
+            {canDistributeSelected ? "Creer la diffusion controlee" : "Diffusion indisponible"}
           </button>
+          <p className="text-xs leading-5 text-slate-400">{distributeActionHelper}</p>
         </div>
 
         <div className="space-y-3">
@@ -1142,6 +1202,11 @@ function DistributionTab({
                 <button
                   onClick={() => (canAcknowledge ? acknowledgeRecipient(recipient.id) : null)}
                   disabled={!canAcknowledge}
+                  title={
+                    canAcknowledge
+                      ? "Confirmer la lecture de ce document pour la diffusion controlee."
+                      : "Votre role ne peut pas accuser reception des documents."
+                  }
                   className={cx(
                     "mt-3 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm",
                     canAcknowledge
@@ -1246,6 +1311,13 @@ function OfflineTab({
                 <button
                   onClick={() => (canToggleOffline ? toggleOffline(document.id) : null)}
                   disabled={!canToggleOffline}
+                  title={
+                    canToggleOffline
+                      ? isCached
+                        ? "Retirer cette version du cache local de l'appareil."
+                        : "Ajouter cette version au cache local de l'appareil."
+                      : "Aucun fichier telechargeable n'est disponible pour cette revision."
+                  }
                   className={cx(
                     "mt-3 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm",
                     canToggleOffline
