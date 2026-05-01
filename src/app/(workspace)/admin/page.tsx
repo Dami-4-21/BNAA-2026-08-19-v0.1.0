@@ -228,6 +228,10 @@ export default function AdminPage() {
   const selectedProjectDraft = selectedProject
     ? projectDrafts[selectedProject.summary.id]
     : null;
+  const hasPendingMemberChanges =
+    selectedProject && selectedProjectDraft
+      ? !sameStringList(selectedProjectDraft.memberIds, selectedProject.setup.memberIds)
+      : false;
   const workflowOwnerOptions = useMemo(() => {
     if (!selectedProject || !selectedProjectDraft || !data) {
       return {} as Record<ProjectWorkflowOwnerKey, AdminPageData["users"]>;
@@ -1029,6 +1033,7 @@ export default function AdminPage() {
                               },
                             })
                           }
+                          disabled={hasPendingMemberChanges}
                           className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
                         >
                           <option value="">
@@ -1047,6 +1052,11 @@ export default function AdminPage() {
                     );
                   })}
                 </div>
+                {hasPendingMemberChanges ? (
+                  <p className="mt-4 text-sm leading-6 text-amber-300">
+                    Enregistrez d&apos;abord l&apos;equipe du projet avant de modifier les responsables du workflow.
+                  </p>
+                ) : null}
               </div>
 
               <div className="flex justify-end">
@@ -1055,6 +1065,7 @@ export default function AdminPage() {
                   onClick={() => void saveProjectSetup(selectedProject.summary.id)}
                   disabled={
                     savingProjectId === selectedProject.summary.id ||
+                    hasPendingMemberChanges ||
                     (selectedProjectDraft.name === selectedProject.summary.name &&
                       selectedProjectDraft.client === selectedProject.summary.client &&
                       selectedProjectDraft.location === selectedProject.summary.location &&

@@ -39,47 +39,31 @@ export default function ProjectsPage() {
   const [data, setData] = useState<ProjectsPageData | null>(null);
   const [error, setError] = useState("");
 
-  const loadProjects = useCallback(async () => {
+  const loadProjects = useCallback(async (options?: { preserveData?: boolean }) => {
     try {
       setError("");
-      setData(null);
+      if (!options?.preserveData) {
+        setData(null);
+      }
       const payload = await apiFetch<ProjectsPageData>("/api/projects", { method: "GET" });
       setData(payload);
     } catch (nextError) {
       setError(
         nextError instanceof Error ? nextError.message : "Chargement portefeuille impossible.",
       );
-      setData(null);
+      if (!options?.preserveData) {
+        setData(null);
+      }
     }
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void loadProjects();
+    }, 0);
 
-    async function loadScopedProjects() {
-      try {
-        setError("");
-        setData(null);
-        const payload = await apiFetch<ProjectsPageData>("/api/projects", { method: "GET" });
-        if (!cancelled) {
-          setData(payload);
-        }
-      } catch (nextError) {
-        if (!cancelled) {
-          setError(
-            nextError instanceof Error ? nextError.message : "Chargement portefeuille impossible.",
-          );
-          setData(null);
-        }
-      }
-    }
-
-    void loadScopedProjects();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    return () => window.clearTimeout(timer);
+  }, [loadProjects]);
 
   useEffect(() => {
     function refreshOnForeground() {
@@ -87,7 +71,7 @@ export default function ProjectsPage() {
         return;
       }
 
-      void loadProjects();
+      void loadProjects({ preserveData: true });
     }
 
     window.addEventListener("focus", refreshOnForeground);
