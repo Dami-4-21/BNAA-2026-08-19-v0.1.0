@@ -1008,6 +1008,137 @@ function deriveFinanceData(project: ProjectRecord): FinanceModuleData {
   return finance;
 }
 
+function deriveProjectTeamMembers(database: DatabaseState, projectId: string) {
+  const recentActivityByActor = new Map<string, string>();
+
+  clone(database.auditTrail)
+    .sort((left, right) => {
+      const rightTime = new Date(right.createdAt ?? nowTimestamp).getTime();
+      const leftTime = new Date(left.createdAt ?? nowTimestamp).getTime();
+      return rightTime - leftTime;
+    })
+    .forEach((entry) => {
+      if (!recentActivityByActor.has(entry.actor)) {
+        recentActivityByActor.set(entry.actor, `${entry.action} - ${entry.context}`);
+      }
+    });
+
+  return database.users
+    .filter((member) => canAccessProject(member, projectId))
+    .map((member) => ({
+      initials: member.initials,
+      name: member.name,
+      role: member.role,
+      state: recentActivityByActor.get(member.name) ?? `Acces ${member.role.toLowerCase()} actif`,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name, "fr"));
+}
+
+function deriveNextCheckpoint(project: ProjectRecord) {
+  const candidates: Array<{
+    date: string;
+    detail: string;
+    tone: DashboardAlert["tone"];
+  }> = [];
+
+  project.finance.invoices
+    .filter((invoice) => invoice.status !== "Payee")
+    .forEach((invoice) => {
+      candidates.push({
+        date: invoice.dueDate,
+        detail: `${invoice.invoiceNumber} - ${invoice.status}`,
+        tone: invoice.dueDate < todayIso ? "danger" : "warning",
+      });
+    });
+
+  project.site.ncrs
+    .filter((ncr) => ncr.status !== "Levee")
+    .forEach((ncr) => {
+      candidates.push({
+        date: ncr.dueDate,
+        detail: `${ncr.ref} - ${ncr.title}`,
+        tone: ncr.dueDate < todayIso ? "danger" : "warning",
+      });
+    });
+
+  const pendingSignature = project.site.reports.find((report) => !report.signedByMoe);
+  if (pendingSignature) {
+    candidates.push({
+      date: pendingSignature.date,
+      detail: `Validation ${pendingSignature.id}`,
+      tone: pendingSignature.date < todayIso ? "warning" : "primary",
+    });
+  }
+
+  if (candidates.length === 0) {
+    return {
+      date: "A planifier",
+      detail: project.summary.nextMilestone || "Aucun jalon immediat detecte",
+      tone: "neutral" as const,
+    };
+  }
+
+  const nextCandidate = candidates.sort((left, right) =>
+    left.date.localeCompare(right.date),
+  )[0];
+
+  return {
+    date: toDayMonth(nextCandidate.date),
+    detail: nextCandidate.detail,
+    tone: nextCandidate.tone,
+  };
+}
+
+function deriveProjectFocusSummary(
+  project: ProjectRecord,
+  site: SiteModuleData,
+  documents: DocumentsModuleData,
+  finance: FinanceModuleData,
+) {
+  const overdueInvoices = finance.invoices.filter(
+    (invoice) => invoice.status !== "Payee" && invoice.dueDate < todayIso,
+  );
+  const openNcrs = site.ncrs.filter((item) => item.status !== "Levee");
+  const unreadDocumentCount = documents.files.filter(
+    (file) => file.readCount < file.recipients,
+  ).length;
+
+  if (overdueInvoices.length > 0) {
+    const overdueAmount = overdueInvoices.reduce(
+      (total, invoice) => total + invoice.amountTtc,
+      0,
+    );
+
+    return {
+      label: "Encaissement a securiser",
+      detail: `${overdueInvoices.length} facture(s) en retard pour ${overdueAmount.toLocaleString("fr-FR")} TND TTC.`,
+      tone: "danger" as const,
+    };
+  }
+
+  if (openNcrs.length > 0) {
+    return {
+      label: "Levees qualite en cours",
+      detail: `${openNcrs.length} non-conformite(s) ouvertes dont ${openNcrs.filter((item) => item.severity === "Critique").length} critique(s).`,
+      tone: openNcrs.some((item) => item.severity === "Critique") ? ("danger" as const) : ("warning" as const),
+    };
+  }
+
+  if (unreadDocumentCount > 0) {
+    return {
+      label: "Diffusions a confirmer",
+      detail: `${unreadDocumentCount} document(s) en attente d'accuse de lecture sur ${project.summary.code}.`,
+      tone: "warning" as const,
+    };
+  }
+
+  return {
+    label: "Execution sous controle",
+    detail: "Terrain, documents et finance restent alignes sur le cycle courant.",
+    tone: "success" as const,
+  };
+}
+
 function buildDashboardMetrics(project: ProjectRecord) {
   const currentPlans = project.documents.files.filter((file) => file.isCurrent).length;
   const openInvoices = project.finance.invoices.filter(
@@ -1060,17 +1191,29 @@ function buildDashboardData(
   const userNotifications = getUserNotifications(database, user).map((notification) =>
     toUserNotification(notification, user.id),
   );
+  const projectTeam = deriveProjectTeamMembers(database, projectId);
+  const projectAlerts = buildAlertsFromNotifications(userNotifications, projectId);
+  const nextCheckpoint = deriveNextCheckpoint(project);
+  const focusSummary = deriveProjectFocusSummary(project, site, documents, finance);
 
   return {
     dashboardMetrics: buildDashboardMetrics(project),
-    teamMembers: clone(database.teamMembers),
-    alerts: buildAlertsFromNotifications(userNotifications, projectId),
+    teamMembers: projectTeam,
+    alerts: projectAlerts,
     hero: {
       projectStatus: project.summary.status,
       invoicesDue: project.summary.invoicesDue,
       budgetTnd: project.summary.budgetTnd,
       spentTnd: project.summary.spentTnd,
       nextMilestone: project.summary.nextMilestone,
+      nextCheckpointDate: nextCheckpoint.date,
+      nextCheckpointTone: nextCheckpoint.tone,
+      nextCheckpointDetail: nextCheckpoint.detail,
+      focusLabel: focusSummary.label,
+      focusDetail: focusSummary.detail,
+      focusTone: focusSummary.tone,
+      teamSize: projectTeam.length,
+      actionRequiredCount: projectAlerts.length,
       cadenceTitle: site.reports[0]
         ? `${site.reports[0].author} - rapport ${site.reports[0].status.toLowerCase()}`
         : "Aucun rapport terrain disponible",

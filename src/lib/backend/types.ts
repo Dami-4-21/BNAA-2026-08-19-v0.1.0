@@ -125,7 +125,12 @@ export type DashboardPageData = {
     helper: string;
     tone: "primary" | "success" | "warning" | "danger";
   }>;
-  teamMembers: TeamMember[];
+  teamMembers: Array<{
+    initials: string;
+    name: string;
+    role: string;
+    state: string;
+  }>;
   alerts: DashboardAlert[];
   hero: {
     projectStatus: string;
@@ -133,6 +138,14 @@ export type DashboardPageData = {
     budgetTnd: number;
     spentTnd: number;
     nextMilestone: string;
+    nextCheckpointDate: string;
+    nextCheckpointTone: Tone;
+    nextCheckpointDetail: string;
+    focusLabel: string;
+    focusDetail: string;
+    focusTone: Tone;
+    teamSize: number;
+    actionRequiredCount: number;
     cadenceTitle: string;
     cadenceSteps: Array<{
       step: string;

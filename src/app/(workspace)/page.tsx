@@ -87,7 +87,13 @@ export default function DashboardPage() {
       <SectionHeading
         eyebrow="Vue d'ensemble"
         title="Operations fluides du terrain jusqu'a l'encaissement"
-        action={<StatusBadge tone="success">Plateforme active</StatusBadge>}
+        action={
+          <StatusBadge tone={data.hero.actionRequiredCount > 0 ? "warning" : "success"}>
+            {data.hero.actionRequiredCount > 0
+              ? `${data.hero.actionRequiredCount} action(s) en attente`
+              : "Cycle projet fluide"}
+          </StatusBadge>
+        }
       />
 
       <Panel className="overflow-hidden">
@@ -98,8 +104,8 @@ export default function DashboardPage() {
               <StatusBadge tone="warning">
                 {data.hero.invoicesDue} validations client en attente
               </StatusBadge>
-              <StatusBadge tone="success">
-                Site reporting en direct
+              <StatusBadge tone={data.hero.nextCheckpointTone}>
+                {data.hero.nextCheckpointDate}
               </StatusBadge>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -116,24 +122,24 @@ export default function DashboardPage() {
               </div>
               <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Prochain jalon
+                  Prochaine echeance
                 </p>
                 <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  03/05
+                  {data.hero.nextCheckpointDate}
                 </p>
                 <p className="mt-2 text-sm text-slate-300">
-                  {data.hero.nextMilestone}
+                  {data.hero.nextCheckpointDetail}
                 </p>
               </div>
               <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Vue prioritaire
+                  Focus du moment
                 </p>
                 <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  Terrain - Docs - Cash
+                  {data.hero.focusLabel}
                 </p>
                 <p className="mt-2 text-sm text-slate-300">
-                  Terrain, documents et encaissements reunis dans le meme flux de travail.
+                  {data.hero.focusDetail}
                 </p>
               </div>
             </div>
@@ -141,35 +147,35 @@ export default function DashboardPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Mon role
+                  Prochain jalon
+                </p>
+                <p className="mt-3 font-display text-2xl font-semibold text-white">
+                  {data.hero.nextMilestone}
+                </p>
+                <p className="mt-2 text-sm text-slate-300">
+                  Cap maintenu par le resume projet et les dernieres saisies terrain.
+                </p>
+              </div>
+              <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                  Equipe mobilisee
+                </p>
+                <p className="mt-3 font-display text-2xl font-semibold text-white">
+                  {data.hero.teamSize}
+                </p>
+                <p className="mt-2 text-sm text-slate-300">
+                  Membres avec acces actif sur {activeProject.code}.
+                </p>
+              </div>
+              <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                  Mon perimetre
                 </p>
                 <p className="mt-3 font-display text-2xl font-semibold text-white">
                   {currentUser.role}
                 </p>
                 <p className="mt-2 text-sm text-slate-300">
-                  Navigation et projets filtres selon les permissions.
-                </p>
-              </div>
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Projets accessibles
-                </p>
-                <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  {availableProjects.length}
-                </p>
-                <p className="mt-2 text-sm text-slate-300">
-                  Sur {tenant.activeProjects} projets du tenant.
-                </p>
-              </div>
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Utilisateurs du tenant
-                </p>
-                <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  {tenant.users}
-                </p>
-                <p className="mt-2 text-sm text-slate-300">
-                  Vision utile pour l&apos;administration et le pilotage multi-equipes.
+                  {availableProjects.length} projet(s) accessibles sur {tenant.activeProjects} dans le tenant.
                 </p>
               </div>
             </div>
@@ -279,33 +285,54 @@ export default function DashboardPage() {
           <Panel
             title="Equipe projet"
           >
-            <AvatarStack
-              people={data.teamMembers.map((member) => ({
-                initials: member.initials,
-                name: member.name,
-                role: member.role,
-              }))}
-            />
+            <div className="space-y-4">
+              <AvatarStack
+                people={data.teamMembers.map((member) => ({
+                  initials: member.initials,
+                  name: member.name,
+                  role: member.role,
+                }))}
+              />
+              <div className="space-y-3">
+                {data.teamMembers.slice(0, 4).map((member) => (
+                  <div
+                    key={`${member.name}-${member.role}`}
+                    className="rounded-[22px] border border-white/8 bg-white/4 p-4"
+                  >
+                    <p className="text-sm font-semibold text-white">
+                      {member.name} - {member.role}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{member.state}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           </Panel>
 
           <Panel
             title="Alertes prioritaires"
           >
             <div className="space-y-3">
-              {data.alerts.map((alert) => (
-                <div
-                  key={alert.title}
-                  className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-white">{alert.title}</p>
-                    <StatusBadge tone={alert.tone}>{alert.time}</StatusBadge>
+              {data.alerts.length > 0 ? (
+                data.alerts.map((alert) => (
+                  <div
+                    key={alert.title}
+                    className="rounded-[22px] border border-white/8 bg-white/4 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-white">{alert.title}</p>
+                      <StatusBadge tone={alert.tone}>{alert.time}</StatusBadge>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">
+                      {alert.detail}
+                    </p>
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">
-                    {alert.detail}
-                  </p>
+                ))
+              ) : (
+                <div className="rounded-[22px] border border-dashed border-white/10 bg-white/4 px-4 py-8 text-center text-sm text-slate-300">
+                  Aucune alerte prioritaire sur ce projet pour le moment.
                 </div>
-              ))}
+              )}
             </div>
           </Panel>
         </div>
