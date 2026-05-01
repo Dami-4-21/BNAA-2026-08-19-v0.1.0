@@ -188,6 +188,7 @@ export default function AdminPage() {
 
     async function loadAdmin() {
       try {
+        setError("");
         const payload = await apiFetch<AdminPageData>("/api/admin", {
           method: "GET",
         });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BellRing,
   CheckCheck,
@@ -47,36 +47,53 @@ export default function NotificationsPage() {
   const [projectFilter, setProjectFilter] = useState("all");
   const [pendingAction, setPendingAction] = useState("");
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadNotifications() {
-      try {
-        setError("");
-        const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
-          method: "GET",
-        });
-
-        if (!cancelled) {
-          setData(payload);
-        }
-      } catch (nextError) {
-        if (!cancelled) {
-          setError(
-            nextError instanceof Error
-              ? nextError.message
-              : "Impossible de charger les notifications.",
-          );
-        }
+  const loadNotifications = useCallback(async (options?: { preserveData?: boolean }) => {
+    try {
+      setError("");
+      if (!options?.preserveData) {
+        setData(null);
+      }
+      const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
+        method: "GET",
+      });
+      setData(payload);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Impossible de charger les notifications.",
+      );
+      if (!options?.preserveData) {
+        setData(null);
       }
     }
+  }, []);
 
-    void loadNotifications();
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadNotifications();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    function refreshOnForeground() {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      void loadNotifications({ preserveData: true });
+    }
+
+    window.addEventListener("focus", refreshOnForeground);
+    document.addEventListener("visibilitychange", refreshOnForeground);
 
     return () => {
-      cancelled = true;
+      window.removeEventListener("focus", refreshOnForeground);
+      document.removeEventListener("visibilitychange", refreshOnForeground);
     };
-  }, []);
+  }, [loadNotifications]);
 
   const typeOptions = useMemo(
     () =>
@@ -149,15 +166,34 @@ export default function NotificationsPage() {
   async function openNotification(
     notification: NonNullable<NotificationsPageData["notifications"]>[number],
   ) {
-    if (!notification.isRead) {
-      await runNotificationAction("mark-read", notification.id);
-    }
+    try {
+      setPendingAction(notification.id);
+      setError("");
 
-    if (notification.projectId) {
-      setActiveProjectId(notification.projectId);
-    }
+      if (!notification.isRead) {
+        const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
+          method: "POST",
+          body: {
+            action: "mark-read",
+            payload: { notificationId: notification.id },
+          },
+        });
+        setData(payload);
+      }
 
-    router.push(notification.href);
+      if (notification.projectId) {
+        setActiveProjectId(notification.projectId);
+      }
+
+      router.push(notification.href);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Impossible d'ouvrir la notification.",
+      );
+      setPendingAction("");
+    }
   }
 
   if (!data && !error) {
@@ -392,7 +428,8 @@ export default function NotificationsPage() {
                     <button
                       type="button"
                       onClick={() => void openNotification(notification)}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-stone-200 bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800"
+                      disabled={pendingAction === notification.id}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-stone-200 bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Ouvrir
                       <ExternalLink className="size-4" />
