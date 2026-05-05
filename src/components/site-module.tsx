@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   startTransition,
   useCallback,
@@ -336,6 +336,7 @@ function SiteModuleContent({
   projectData: SitePayload;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialSavedDraft =
     typeof window === "undefined" ? null : loadSiteDraft<FormState>(activeProject.id);
@@ -480,9 +481,7 @@ function SiteModuleContent({
 
     const nextQuery = params.toString();
     const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
-    if (typeof window !== "undefined") {
-      window.history.replaceState(window.history.state, "", nextUrl);
-    }
+    router.replace(nextUrl, { scroll: false });
   }
 
   function selectTab(nextTab: TabKey, query?: { ncr?: string; report?: string }) {

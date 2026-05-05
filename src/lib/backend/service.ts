@@ -1301,10 +1301,11 @@ async function deriveSiteData(
       ).toFixed(1)
     : "0.0";
   const driftDays = Math.round(
-    site.lotProgress.reduce(
-      (total, item) => total + (item.progress - item.planned),
-      0,
-    ) / Math.max(site.lotProgress.length, 1),
+    site.lotProgress.reduce((total, item) => {
+      const progress = Number(item.progress ?? 0);
+      const planned = Number(item.planned ?? progress);
+      return total + (progress - planned);
+    }, 0) / Math.max(site.lotProgress.length, 1),
   );
   const latestReport = site.reports[0];
 
