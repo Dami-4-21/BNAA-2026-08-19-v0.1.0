@@ -5,6 +5,7 @@ import {
   startTransition,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -265,6 +266,7 @@ function FinanceModuleContent({
   const [declaration, setDeclaration] = useState(projectData.declaration);
   const [mutationError, setMutationError] = useState("");
   const [pendingAction, setPendingAction] = useState("");
+  const invoicesRef = useRef(invoices);
 
   const draftValues = useMemo(() => {
     const retentionAmount = Math.round((dmDraft.baseAmountHt * dmDraft.retentionPct) / 100);
@@ -438,11 +440,15 @@ function FinanceModuleContent({
   }
 
   useEffect(() => {
+    invoicesRef.current = invoices;
+  }, [invoices]);
+
+  useEffect(() => {
     const tab = searchParams.get("tab");
     const invoiceId = searchParams.get("invoice");
     const nextInvoice =
-      invoiceId && invoices.some((invoice) => invoice.id === invoiceId)
-        ? invoices.find((invoice) => invoice.id === invoiceId)
+      invoiceId && invoicesRef.current.some((invoice) => invoice.id === invoiceId)
+        ? invoicesRef.current.find((invoice) => invoice.id === invoiceId)
         : undefined;
 
     startTransition(() => {
@@ -455,7 +461,7 @@ function FinanceModuleContent({
         setStatusDraft(nextInvoice.status);
       }
     });
-  }, [invoices, searchParams]);
+  }, [searchParams]);
 
   function applyProjectData(nextData: FinancePayload) {
     startTransition(() => {
