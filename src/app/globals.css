@@ -17,6 +17,9 @@
   --danger: #b91c1c;
   --shadow-lg: 0 24px 48px rgba(15, 23, 42, 0.06);
   --shadow-sm: 0 6px 20px rgba(15, 23, 42, 0.05);
+  --font-manrope: "Manrope", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-sora: "Sora", "Avenir Next", "Segoe UI", sans-serif;
+  --font-plex-mono: "IBM Plex Mono", "SFMono-Regular", "Cascadia Code", Consolas, monospace;
 }
 
 @theme inline {
