@@ -314,7 +314,7 @@ function FinanceModuleContent({
   );
   const selectedInvoice =
     invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? invoices[0];
-  const paymentDraftInvoiceRef = useRef(selectedInvoice?.id ?? "");
+  const paymentDraftInvoiceRef = useRef("");
   const selectedStatusValue = manualStatusOptions.includes(statusDraft)
     ? statusDraft
     : (manualStatusOptions[0] ?? statusDraft);
