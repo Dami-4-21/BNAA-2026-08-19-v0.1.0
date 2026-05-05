@@ -3943,12 +3943,26 @@ export async function mutateFinancePayload(
         const invoice = project.finance.invoices.find((item) => item.id === invoiceId);
         assert(invoice, 404, "Facture introuvable.");
         assert(
-          invoice.validatedByMo || invoice.status === "Payee",
+          invoice.validatedByMo,
           400,
           "La facture doit etre validee avant l'enregistrement d'un paiement.",
         );
+        assert(invoice.status !== "Payee", 400, "Cette facture est deja reglee.");
         const amount = Number(paymentDraft.amount);
         assert(Number.isFinite(amount) && amount > 0, 400, "Montant de paiement invalide.");
+        const existingPaidAmount = project.finance.payments
+          .filter((payment) => payment.invoiceId === invoiceId)
+          .reduce((total, payment) => total + payment.amount, 0);
+        assert(
+          existingPaidAmount < invoice.amountTtc,
+          400,
+          "Le montant total de cette facture a deja ete encaisse.",
+        );
+        assert(
+          existingPaidAmount + amount <= invoice.amountTtc,
+          400,
+          "Le paiement depasse le montant restant de la facture.",
+        );
         project.finance.payments.unshift({
           id: `PAY-${randomUUID().slice(0, 8)}`,
           invoiceId,

@@ -323,7 +323,8 @@ function FinanceModuleContent({
   const canRegisterPaymentForSelectedInvoice = Boolean(
     canRecordPayment &&
       selectedInvoice &&
-      (selectedInvoice.validatedByMo || selectedInvoice.status === "Payee") &&
+      selectedInvoice.validatedByMo &&
+      selectedInvoice.status !== "Payee" &&
       !pendingAction,
   );
   const createInvoiceHelper = canCreateInvoice
@@ -341,7 +342,9 @@ function FinanceModuleContent({
     ? "Votre role ne peut pas enregistrer les paiements."
     : !selectedInvoice
       ? "Selectionnez une facture pour enregistrer un paiement."
-      : selectedInvoice.validatedByMo || selectedInvoice.status === "Payee"
+      : selectedInvoice.status === "Payee"
+        ? "Cette facture est deja reglee en totalite."
+        : selectedInvoice.validatedByMo
         ? "Le paiement peut etre saisi des que l'encaissement est confirme."
         : "La validation client doit etre finalisee avant l'enregistrement d'un paiement.";
   const paymentCoverage = selectedInvoice
@@ -1258,7 +1261,10 @@ function InvoicesTab({
               </StatusBadge>
             </div>
             <div className="mt-4 space-y-4">
-              <fieldset disabled={!canRecordPayment} className="space-y-4 disabled:opacity-70">
+              <fieldset
+                disabled={!canRecordPayment}
+                className="space-y-4 disabled:opacity-70"
+              >
                 <Field
                   label="Montant recu"
                   value={paymentDraft.amount}
@@ -1282,7 +1288,9 @@ function InvoicesTab({
                 />
               </fieldset>
               <button
-                onClick={() => (canRecordPayment ? registerPayment(selectedInvoice.id) : null)}
+                onClick={() =>
+                  canRecordPayment ? registerPayment(selectedInvoice.id) : null
+                }
                 disabled={!canRecordPayment || pendingAction === "register-payment"}
                 title={paymentActionHelper}
                 className={cx(
