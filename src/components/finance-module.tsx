@@ -326,7 +326,7 @@ function FinanceModuleContent({
       !pendingAction,
   );
   const createInvoiceHelper = canCreateInvoice
-    ? "Le decompte mensuel sera converti en facture brouillon."
+    ? "Acceder au decompte mensuel pour preparer une nouvelle facture."
     : "Votre role peut consulter la finance, mais pas creer de facture.";
   const statusActionHelper = !canManageManualStatus
     ? "Seul le referent finance assigne peut mettre a jour le statut manuel."
@@ -597,7 +597,7 @@ function FinanceModuleContent({
                 : "cursor-not-allowed bg-stone-200 text-stone-500",
             )}
           >
-            Creer une facture
+            Nouveau decompte
           </button>
         }
       />
@@ -895,9 +895,9 @@ function DecompteTab({
           >
             <FileText className="size-4" />
             {pendingAction === "create-invoice"
-              ? "Generation..."
+              ? "Creation en cours..."
               : canCreateInvoice
-                ? "Generer le decompte mensuel"
+                ? "Generer le decompte et la facture"
                 : "Lecture seule des decomptes"}
           </button>
         </div>
