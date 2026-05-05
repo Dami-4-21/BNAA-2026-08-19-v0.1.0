@@ -3,34 +3,72 @@
 import Link from "next/link";
 import {
   Activity,
-  ArrowUpRight,
   BellDot,
+  Camera,
   CircleDollarSign,
   FileCheck2,
   FolderClock,
   ReceiptText,
   ShieldAlert,
+  SquarePen,
+  Users,
+  type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-import {
-  AvatarStack,
-  MetricCard,
-  Panel,
-  ProgressBar,
-  SectionHeading,
-  StatusBadge,
-  type Tone,
-} from "@/components/ui";
+import { Panel, ProgressBar, SectionHeading, StatusBadge, type Tone } from "@/components/ui";
 import { useWorkspace } from "@/components/workspace-context";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { apiFetch } from "@/lib/api";
+import type { UserRole } from "@/lib/auth";
 import type { DashboardPageData } from "@/lib/backend/types";
 
-const metricIcons = [Activity, FileCheck2, CircleDollarSign, ShieldAlert];
+type DashboardAction = {
+  badge: string;
+  detail: string;
+  href: string;
+  icon: LucideIcon;
+  label: string;
+  tone: Tone;
+};
+
+type DashboardStat = {
+  helper: string;
+  label: string;
+  tone: Tone;
+  value: string;
+};
+
+type DashboardListItem = {
+  badge?: string;
+  detail: string;
+  href?: string;
+  meta?: string;
+  progress?: number;
+  title: string;
+  tone: Tone;
+};
+
+type DashboardModel = {
+  checklist: DashboardAction[];
+  checklistDescription: string;
+  detailDescription: string;
+  detailItems: DashboardListItem[];
+  detailTitle: string;
+  eyebrow: string;
+  intro: string;
+  quickActions: DashboardAction[];
+  sideDescription: string;
+  sideItems: DashboardListItem[];
+  sideTitle: string;
+  spotlight: DashboardStat[];
+  statusLabel: string;
+  statusTone: Tone;
+  title: string;
+};
 
 export default function DashboardPage() {
-  const { activeProject, availableProjects, can, currentUser, tenant } = useWorkspace();
+  const { activeProject, availableProjects, currentUser, tenant } = useWorkspace();
   const [data, setData] = useState<DashboardPageData | null>(null);
   const [error, setError] = useState("");
 
@@ -104,507 +142,705 @@ export default function DashboardPage() {
     );
   }
 
-  const quickActions = [
-    can("site.report.create")
-      ? {
-          href: "/site?tab=rjc",
-          label: "Ouvrir le RJC",
-          helper: "Renseigner ou mettre a jour le rapport du jour.",
-          tone: data.hero.actionRequiredCount > 0 ? "warning" : "primary",
-        }
-      : null,
-    can("documents.distribute") || can("documents.version.publish")
-      ? {
-          href: "/documents?tab=distribution",
-          label: "Traiter la diffusion",
-          helper: "Suivre les plans non lus et publier la revision attendue.",
-          tone: "primary" as const,
-        }
-      : null,
-    can("finance.invoice.create") || can("finance.invoice.validate")
-      ? {
-          href: "/finance?tab=invoices",
-          label: "Verifier la facturation",
-          helper: "Reprendre les validations client et les encaissements a debloquer.",
-          tone: data.hero.invoicesDue > 0 ? "warning" : "success",
-        }
-      : null,
-  ].filter(Boolean) as Array<{
-    href: string;
-    label: string;
-    helper: string;
-    tone: "primary" | "success" | "warning" | "danger";
-  }>;
-
-  const nextActions: Array<{ label: string; detail: string; tone: Tone }> = [
-    {
-      label: "Rapports terrain",
-      detail: `${data.siteReports.length} rapport(s) disponible(s) sur ${activeProject.code}.`,
-      tone: data.siteReports[0]?.tone ?? "primary",
-    },
-    {
-      label: "Documents a lire",
-      detail: `${data.distributionQueue.length} diffusion(s) en suivi sur la GED projet.`,
-      tone: data.distributionQueue.length > 0 ? "warning" : "success",
-    },
-    {
-      label: "Factures en attente",
-      detail: `${data.hero.invoicesDue} validation(s) ou encaissement(s) a suivre aujourd'hui.`,
-      tone: data.hero.invoicesDue > 0 ? "warning" : "success",
-    },
-  ];
-  const actionChecklist = [
-    latestSiteAction(data),
-    documentAction(data),
-    financeAction(data),
-  ];
-  const actionCounts = {
-    approvals: data.siteReports.filter((report) => report.pdfReady && !report.signedByMoe).length,
-    unreadDocs: data.distributionQueue.filter((item) => item.acknowledgedRate < 100).length,
-    overdueInvoices: data.invoices.filter((invoice) => invoice.tone === "warning" || invoice.tone === "danger").length,
-  };
+  const model = buildDashboardModel({
+    activeProjectCode: activeProject.code,
+    availableProjectsCount: availableProjects.length,
+    data,
+    role: currentUser.role,
+    tenantActiveProjects: tenant.activeProjects,
+    tenantUsers: tenant.users,
+  });
 
   return (
     <div className="space-y-6">
       <SectionHeading
-        eyebrow="Vue d'ensemble"
-        title="Operations fluides du terrain jusqu'a l'encaissement"
-        action={
-          <StatusBadge tone={data.hero.actionRequiredCount > 0 ? "warning" : "success"}>
-            {data.hero.actionRequiredCount > 0
-              ? `${data.hero.actionRequiredCount} action(s) en attente`
-              : "Cycle projet fluide"}
-          </StatusBadge>
-        }
+        eyebrow={model.eyebrow}
+        title={model.title}
+        action={<StatusBadge tone={model.statusTone}>{model.statusLabel}</StatusBadge>}
       />
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <Panel title="Actions du jour" description="Les 3 points les plus utiles pour avancer sans naviguer a l'aveugle.">
+      <p className="max-w-4xl text-sm leading-7 text-stone-600">{model.intro}</p>
+
+      <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <Panel
+          title="Mes actions prioritaires"
+          description="Trois entrees claires pour avancer tout de suite sans chercher dans plusieurs ecrans."
+        >
           <div className="grid gap-3 md:grid-cols-3">
-            {quickActions.map((action) => (
-              <Link
-                key={action.href}
-                href={action.href}
-                className="rounded-[22px] border border-stone-200 bg-stone-50 p-4 transition-colors hover:bg-white"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-stone-950">{action.label}</p>
-                  <StatusBadge tone={action.tone}>Ouvrir</StatusBadge>
-                </div>
-                <p className="mt-3 text-sm leading-6 text-stone-600">{action.helper}</p>
-              </Link>
+            {model.quickActions.map((action) => (
+              <ActionCard key={`${action.href}-${action.label}`} action={action} />
             ))}
           </div>
         </Panel>
 
-        <Panel title="Lecture rapide" description="Resume operationnel pour savoir ou reprendre tout de suite.">
-          <div className="space-y-3">
-            {nextActions.map((item) => (
+        <Panel
+          title="Lecture rapide"
+          description="Les reperes utiles pour savoir si le projet est en rythme ou s'il faut intervenir."
+        >
+          <div className="grid gap-3 sm:grid-cols-3">
+            {model.spotlight.map((item) => (
               <div key={item.label} className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-stone-950">{item.label}</p>
-                  <StatusBadge tone={item.tone}>{item.tone === "warning" ? "Attention" : "OK"}</StatusBadge>
+                  <p className="text-xs uppercase tracking-[0.16em] text-stone-500">{item.label}</p>
+                  <StatusBadge tone={item.tone}>{spotlightToneLabel(item.tone)}</StatusBadge>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-stone-600">{item.detail}</p>
+                <p className="mt-3 font-display text-3xl font-semibold text-stone-950">{item.value}</p>
+                <p className="mt-2 text-sm leading-6 text-stone-600">{item.helper}</p>
               </div>
             ))}
           </div>
         </Panel>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <Panel title="Checklist du jour" description="Les blocages concrets a traiter maintenant, avec un point d'entree direct par flux.">
+      <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+        <Panel title="File d'action" description={model.checklistDescription}>
           <div className="space-y-3">
-            {actionChecklist.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="flex flex-col gap-3 rounded-[22px] border border-stone-200 bg-stone-50 p-4 transition-colors hover:bg-white md:flex-row md:items-center md:justify-between"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="rounded-2xl border border-stone-200 bg-white p-3 text-stone-700">
-                    <item.icon className="size-4" />
-                  </div>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-stone-950">{item.label}</p>
-                      <StatusBadge tone={item.tone}>{item.badge}</StatusBadge>
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-stone-600">{item.detail}</p>
-                  </div>
-                </div>
-                <span className="text-sm font-semibold text-stone-500">Ouvrir</span>
-              </Link>
+            {model.checklist.map((item) => (
+              <ActionListItem key={`${item.href}-${item.label}`} action={item} />
             ))}
           </div>
         </Panel>
 
-        <Panel title="Priorites de pilotage" description="Lecture ultra rapide pour savoir si le projet est en rythme ou s'il faut intervenir.">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Validations</p>
-              <p className="mt-3 font-display text-3xl font-semibold text-stone-950">{actionCounts.approvals}</p>
-              <p className="mt-2 text-sm leading-6 text-stone-600">RJC prets a faire signer cote projet.</p>
-            </div>
-            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Plans non lus</p>
-              <p className="mt-3 font-display text-3xl font-semibold text-stone-950">{actionCounts.unreadDocs}</p>
-              <p className="mt-2 text-sm leading-6 text-stone-600">Diffusions qui demandent encore un accuse de lecture.</p>
-            </div>
-            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Finance</p>
-              <p className="mt-3 font-display text-3xl font-semibold text-stone-950">{actionCounts.overdueInvoices}</p>
-              <p className="mt-2 text-sm leading-6 text-stone-600">Factures a reprendre avant impact sur la tresorerie.</p>
-            </div>
+        <Panel title={model.sideTitle} description={model.sideDescription}>
+          <div className="space-y-3">
+            {model.sideItems.map((item) => (
+              <DashboardItemCard key={`${item.title}-${item.meta ?? item.detail}`} item={item} />
+            ))}
           </div>
         </Panel>
       </div>
 
-      <Panel className="overflow-hidden">
-        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="space-y-5">
-            <div className="flex flex-wrap gap-2">
-              <StatusBadge tone="primary">{data.hero.projectStatus}</StatusBadge>
-              <StatusBadge tone="warning">
-                {data.hero.invoicesDue} validations client en attente
-              </StatusBadge>
-              <StatusBadge tone={data.hero.nextCheckpointTone}>
-                {data.hero.nextCheckpointDate}
-              </StatusBadge>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Budget projet
-                </p>
-                <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  {formatCurrency(data.hero.budgetTnd)}
-                </p>
-                <p className="mt-2 text-sm text-slate-300">
-                  Depense a ce jour: {formatCurrency(data.hero.spentTnd)}
-                </p>
-              </div>
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Prochaine echeance
-                </p>
-                <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  {data.hero.nextCheckpointDate}
-                </p>
-                <p className="mt-2 text-sm text-slate-300">
-                  {data.hero.nextCheckpointDetail}
-                </p>
-              </div>
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Focus du moment
-                </p>
-                <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  {data.hero.focusLabel}
-                </p>
-                <p className="mt-2 text-sm text-slate-300">
-                  {data.hero.focusDetail}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Prochain jalon
-                </p>
-                <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  {data.hero.nextMilestone}
-                </p>
-                <p className="mt-2 text-sm text-slate-300">
-                  Cap maintenu par le resume projet et les dernieres saisies terrain.
-                </p>
-              </div>
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Equipe mobilisee
-                </p>
-                <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  {data.hero.teamSize}
-                </p>
-                <p className="mt-2 text-sm text-slate-300">
-                  Membres avec acces actif sur {activeProject.code}.
-                </p>
-              </div>
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Mon perimetre
-                </p>
-                <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  {currentUser.role}
-                </p>
-                <p className="mt-2 text-sm text-slate-300">
-                  {availableProjects.length} projet(s) accessibles sur {tenant.activeProjects} dans le tenant.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="glass-panel-soft rounded-[28px] p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Cadence du jour
-                </p>
-                <h3 className="mt-2 font-display text-2xl font-semibold text-white">
-                  {data.hero.cadenceTitle}
-                </h3>
-              </div>
-              <ArrowUpRight className="size-5 text-slate-400" />
-            </div>
-
-            <div className="mt-6 space-y-4">
-              {data.hero.cadenceSteps.map((item) => (
-                <div
-                  key={item.step}
-                  className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-white">{item.step}</p>
-                    <StatusBadge tone={item.tone}>Actif</StatusBadge>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">
-                    {item.detail}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
+      <Panel title={model.detailTitle} description={model.detailDescription}>
+        <div className="grid gap-3 xl:grid-cols-2">
+          {model.detailItems.map((item) => (
+            <DashboardItemCard key={`${item.title}-${item.meta ?? item.detail}`} item={item} />
+          ))}
         </div>
       </Panel>
-
-      <div className="grid gap-4 xl:grid-cols-4">
-        {data.dashboardMetrics.map((metric, index) => (
-          <MetricCard
-            key={metric.label}
-            label={metric.label}
-            value={metric.value}
-            delta={metric.delta}
-            helper={metric.helper}
-            tone={metric.tone}
-            icon={metricIcons[index]}
-          />
-        ))}
-      </div>
-
-      <div className="grid gap-6 2xl:grid-cols-[1.2fr_0.8fr]">
-        <Panel
-          title="Rythme chantier"
-        >
-          <div className="space-y-4">
-            {data.siteReports.map((report) => (
-              <div
-                key={report.date}
-                className="rounded-[24px] border border-white/8 bg-white/4 p-4"
-              >
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-display text-xl font-semibold text-white">
-                        {formatDate(report.date)}
-                      </p>
-                      <StatusBadge tone={report.tone}>{report.status}</StatusBadge>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-300">{report.summary}</p>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3 text-sm text-slate-300">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                        Meteo
-                      </p>
-                      <p className="mt-1 text-white">{report.weather}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                        Effectif
-                      </p>
-                      <p className="mt-1 text-white">{report.workforce}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                        Auteur
-                      </p>
-                      <p className="mt-1 text-white">{report.author}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4">
-                  <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-slate-500">
-                    <span>Avancement lot du jour</span>
-                    <span>{report.progress}%</span>
-                  </div>
-                  <ProgressBar value={report.progress} tone={report.tone} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-
-        <div className="space-y-6">
-          <Panel
-            title="Equipe projet"
-          >
-            <div className="space-y-4">
-              <AvatarStack
-                people={data.teamMembers.map((member) => ({
-                  initials: member.initials,
-                  name: member.name,
-                  role: member.role,
-                }))}
-              />
-              <div className="space-y-3">
-                {data.teamMembers.slice(0, 4).map((member) => (
-                  <div
-                    key={`${member.name}-${member.role}`}
-                    className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-                  >
-                    <p className="text-sm font-semibold text-white">
-                      {member.name} - {member.role}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">{member.state}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </Panel>
-
-          <Panel
-            title="Alertes prioritaires"
-          >
-            <div className="space-y-3">
-              {data.alerts.length > 0 ? (
-                data.alerts.map((alert) => (
-                  <div
-                    key={alert.title}
-                    className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-white">{alert.title}</p>
-                      <StatusBadge tone={alert.tone}>{alert.time}</StatusBadge>
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">
-                      {alert.detail}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-[22px] border border-dashed border-white/10 bg-white/4 px-4 py-8 text-center text-sm text-slate-300">
-                  Aucune alerte prioritaire sur ce projet pour le moment.
-                </div>
-              )}
-            </div>
-          </Panel>
-        </div>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <Panel
-          title="Controle documentaire"
-          action={<StatusBadge tone="success">{data.documentVersions.length} plans suivis</StatusBadge>}
-        >
-          <div className="space-y-4">
-            {data.documentVersions.map((document) => (
-              <div
-                key={`${document.name}-${document.revision}`}
-                className="rounded-[24px] border border-white/8 bg-white/4 p-4"
-              >
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-display text-xl font-semibold text-white">
-                        {document.name}
-                      </p>
-                      <StatusBadge tone={document.tone}>{document.status}</StatusBadge>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-300">
-                      {document.discipline} - {document.revision} - publie par{" "}
-                      {document.publishedBy}
-                    </p>
-                  </div>
-                  <p className="text-sm text-slate-300">{document.acknowledged}</p>
-                </div>
-              </div>
-            ))}
-
-            <div className="grid gap-3 md:grid-cols-3">
-              {data.distributionQueue.map((item) => (
-                <div
-                  key={item.file}
-                  className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-                >
-                  <p className="text-sm font-semibold text-white">{item.file}</p>
-                  <p className="mt-1 text-sm text-slate-300">{item.audience}</p>
-                  <div className="mt-4">
-                    <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-slate-500">
-                      <span>Lecture</span>
-                      <span>{item.acknowledgedRate}%</span>
-                    </div>
-                    <ProgressBar value={item.acknowledgedRate} tone="primary" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Panel>
-
-        <Panel
-          title="Point finance"
-        >
-          <div className="grid gap-3 sm:grid-cols-2">
-            {data.invoiceMetrics.map((metric) => (
-              <div
-                key={metric.label}
-                className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-              >
-                <p className="text-sm text-slate-300">{metric.label}</p>
-                <p className="mt-3 font-display text-2xl font-semibold text-white">
-                  {formatCurrency(metric.value)}
-                </p>
-                <p className="mt-2 text-sm text-slate-400">{metric.helper}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-5 space-y-3">
-            {data.invoices.map((invoice) => (
-              <div
-                key={invoice.number}
-                className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-              >
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-display text-lg font-semibold text-white">
-                        {invoice.number}
-                      </p>
-                      <StatusBadge tone={invoice.tone}>{invoice.status}</StatusBadge>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-300">{invoice.project}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-semibold text-white">
-                      {formatCurrency(invoice.amount)}
-                    </p>
-                    <p className="text-sm text-slate-400">
-                      Echeance {formatDate(invoice.dueDate)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
     </div>
   );
 }
 
-function latestSiteAction(data: DashboardPageData) {
+function ActionCard({ action }: { action: DashboardAction }) {
+  return (
+    <Link
+      href={action.href}
+      className="rounded-[22px] border border-stone-200 bg-stone-50 p-4 transition-colors hover:bg-white"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="rounded-2xl border border-stone-200 bg-white p-3 text-stone-700">
+            <action.icon className="size-4" />
+          </div>
+          <p className="text-sm font-semibold text-stone-950">{action.label}</p>
+        </div>
+        <StatusBadge tone={action.tone}>{action.badge}</StatusBadge>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-stone-600">{action.detail}</p>
+    </Link>
+  );
+}
+
+function ActionListItem({ action }: { action: DashboardAction }) {
+  return (
+    <Link
+      href={action.href}
+      className="flex flex-col gap-3 rounded-[22px] border border-stone-200 bg-stone-50 p-4 transition-colors hover:bg-white md:flex-row md:items-center md:justify-between"
+    >
+      <div className="flex items-start gap-3">
+        <div className="rounded-2xl border border-stone-200 bg-white p-3 text-stone-700">
+          <action.icon className="size-4" />
+        </div>
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-stone-950">{action.label}</p>
+            <StatusBadge tone={action.tone}>{action.badge}</StatusBadge>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-stone-600">{action.detail}</p>
+        </div>
+      </div>
+      <span className="text-sm font-semibold text-stone-500">Ouvrir</span>
+    </Link>
+  );
+}
+
+function DashboardItemCard({ item }: { item: DashboardListItem }) {
+  const content = (
+    <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-stone-950">{item.title}</p>
+            {item.badge ? <StatusBadge tone={item.tone}>{item.badge}</StatusBadge> : null}
+          </div>
+          <p className="mt-2 text-sm leading-6 text-stone-600">{item.detail}</p>
+        </div>
+      </div>
+      {item.meta ? <p className="mt-3 text-xs uppercase tracking-[0.14em] text-stone-500">{item.meta}</p> : null}
+      {typeof item.progress === "number" ? (
+        <div className="mt-4">
+          <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-stone-500">
+            <span>Avancement</span>
+            <span>{item.progress}%</span>
+          </div>
+          <ProgressBar value={item.progress} tone={item.tone} />
+        </div>
+      ) : null}
+    </div>
+  );
+
+  if (!item.href) {
+    return content;
+  }
+
+  return (
+    <Link href={item.href} className="transition-transform hover:-translate-y-0.5">
+      {content}
+    </Link>
+  );
+}
+
+function spotlightToneLabel(tone: Tone) {
+  switch (tone) {
+    case "danger":
+      return "Urgent";
+    case "warning":
+      return "Suivi";
+    case "success":
+      return "Stable";
+    case "primary":
+      return "Actif";
+    default:
+      return "Info";
+  }
+}
+
+function buildDashboardModel({
+  activeProjectCode,
+  availableProjectsCount,
+  data,
+  role,
+  tenantActiveProjects,
+  tenantUsers,
+}: {
+  activeProjectCode: string;
+  availableProjectsCount: number;
+  data: DashboardPageData;
+  role: UserRole;
+  tenantActiveProjects: number;
+  tenantUsers: number;
+}): DashboardModel {
+  const siteAction = latestSiteAction(data);
+  const docsAction = documentAction(data);
+  const billingAction = financeAction(data);
+  const unreadDiffusions = data.distributionQueue.filter((item) => item.acknowledgedRate < 100).length;
+  const projectApprovals = data.siteReports.filter((report) => report.pdfReady && !report.signedByMoe).length;
+  const sensitiveInvoices = data.invoices.filter(
+    (invoice) => invoice.tone === "warning" || invoice.tone === "danger",
+  ).length;
+  const draftReports = data.siteReports.filter((report) => !report.pdfReady).length;
+
+  const photosAction: DashboardAction = {
+    badge: "Photos",
+    detail: "Ajoutez les preuves du jour pour garder le journal terrain complet et exploitable.",
+    href: "/site?tab=photos",
+    icon: Camera,
+    label: "Completer le journal photo",
+    tone: "primary",
+  };
+
+  const ncrAction: DashboardAction = {
+    badge: data.alerts.length > 0 ? `${data.alerts.length} alerte(s)` : "Stable",
+    detail:
+      data.alerts.length > 0
+        ? "Reprenez les ecarts ouverts avant qu'ils ne bloquent la validation du chantier."
+        : "Aucune alerte critique n'est remontee sur ce chantier pour le moment.",
+    href: "/site?tab=ncr",
+    icon: ShieldAlert,
+    label: "Suivre les non-conformites",
+    tone: data.alerts.length > 0 ? "warning" : "success",
+  };
+
+  const versionsAction: DashboardAction = {
+    badge: `${data.documentVersions.length} plan(s)`,
+    detail: "Publiez la revision utile et gardez une seule version de reference pour le terrain.",
+    href: "/documents?tab=versions",
+    icon: FileCheck2,
+    label: "Publier une revision",
+    tone: "primary",
+  };
+
+  const distributionAction: DashboardAction = {
+    badge: unreadDiffusions > 0 ? `${unreadDiffusions} a relancer` : "A jour",
+    detail:
+      unreadDiffusions > 0
+        ? "Certaines diffusions attendent encore une lecture ou un accuse de reception."
+        : "Toutes les diffusions recentes sont lues ou accusees.",
+    href: "/documents?tab=distribution",
+    icon: FolderClock,
+    label: "Suivre les lectures",
+    tone: unreadDiffusions > 0 ? "warning" : "success",
+  };
+
+  const newInvoiceAction: DashboardAction = {
+    badge: "Decompte",
+    detail: "Lancez la preparation du decompte mensuel puis la facture sans ressaisie inutile.",
+    href: "/finance?tab=dm",
+    icon: CircleDollarSign,
+    label: "Nouveau decompte",
+    tone: "primary",
+  };
+
+  const paymentsAction: DashboardAction = {
+    badge: sensitiveInvoices > 0 ? `${sensitiveInvoices} a suivre` : "Encaissements",
+    detail:
+      sensitiveInvoices > 0
+        ? "Des factures doivent etre reprises ou encaissees avant tension de tresorerie."
+        : "Enregistrez les paiements recus et gardez la tresorerie a jour.",
+    href: "/finance?tab=cashflow",
+    icon: ReceiptText,
+    label: "Suivre les paiements",
+    tone: sensitiveInvoices > 0 ? "warning" : "success",
+  };
+
+  const validationsAction: DashboardAction = {
+    badge: projectApprovals > 0 ? `${projectApprovals} a signer` : "Valider",
+    detail:
+      projectApprovals > 0
+        ? "Des rapports ou factures attendent encore votre validation pour avancer."
+        : "Les validations principales du projet sont a jour pour le moment.",
+    href: "/notifications?view=validations",
+    icon: BellDot,
+    label: "Traiter les validations",
+    tone: projectApprovals > 0 || sensitiveInvoices > 0 ? "warning" : "success",
+  };
+
+  const alertsAction: DashboardAction = {
+    badge: data.alerts.length > 0 ? `${data.alerts.length} alerte(s)` : "Calme",
+    detail:
+      data.alerts.length > 0
+        ? "Reprenez les alertes projet sans attendre pour eviter les blocages cote terrain ou finance."
+        : "Aucune alerte prioritaire n'est ouverte sur ce projet.",
+    href: "/notifications?view=alerts",
+    icon: ShieldAlert,
+    label: "Traiter les alertes",
+    tone: data.alerts.length > 0 ? "warning" : "success",
+  };
+
+  switch (role) {
+    case "Conductrice travaux":
+      return {
+        checklist: [siteAction, photosAction, ncrAction],
+        checklistDescription:
+          "Le plus utile pour une conductrice: finaliser le rapport, garder le journal photo complet et lever les ecarts chantier.",
+        detailDescription:
+          "Les derniers rapports restent visibles ici pour reprendre vite le bon jour, le bon lot et le bon niveau d'avancement.",
+        detailItems: buildSiteReportItems(data),
+        detailTitle: "Rapports recents",
+        eyebrow: "Vue terrain",
+        intro:
+          "Cette page doit rester simple: un rapport a finaliser, des photos a ajouter, des ecarts a traiter. Tout le reste passe au second plan.",
+        quickActions: [siteAction, photosAction, ncrAction],
+        sideDescription:
+          "Les alertes chantier meritent une lecture rapide avant de repartir sur le terrain ou de cloturer la journee.",
+        sideItems: buildAlertItems(data),
+        sideTitle: "Alertes chantier",
+        spotlight: [
+          {
+            helper:
+              draftReports > 0
+                ? `${draftReports} rapport(s) restent a completer avant validation.`
+                : "Le rapport du jour est a niveau ou pret pour la suite.",
+            label: "RJC",
+            tone: draftReports > 0 ? "warning" : "success",
+            value: draftReports > 0 ? `${draftReports}` : "OK",
+          },
+          {
+            helper:
+              projectApprovals > 0
+                ? `${projectApprovals} rapport(s) attendent encore une validation projet.`
+                : "Aucune validation projet ne bloque le cycle terrain.",
+            label: "Validations",
+            tone: projectApprovals > 0 ? "warning" : "success",
+            value: projectApprovals > 0 ? `${projectApprovals}` : "0",
+          },
+          {
+            helper: `Projet actif ${activeProjectCode}. Vous restez concentree sur un seul chantier a la fois.`,
+            label: "Projet",
+            tone: "primary",
+            value: activeProjectCode,
+          },
+        ],
+        statusLabel:
+          draftReports > 0 || data.alerts.length > 0
+            ? `${draftReports + data.alerts.length} sujet(s) terrain a suivre`
+            : "Terrain sous controle",
+        statusTone: draftReports > 0 || data.alerts.length > 0 ? "warning" : "success",
+        title: "Priorites terrain du jour",
+      };
+
+    case "Bureau d'etudes":
+      return {
+        checklist: [versionsAction, docsAction, distributionAction],
+        checklistDescription:
+          "Le bureau d'etudes doit surtout garder la bonne revision en circulation et confirmer que les bons destinataires l'ont bien recue.",
+        detailDescription:
+          "Les plans suivis et les revisions recentes restent regroupes ici pour limiter les allers-retours inutiles dans la GED.",
+        detailItems: buildDocumentVersionItems(data),
+        detailTitle: "Versions sous controle",
+        eyebrow: "Controle documentaire",
+        intro:
+          "Votre priorite est simple: publier la bonne revision, diffuser vite et ne laisser aucun doute sur la version en vigueur.",
+        quickActions: [versionsAction, docsAction, distributionAction],
+        sideDescription:
+          "La diffusion controlee doit permettre de savoir tout de suite qui a lu, qui manque encore et quel plan doit etre relance.",
+        sideItems: buildDistributionItems(data),
+        sideTitle: "Diffusions a suivre",
+        spotlight: [
+          {
+            helper: "Plans actuellement suivis et exposes dans la bibliotheque active du projet.",
+            label: "Plans suivis",
+            tone: "primary",
+            value: `${data.documentVersions.length}`,
+          },
+          {
+            helper:
+              unreadDiffusions > 0
+                ? `${unreadDiffusions} diffusion(s) demandent encore une lecture.`
+                : "Toutes les diffusions recentes sont accusees ou lues.",
+            label: "Lectures en attente",
+            tone: unreadDiffusions > 0 ? "warning" : "success",
+            value: `${unreadDiffusions}`,
+          },
+          {
+            helper:
+              data.documentVersions[0]
+                ? `${data.documentVersions[0].name} est la revision la plus recente suivie sur le projet.`
+                : "Aucune revision n'est encore publiee sur ce projet.",
+            label: "Derniere revision",
+            tone: data.documentVersions[0] ? data.documentVersions[0].tone : "neutral",
+            value: data.documentVersions[0]?.revision ?? "-",
+          },
+        ],
+        statusLabel: unreadDiffusions > 0 ? `${unreadDiffusions} diffusion(s) a relancer` : "GED a jour",
+        statusTone: unreadDiffusions > 0 ? "warning" : "success",
+        title: "Pilotage documentaire du projet",
+      };
+
+    case "Comptable":
+      return {
+        checklist: [newInvoiceAction, billingAction, paymentsAction],
+        checklistDescription:
+          "Le parcours comptable doit rester lineaire: preparer, envoyer, faire valider puis enregistrer le reglement sans ambiguite.",
+        detailDescription:
+          "Les factures ouvertes restent ici avec leur statut et leur echeance pour reprendre rapidement le bon dossier.",
+        detailItems: buildInvoiceItems(data),
+        detailTitle: "Factures a suivre",
+        eyebrow: "Pilotage finance",
+        intro:
+          "Cette vue doit aider la comptabilite a travailler en sequence: decompte, facture, validation, encaissement. Pas besoin de parcourir toute l'application.",
+        quickActions: [newInvoiceAction, billingAction, paymentsAction],
+        sideDescription:
+          "Trois repers simples pour savoir si la facturation du projet avance, se bloque ou commence a peser sur la tresorerie.",
+        sideItems: buildInvoiceMetricItems(data),
+        sideTitle: "Repers de tresorerie",
+        spotlight: [
+          {
+            helper:
+              data.hero.invoicesDue > 0
+                ? `${data.hero.invoicesDue} etape(s) de validation ou d'encaissement sont encore ouvertes.`
+                : "Aucune validation ou relance immediate ne bloque la facturation.",
+            label: "Actions finance",
+            tone: data.hero.invoicesDue > 0 ? "warning" : "success",
+            value: `${data.hero.invoicesDue}`,
+          },
+          {
+            helper:
+              data.invoices[0]
+                ? `Derniere facture suivie: ${data.invoices[0].number}.`
+                : "Aucune facture n'est encore ouverte sur ce projet.",
+            label: "Derniere facture",
+            tone: data.invoices[0]?.tone ?? "neutral",
+            value: data.invoices[0]?.number ?? "-",
+          },
+          {
+            helper: "Montant facture sur la ligne la plus recente du projet.",
+            label: "Montant recent",
+            tone: "primary",
+            value: data.invoices[0] ? formatCurrency(data.invoices[0].amount) : formatCurrency(0),
+          },
+        ],
+        statusLabel:
+          sensitiveInvoices > 0
+            ? `${sensitiveInvoices} facture(s) sensible(s)`
+            : "Facturation sous controle",
+        statusTone: sensitiveInvoices > 0 ? "warning" : "success",
+        title: "Facturation et encaissement",
+      };
+
+    case "Chef de projet":
+    case "Maitre d'ouvrage":
+      return {
+        checklist: [validationsAction, siteAction, docsAction, billingAction].slice(0, 3),
+        checklistDescription:
+          "Vous devez surtout savoir quoi valider, quoi relancer et ce qui peut ralentir le projet aujourd'hui.",
+        detailDescription:
+          "Les alertes et les validations ouvertes restent visibles ici pour piloter sans entrer dans tous les modules un par un.",
+        detailItems: buildAlertItems(data),
+        detailTitle: "Alertes et points de blocage",
+        eyebrow: "Pilotage projet",
+        intro:
+          "Le tableau de bord devient une file d'action: validations a traiter, documents a relancer, factures a debloquer et alertes a contenir.",
+        quickActions: [validationsAction, siteAction, docsAction],
+        sideDescription:
+          "La mobilisaton projet reste lisible en un coup d'oeil, avec les principaux roles et leur situation actuelle.",
+        sideItems: buildTeamItems(data),
+        sideTitle: "Equipe mobilisee",
+        spotlight: [
+          {
+            helper:
+              projectApprovals > 0
+                ? `${projectApprovals} rapport(s) chantier attendent encore une validation.`
+                : "Aucune validation chantier n'est en retard.",
+            label: "Validations RJC",
+            tone: projectApprovals > 0 ? "warning" : "success",
+            value: `${projectApprovals}`,
+          },
+          {
+            helper:
+              unreadDiffusions > 0
+                ? `${unreadDiffusions} diffusion(s) documentaires doivent encore etre relancees.`
+                : "Les plans critiques sont bien relayes dans l'equipe projet.",
+            label: "Plans non lus",
+            tone: unreadDiffusions > 0 ? "warning" : "success",
+            value: `${unreadDiffusions}`,
+          },
+          {
+            helper:
+              sensitiveInvoices > 0
+                ? `${sensitiveInvoices} facture(s) menacent la cadence d'encaissement.`
+                : "La chaine facture -> paiement reste stable sur le projet.",
+            label: "Finance",
+            tone: sensitiveInvoices > 0 ? "warning" : "success",
+            value: `${sensitiveInvoices}`,
+          },
+        ],
+        statusLabel:
+          data.hero.actionRequiredCount > 0
+            ? `${data.hero.actionRequiredCount} action(s) de pilotage`
+            : "Projet sous controle",
+        statusTone: data.hero.actionRequiredCount > 0 ? "warning" : "success",
+        title: "Validations et alertes du projet",
+      };
+
+    case "Super Admin":
+    default:
+      return {
+        checklist: [
+          {
+            badge: `${availableProjectsCount} projet(s)`,
+            detail: "Verifier le portefeuille actif et le niveau de preparation de chaque projet.",
+            href: "/projects",
+            icon: SquarePen,
+            label: "Reprendre les projets",
+            tone: "primary",
+          },
+          {
+            badge: `${tenantUsers} utilisateurs`,
+            detail: "Ajuster les acces, les roles et les affectations projet sans ouvrir plusieurs ecrans.",
+            href: "/admin",
+            icon: Users,
+            label: "Gerer les acces",
+            tone: "primary",
+          },
+          alertsAction,
+        ],
+        checklistDescription:
+          "Le super admin a surtout besoin d'un point d'entree rapide vers le portefeuille, les acces et les alertes globales.",
+        detailDescription:
+          "Les membres les plus exposes restent visibles pour verifier rapidement l'organisation active du projet selectionne.",
+        detailItems: buildTeamItems(data),
+        detailTitle: "Equipe active",
+        eyebrow: "Pilotage admin",
+        intro:
+          "Cette vue sert a reprendre vite l'organisation: acces, projets, equipe et alertes. Le detail operationnel reste dans chaque module specialise.",
+        quickActions: [
+          {
+            badge: `${tenantActiveProjects} projet(s)`,
+            detail: "Accedez au portefeuille et reprenez tout de suite le bon projet ou la bonne equipe.",
+            href: "/projects",
+            icon: SquarePen,
+            label: "Ouvrir le portefeuille",
+            tone: "primary",
+          },
+          {
+            badge: `${tenantUsers} utilisateurs`,
+            detail: "Configurez les roles, les acces et les responsables de workflow depuis l'admin.",
+            href: "/admin",
+            icon: Users,
+            label: "Gerer les utilisateurs",
+            tone: "primary",
+          },
+          alertsAction,
+        ],
+        sideDescription:
+          "Les alertes recentes donnent une lecture rapide de ce qui merite un suivi transversal sur le tenant.",
+        sideItems: buildAlertItems(data),
+        sideTitle: "Alertes recentes",
+        spotlight: [
+          {
+            helper: "Nombre de projets actuellement accessibles dans votre perimetre admin.",
+            label: "Projets visibles",
+            tone: "primary",
+            value: `${availableProjectsCount}`,
+          },
+          {
+            helper: "Volume utilisateur actif sur le tenant pour piloter les acces et les responsabilites.",
+            label: "Utilisateurs",
+            tone: "primary",
+            value: `${tenantUsers}`,
+          },
+          {
+            helper:
+              data.hero.actionRequiredCount > 0
+                ? "Des signaux demandent encore une reprise transversale."
+                : "Aucun point chaud n'est remonte a l'instant.",
+            label: "Actions ouvertes",
+            tone: data.hero.actionRequiredCount > 0 ? "warning" : "success",
+            value: `${data.hero.actionRequiredCount}`,
+          },
+        ],
+        statusLabel:
+          data.hero.actionRequiredCount > 0
+            ? `${data.hero.actionRequiredCount} action(s) transverses`
+            : "Tenant stable",
+        statusTone: data.hero.actionRequiredCount > 0 ? "warning" : "success",
+        title: "Portefeuille et gouvernance",
+      };
+  }
+}
+
+function buildSiteReportItems(data: DashboardPageData): DashboardListItem[] {
+  return data.siteReports.map((report) => ({
+    badge: report.status,
+    detail: report.summary,
+    href: `/site?tab=overview&report=${report.id}`,
+    meta: `${report.weather} - ${report.workforce} pers. - ${report.author}`,
+    progress: report.progress,
+    title: formatDate(report.date),
+    tone: report.tone,
+  }));
+}
+
+function buildDocumentVersionItems(data: DashboardPageData): DashboardListItem[] {
+  if (data.documentVersions.length === 0) {
+    return [
+      {
+        detail: "Publiez une premiere revision pour lancer la diffusion controlee sur ce projet.",
+        href: "/documents?tab=versions",
+        title: "Aucune revision publiee",
+        tone: "neutral",
+      },
+    ];
+  }
+
+  return data.documentVersions.map((document) => ({
+    badge: document.status,
+    detail: `${document.discipline} - ${document.revision} - publie par ${document.publishedBy}.`,
+    href: "/documents?tab=versions",
+    meta: document.acknowledged,
+    title: document.name,
+    tone: document.tone,
+  }));
+}
+
+function buildDistributionItems(data: DashboardPageData): DashboardListItem[] {
+  if (data.distributionQueue.length === 0) {
+    return [
+      {
+        detail: "Aucune diffusion recente ne demande d'accuse de lecture sur ce projet.",
+        href: "/documents?tab=distribution",
+        title: "Diffusion a jour",
+        tone: "success",
+      },
+    ];
+  }
+
+  return data.distributionQueue.map((item) => ({
+    badge: `${item.acknowledgedRate}% lus`,
+    detail: `${item.file} - destinataires ${item.audience}.`,
+    href: "/documents?tab=distribution",
+    meta: `Relance ciblee avant ${formatDate(item.dueDate)}`,
+    progress: item.acknowledgedRate,
+    title: "Lecture des plans",
+    tone: item.acknowledgedRate < 100 ? "warning" : "success",
+  }));
+}
+
+function buildInvoiceItems(data: DashboardPageData): DashboardListItem[] {
+  if (data.invoices.length === 0) {
+    return [
+      {
+        detail: "Aucune facture n'est encore ouverte. Lancez un decompte pour initier la chaine finance.",
+        href: "/finance?tab=dm",
+        title: "Aucune facture en cours",
+        tone: "neutral",
+      },
+    ];
+  }
+
+  return data.invoices.map((invoice) => ({
+    badge: invoice.status,
+    detail: `${invoice.project} - echeance ${formatDate(invoice.dueDate)}.`,
+    href: "/finance?tab=invoices",
+    meta: formatCurrency(invoice.amount),
+    title: invoice.number,
+    tone: invoice.tone,
+  }));
+}
+
+function buildInvoiceMetricItems(data: DashboardPageData): DashboardListItem[] {
+  return data.invoiceMetrics.map((metric) => ({
+    badge: formatCurrency(metric.value),
+    detail: metric.helper,
+    href: "/finance?tab=cashflow",
+    title: metric.label,
+    tone: metric.tone,
+  }));
+}
+
+function buildAlertItems(data: DashboardPageData): DashboardListItem[] {
+  if (data.alerts.length === 0) {
+    return [
+      {
+        detail: "Aucune alerte prioritaire n'est remontee sur ce projet pour le moment.",
+        href: "/notifications?view=alerts",
+        title: "Aucune alerte ouverte",
+        tone: "success",
+      },
+    ];
+  }
+
+  return data.alerts.map((alert) => ({
+    badge: alert.time,
+    detail: alert.detail,
+    href: "/notifications?view=alerts",
+    title: alert.title,
+    tone: alert.tone,
+  }));
+}
+
+function buildTeamItems(data: DashboardPageData): DashboardListItem[] {
+  return data.teamMembers.slice(0, 4).map((member) => ({
+    badge: member.role,
+    detail: member.state,
+    href: "/projects",
+    title: member.name,
+    tone: "primary",
+  }));
+}
+
+function latestSiteAction(data: DashboardPageData): DashboardAction {
   const reportAwaitingValidation = data.siteReports.find(
     (report) => report.pdfReady && !report.signedByMoe,
   );
@@ -616,7 +852,7 @@ function latestSiteAction(data: DashboardPageData) {
       href: `/site?tab=overview&report=${reportAwaitingValidation.id}`,
       icon: BellDot,
       label: "Faire signer le RJC du jour",
-      tone: "warning" as Tone,
+      tone: "warning",
     };
   }
 
@@ -629,11 +865,11 @@ function latestSiteAction(data: DashboardPageData) {
     href: latestDraft ? `/site?tab=overview&report=${latestDraft.id}` : "/site?tab=overview",
     icon: Activity,
     label: latestDraft ? "Finaliser le rapport journalier" : "Suivi terrain a jour",
-    tone: latestDraft ? ("primary" as Tone) : ("success" as Tone),
+    tone: latestDraft ? "primary" : "success",
   };
 }
 
-function documentAction(data: DashboardPageData) {
+function documentAction(data: DashboardPageData): DashboardAction {
   const pendingDistribution = data.distributionQueue
     .filter((item) => item.acknowledgedRate < 100)
     .sort((left, right) => left.acknowledgedRate - right.acknowledgedRate)[0];
@@ -646,11 +882,11 @@ function documentAction(data: DashboardPageData) {
     href: "/documents?tab=distribution",
     icon: FolderClock,
     label: pendingDistribution ? "Relancer la diffusion plan" : "Diffusion documentaire a jour",
-    tone: pendingDistribution ? ("warning" as Tone) : ("success" as Tone),
+    tone: pendingDistribution ? "warning" : "success",
   };
 }
 
-function financeAction(data: DashboardPageData) {
+function financeAction(data: DashboardPageData): DashboardAction {
   const sensitiveInvoice = data.invoices.find(
     (invoice) => invoice.tone === "warning" || invoice.tone === "danger",
   );
@@ -663,6 +899,6 @@ function financeAction(data: DashboardPageData) {
     href: "/finance?tab=invoices",
     icon: ReceiptText,
     label: sensitiveInvoice ? "Debloquer la facturation" : "Facturation sous controle",
-    tone: sensitiveInvoice ? sensitiveInvoice.tone : ("success" as Tone),
+    tone: sensitiveInvoice ? sensitiveInvoice.tone : "success",
   };
 }
