@@ -6,9 +6,11 @@ import {
   Building2,
   CheckCheck,
   CheckSquare,
+  Filter,
   FolderKanban,
   Layers3,
   MapPinned,
+  Search,
   Save,
   ShieldCheck,
   ShieldUser,
@@ -163,6 +165,8 @@ export default function AdminPage() {
   const [savingMembersProjectId, setSavingMembersProjectId] = useState("");
   const [savingUserId, setSavingUserId] = useState("");
   const [userDrafts, setUserDrafts] = useState<UserDrafts>({});
+  const [userSearch, setUserSearch] = useState("");
+  const [userRoleFilter, setUserRoleFilter] = useState<UserRole | "all">("all");
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -292,6 +296,42 @@ export default function AdminPage() {
         : projectMembersHasChanges
           ? "Enregistrer l'affectation des membres de ce projet."
           : "Aucune modification d'equipe a enregistrer.";
+  const filteredUsers = useMemo(() => {
+    const needle = userSearch.trim().toLowerCase();
+    return data?.users.filter((user) => {
+      const matchesRole = userRoleFilter === "all" || user.role === userRoleFilter;
+      const matchesSearch =
+        !needle ||
+        user.name.toLowerCase().includes(needle) ||
+        user.email.toLowerCase().includes(needle) ||
+        user.role.toLowerCase().includes(needle);
+      return matchesRole && matchesSearch;
+    }) ?? [];
+  }, [data?.users, userRoleFilter, userSearch]);
+  const pendingAdminChanges =
+    Object.entries(userDrafts).filter(([userId, draft]) => {
+      const source = data?.users.find((user) => user.id === userId);
+      return source && (draft.role !== source.role || !sameProjectIds(draft.projectIds, source.projectIds));
+    }).length +
+    Object.entries(projectDrafts).filter(([projectId, draft]) => {
+      const source = data?.projects.find((project) => project.summary.id === projectId);
+      return Boolean(
+        source &&
+          (
+            draft.name !== source.summary.name ||
+            draft.client !== source.summary.client ||
+            draft.location !== source.summary.location ||
+            draft.status !== source.summary.status ||
+            draft.budgetTnd !== `${source.summary.budgetTnd}` ||
+            draft.nextMilestone !== source.summary.nextMilestone ||
+            !sameStringList(draft.lots, source.setup.lots) ||
+            !sameStringList(draft.phases, source.setup.phases) ||
+            !sameStringList(draft.zones, source.setup.zones) ||
+            !sameStringList(draft.memberIds, source.setup.memberIds) ||
+            !sameWorkflowOwners(draft.workflowOwners, source.setup.workflowOwners)
+          )
+      );
+    }).length;
 
   function replaceSelectedProject(projectId: string) {
     setSelectedProjectId(projectId);
@@ -652,6 +692,30 @@ export default function AdminPage() {
         title="Controle complet des acces et des projets"
         action={<StatusBadge tone="success">Super Admin</StatusBadge>}
       />
+
+      <div className="grid gap-4 xl:grid-cols-[0.78fr_1.22fr]">
+        <Panel title="Vue de pilotage" description="Resume rapide des espaces a reprendre avant de quitter l'administration.">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MetricCard label="Utilisateurs" value={`${data.users.length}`} />
+            <MetricCard label="Projets" value={projectCountLabel} />
+            <MetricCard label="Changements" value={`${pendingAdminChanges}`} />
+          </div>
+        </Panel>
+        <Panel title="Projet en cours" description="Le projet selectionne centralise son parametrage, ses membres et ses responsables de workflow.">
+          {selectedProject ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <StatusBadge tone="primary">{selectedProject.summary.code}</StatusBadge>
+              <StatusBadge tone="success">{selectedProject.summary.status}</StatusBadge>
+              <StatusBadge tone="warning">{selectedProject.setup.memberIds.length} membres</StatusBadge>
+              <p className="text-sm text-stone-600">
+                {selectedProject.summary.name} - {selectedProject.summary.client}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-stone-500">Aucun projet selectionne.</p>
+          )}
+        </Panel>
+      </div>
 
       {error ? (
         <div className="rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-4 text-sm text-rose-700">
@@ -1270,8 +1334,34 @@ export default function AdminPage() {
       </Panel>
 
       <Panel title="Utilisateurs et acces">
+        <div className="mb-5 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+          <label className="flex items-center gap-3 rounded-2xl border border-white/8 bg-black/10 px-4 py-3 text-sm text-white">
+            <Search className="size-4 text-slate-400" />
+            <input
+              value={userSearch}
+              onChange={(event) => setUserSearch(event.target.value)}
+              placeholder="Chercher un nom, un email ou un role..."
+              className="w-full bg-transparent outline-none placeholder:text-slate-500"
+            />
+          </label>
+          <label className="flex items-center gap-3 rounded-2xl border border-white/8 bg-black/10 px-4 py-3">
+            <Filter className="size-4 text-slate-400" />
+            <select
+              value={userRoleFilter}
+              onChange={(event) => setUserRoleFilter(event.target.value as UserRole | "all")}
+              className="w-full bg-transparent text-sm text-white outline-none"
+            >
+              <option value="all">Tous les roles</option>
+              {roleOptions.map((role) => (
+                <option key={`user-filter-${role}`} value={role}>
+                  {role}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <div className="space-y-4">
-          {data.users.map((user) => {
+          {filteredUsers.map((user) => {
             const draft = userDrafts[user.id] ?? {
               role: user.role,
               projectIds: [...user.projectIds],
@@ -1370,6 +1460,11 @@ export default function AdminPage() {
               </div>
             );
           })}
+          {filteredUsers.length === 0 ? (
+            <div className="rounded-[22px] border border-dashed border-white/10 bg-white/4 px-4 py-8 text-center text-sm text-slate-300">
+              Aucun utilisateur ne correspond aux filtres actuels.
+            </div>
+          ) : null}
         </div>
       </Panel>
 

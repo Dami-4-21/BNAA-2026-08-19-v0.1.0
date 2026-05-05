@@ -138,6 +138,24 @@ export default function NotificationsPage() {
     });
   }, [data, projectFilter, statusFilter, typeFilter]);
 
+  const quickFilters = [
+    {
+      label: "Non lues",
+      value: "unread" as FilterStatus,
+      count: data?.summary.unreadCount ?? 0,
+    },
+    {
+      label: "A traiter",
+      value: "action" as FilterStatus,
+      count: data?.summary.actionRequiredCount ?? 0,
+    },
+    {
+      label: "Toutes",
+      value: "all" as FilterStatus,
+      count: data?.summary.totalCount ?? 0,
+    },
+  ];
+
   const markAllReadHelper =
     pendingAction === "mark-all-read"
       ? "Mise a jour des notifications en cours."
@@ -329,6 +347,24 @@ export default function NotificationsPage() {
           </button>
         }
       >
+        <div className="mb-4 flex flex-wrap gap-2">
+          {quickFilters.map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              onClick={() => setStatusFilter(filter.value)}
+              className={cx(
+                "rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
+                statusFilter === filter.value
+                  ? "border-black bg-black text-white"
+                  : "border-stone-200 bg-white text-stone-600 hover:bg-stone-100",
+              )}
+            >
+              {filter.label} <span className="ml-2 text-xs opacity-80">{filter.count}</span>
+            </button>
+          ))}
+        </div>
+
         <div className="mb-5 grid gap-3 lg:grid-cols-[repeat(3,minmax(0,1fr))]">
           <FilterSelect
             label="Statut"
@@ -407,6 +443,11 @@ export default function NotificationsPage() {
                         {notification.detail}
                       </p>
                     </div>
+                    {notification.requiresAction ? (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-800">
+                        Action attendue de votre part
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500">
                       <span className="inline-flex items-center gap-2">
                         <MailCheck className="size-3.5" />

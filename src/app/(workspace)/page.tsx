@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   Activity,
   ArrowUpRight,
@@ -16,6 +17,7 @@ import {
   ProgressBar,
   SectionHeading,
   StatusBadge,
+  type Tone,
 } from "@/components/ui";
 import { useWorkspace } from "@/components/workspace-context";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -25,14 +27,16 @@ import type { DashboardPageData } from "@/lib/backend/types";
 const metricIcons = [Activity, FileCheck2, CircleDollarSign, ShieldAlert];
 
 export default function DashboardPage() {
-  const { activeProject, availableProjects, currentUser, tenant } = useWorkspace();
+  const { activeProject, availableProjects, can, currentUser, tenant } = useWorkspace();
   const [data, setData] = useState<DashboardPageData | null>(null);
   const [error, setError] = useState("");
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (options?: { preserveData?: boolean }) => {
     try {
       setError("");
-      setData(null);
+      if (!options?.preserveData) {
+        setData(null);
+      }
       const payload = await apiFetch<DashboardPageData>(
         `/api/projects/${activeProject.id}/dashboard`,
         { method: "GET" },
@@ -40,37 +44,19 @@ export default function DashboardPage() {
       setData(payload);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Erreur tableau de bord.");
+      if (!options?.preserveData) {
+        setData(null);
+      }
     }
   }, [activeProject.id]);
 
   useEffect(() => {
-    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void loadDashboard();
+    }, 0);
 
-    async function loadScopedDashboard() {
-      try {
-        setError("");
-        setData(null);
-        const payload = await apiFetch<DashboardPageData>(
-          `/api/projects/${activeProject.id}/dashboard`,
-          { method: "GET" },
-        );
-
-        if (!cancelled) {
-          setData(payload);
-        }
-      } catch (nextError) {
-        if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : "Erreur tableau de bord.");
-        }
-      }
-    }
-
-    void loadScopedDashboard();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeProject.id]);
+    return () => window.clearTimeout(timer);
+  }, [loadDashboard]);
 
   useEffect(() => {
     function refreshOnForeground() {
@@ -78,7 +64,7 @@ export default function DashboardPage() {
         return;
       }
 
-      void loadDashboard();
+      void loadDashboard({ preserveData: true });
     }
 
     window.addEventListener("focus", refreshOnForeground);
@@ -115,6 +101,56 @@ export default function DashboardPage() {
     );
   }
 
+  const quickActions = [
+    can("site.report.create")
+      ? {
+          href: "/site?tab=rjc",
+          label: "Ouvrir le RJC",
+          helper: "Renseigner ou mettre a jour le rapport du jour.",
+          tone: data.hero.actionRequiredCount > 0 ? "warning" : "primary",
+        }
+      : null,
+    can("documents.distribute") || can("documents.version.publish")
+      ? {
+          href: "/documents?tab=distribution",
+          label: "Traiter la diffusion",
+          helper: "Suivre les plans non lus et publier la revision attendue.",
+          tone: "primary" as const,
+        }
+      : null,
+    can("finance.invoice.create") || can("finance.invoice.validate")
+      ? {
+          href: "/finance?tab=invoices",
+          label: "Verifier la facturation",
+          helper: "Reprendre les validations client et les encaissements a debloquer.",
+          tone: data.hero.invoicesDue > 0 ? "warning" : "success",
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    href: string;
+    label: string;
+    helper: string;
+    tone: "primary" | "success" | "warning" | "danger";
+  }>;
+
+  const nextActions: Array<{ label: string; detail: string; tone: Tone }> = [
+    {
+      label: "Rapports terrain",
+      detail: `${data.siteReports.length} rapport(s) disponible(s) sur ${activeProject.code}.`,
+      tone: data.siteReports[0]?.tone ?? "primary",
+    },
+    {
+      label: "Documents a lire",
+      detail: `${data.distributionQueue.length} diffusion(s) en suivi sur la GED projet.`,
+      tone: data.distributionQueue.length > 0 ? "warning" : "success",
+    },
+    {
+      label: "Factures en attente",
+      detail: `${data.hero.invoicesDue} validation(s) ou encaissement(s) a suivre aujourd'hui.`,
+      tone: data.hero.invoicesDue > 0 ? "warning" : "success",
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <SectionHeading
@@ -128,6 +164,40 @@ export default function DashboardPage() {
           </StatusBadge>
         }
       />
+
+      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <Panel title="Actions du jour" description="Les 3 points les plus utiles pour avancer sans naviguer a l'aveugle.">
+          <div className="grid gap-3 md:grid-cols-3">
+            {quickActions.map((action) => (
+              <Link
+                key={action.href}
+                href={action.href}
+                className="rounded-[22px] border border-stone-200 bg-stone-50 p-4 transition-colors hover:bg-white"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-stone-950">{action.label}</p>
+                  <StatusBadge tone={action.tone}>Ouvrir</StatusBadge>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-stone-600">{action.helper}</p>
+              </Link>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel title="Lecture rapide" description="Resume operationnel pour savoir ou reprendre tout de suite.">
+          <div className="space-y-3">
+            {nextActions.map((item) => (
+              <div key={item.label} className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-stone-950">{item.label}</p>
+                  <StatusBadge tone={item.tone}>{item.tone === "warning" ? "Attention" : "OK"}</StatusBadge>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-stone-600">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
 
       <Panel className="overflow-hidden">
         <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">

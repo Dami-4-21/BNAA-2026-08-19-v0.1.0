@@ -231,6 +231,14 @@ function isOfflineFailure(error: unknown) {
   return false;
 }
 
+function createPendingSiteActionId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `queued-${Math.random().toString(36).slice(2)}-${new Date().toISOString()}`;
+}
+
 export function SiteModule() {
   const { activeProject, can, currentUser } = useWorkspace();
   const [projectData, setProjectData] = useState<SitePayload | null>(null);
@@ -455,7 +463,6 @@ function SiteModuleContent({
   const closeNcrHelper = canCloseNcr
     ? "Cloturer cette non-conformite avec sa preuve de levee."
     : "Votre role ne peut pas cloturer les non-conformites.";
-
   const deferredSearch = useDeferredValue(searchPhotos);
 
   function replaceModuleUrl(nextTab: TabKey, query?: { ncr?: string; report?: string }) {
@@ -667,10 +674,7 @@ function SiteModuleContent({
         const queued = enqueuePendingSiteReport({
           action: editingReportId ? "update-report" : "create-report",
           formState: normalizedFormState as Record<string, unknown>,
-          id:
-            typeof crypto !== "undefined" && "randomUUID" in crypto
-              ? crypto.randomUUID()
-              : `${Date.now()}`,
+          id: createPendingSiteActionId(),
           projectId: activeProject.id,
           queuedAt: new Date().toISOString(),
           reportId: editingReportId || undefined,
@@ -900,6 +904,141 @@ function SiteModuleContent({
           {mutationError}
         </div>
       ) : null}
+
+      <div className="md:hidden">
+        <Panel
+          title="Actions terrain"
+          description="Acces rapide pour avancer depuis le chantier avec un minimum de navigation."
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => selectTab("rjc")}
+              disabled={!canCreateReport || Boolean(pendingAction)}
+              title={
+                canCreateReport
+                  ? "Saisir ou reprendre le rapport du jour."
+                  : "Lecture seule sur le rapport journalier."
+              }
+              className={cx(
+                "rounded-[22px] border border-stone-200 px-4 py-4 text-left transition-colors",
+                canCreateReport && !pendingAction
+                  ? "bg-black text-white hover:bg-stone-800"
+                  : "cursor-not-allowed bg-stone-200 text-stone-500",
+              )}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <ClipboardCheck className="size-4" />
+                <StatusBadge tone={activeTab === "rjc" ? "primary" : "neutral"}>RJC</StatusBadge>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-current/80">
+                {canCreateReport
+                  ? "Saisir ou reprendre le rapport du jour."
+                  : "Lecture seule sur le rapport journalier."}
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => selectTab("photos")}
+              disabled={!canAddPhoto || Boolean(pendingAction)}
+              title={
+                canAddPhoto
+                  ? "Ajouter une photo terrain geolocalisee."
+                  : "Consultation seule du journal photo."
+              }
+              className={cx(
+                "rounded-[22px] border border-stone-200 px-4 py-4 text-left transition-colors",
+                canAddPhoto && !pendingAction
+                  ? "bg-stone-100 text-stone-950 hover:bg-stone-200"
+                  : "cursor-not-allowed bg-stone-200 text-stone-500",
+              )}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <Camera className="size-4" />
+                <StatusBadge tone={activeTab === "photos" ? "primary" : "neutral"}>
+                  Photo
+                </StatusBadge>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-current/80">
+                {canAddPhoto
+                  ? "Ajouter une photo terrain geolocalisee."
+                  : "Consultation seule du journal photo."}
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => selectTab("ncr")}
+              disabled={!canCreateNcr || Boolean(pendingAction)}
+              title={
+                canCreateNcr
+                  ? "Creer ou reprendre une non-conformite."
+                  : "Consultation seule des non-conformites."
+              }
+              className={cx(
+                "rounded-[22px] border border-stone-200 px-4 py-4 text-left transition-colors",
+                canCreateNcr && !pendingAction
+                  ? "bg-stone-100 text-stone-950 hover:bg-stone-200"
+                  : "cursor-not-allowed bg-stone-200 text-stone-500",
+              )}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <ShieldAlert className="size-4" />
+                <StatusBadge tone={activeTab === "ncr" ? "primary" : "neutral"}>NC</StatusBadge>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-current/80">
+                {canCreateNcr
+                  ? "Creer ou reprendre une non-conformite."
+                  : "Consultation seule des non-conformites."}
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                pendingSyncCount > 0
+                  ? void syncPendingReports()
+                  : selectTab("overview", editingReportId ? { report: editingReportId } : undefined)
+              }
+              disabled={pendingSyncCount > 0 ? !isOnline : false}
+              title={
+                pendingSyncCount > 0
+                  ? isOnline
+                    ? "Synchroniser les brouillons terrain en attente."
+                    : "Les brouillons seront synchronises au retour du reseau."
+                  : "Revenir au tableau de bord chantier."
+              }
+              className={cx(
+                "rounded-[22px] border border-stone-200 px-4 py-4 text-left transition-colors",
+                pendingSyncCount > 0
+                  ? isOnline
+                    ? "bg-sky-100 text-sky-950 hover:bg-sky-200"
+                    : "cursor-not-allowed bg-stone-200 text-stone-500"
+                  : "bg-stone-100 text-stone-950 hover:bg-stone-200",
+              )}
+            >
+              <div className="flex items-center justify-between gap-3">
+                {pendingSyncCount > 0 ? (
+                  <Radio className="size-4" />
+                ) : (
+                  <FileOutput className="size-4" />
+                )}
+                <StatusBadge tone={activeTab === "overview" ? "primary" : "neutral"}>
+                  {pendingSyncCount > 0 ? "Sync" : "Apercu"}
+                </StatusBadge>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-current/80">
+                {pendingSyncCount > 0
+                  ? isOnline
+                    ? "Synchroniser les brouillons terrain en attente."
+                    : "Les brouillons seront synchronises au retour du reseau."
+                  : "Revenir au tableau de bord chantier."}
+              </p>
+            </button>
+          </div>
+        </Panel>
+      </div>
 
       <Panel className="overflow-hidden">
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
