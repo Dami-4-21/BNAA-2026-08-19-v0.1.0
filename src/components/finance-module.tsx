@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   startTransition,
   useEffect,
@@ -231,7 +231,6 @@ function FinanceModuleContent({
   projectData: FinancePayload;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<FinanceTab>("dm");
   const [overview, setOverview] = useState(projectData.overview);
@@ -411,7 +410,6 @@ function FinanceModuleContent({
     if (typeof window !== "undefined") {
       window.history.replaceState(window.history.state, "", nextUrl);
     }
-    router.replace(nextUrl, { scroll: false });
   }
 
   function selectTab(nextTab: FinanceTab, invoiceId?: string) {
