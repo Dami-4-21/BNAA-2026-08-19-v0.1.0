@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BellRing,
@@ -21,6 +21,7 @@ import { useWorkspace } from "@/components/workspace-context";
 type NotificationAction = "mark-all-read" | "mark-read" | "mark-unread";
 
 type FilterStatus = "all" | "action" | "read" | "unread";
+type NotificationView = "inbox" | "validations" | "alerts";
 
 const emailToneByStatus = {
   captured: "warning",
@@ -40,6 +41,7 @@ const emailLabelByStatus = {
 
 export default function NotificationsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { setActiveProjectId } = useWorkspace();
   const [data, setData] = useState<NotificationsPageData | null>(null);
   const [error, setError] = useState("");
@@ -48,6 +50,9 @@ export default function NotificationsPage() {
   const [projectFilter, setProjectFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [pendingAction, setPendingAction] = useState("");
+  const view = (searchParams.get("view") as NotificationView | null) ?? "inbox";
+  const effectiveStatusFilter: FilterStatus =
+    view === "validations" ? "action" : view === "alerts" ? "unread" : statusFilter;
 
   const loadNotifications = useCallback(async (options?: { preserveData?: boolean }) => {
     try {
@@ -116,15 +121,15 @@ export default function NotificationsPage() {
 
   const filteredNotifications = useMemo(() => {
     return (data?.notifications ?? []).filter((notification) => {
-      if (statusFilter === "unread" && notification.isRead) {
+      if (effectiveStatusFilter === "unread" && notification.isRead) {
         return false;
       }
 
-      if (statusFilter === "read" && !notification.isRead) {
+      if (effectiveStatusFilter === "read" && !notification.isRead) {
         return false;
       }
 
-      if (statusFilter === "action" && !notification.requiresAction) {
+      if (effectiveStatusFilter === "action" && !notification.requiresAction) {
         return false;
       }
 
@@ -155,7 +160,7 @@ export default function NotificationsPage() {
 
       return true;
     });
-  }, [data, projectFilter, search, statusFilter, typeFilter]);
+  }, [data, effectiveStatusFilter, projectFilter, search, typeFilter]);
 
   const quickFilters = [
     {
@@ -174,6 +179,26 @@ export default function NotificationsPage() {
       count: data?.summary.totalCount ?? 0,
     },
   ];
+  const heading = {
+    inbox: {
+      actionBadge: `${data?.summary.unreadCount ?? 0} non lues`,
+      description:
+        "Toutes les actions terrain, documents, finance et administration remontent ici avec un suivi lu / non lu.",
+      title: "Priorites projet et historique d'activite",
+    },
+    validations: {
+      actionBadge: `${data?.summary.actionRequiredCount ?? 0} a traiter`,
+      description:
+        "Vue raccourcie pour reprendre les signatures, validations documentaires et validations finance sans parcourir toute la boite de reception.",
+      title: "File de validations a traiter",
+    },
+    alerts: {
+      actionBadge: `${data?.summary.unreadCount ?? 0} alertes`,
+      description:
+        "Vue orientee priorites pour revenir vite sur les alertes non lues et les points qui bloquent le projet.",
+      title: "Alertes et signaux a surveiller",
+    },
+  }[view];
 
   const markAllReadHelper =
     pendingAction === "mark-all-read"
@@ -289,9 +314,9 @@ export default function NotificationsPage() {
     <div className="space-y-6">
       <SectionHeading
         eyebrow="Notifications"
-        title="Priorites projet et historique d'activite"
-        description="Toutes les actions terrain, documents, finance et administration remontent ici avec un suivi lu / non lu."
-        action={<StatusBadge tone="primary">{data.summary.unreadCount} non lues</StatusBadge>}
+        title={heading.title}
+        description={heading.description}
+        action={<StatusBadge tone="primary">{heading.actionBadge}</StatusBadge>}
       />
 
       <div className="grid gap-4 xl:grid-cols-4">
@@ -318,7 +343,7 @@ export default function NotificationsPage() {
                 onClick={() => setStatusFilter(filter.value)}
                 className={cx(
                   "rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
-                  statusFilter === filter.value
+                  effectiveStatusFilter === filter.value
                     ? "border-black bg-black text-white"
                     : "border-stone-200 bg-white text-stone-600 hover:bg-stone-100",
                 )}
@@ -431,7 +456,7 @@ export default function NotificationsPage() {
               onClick={() => setStatusFilter(filter.value)}
               className={cx(
                 "rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
-                statusFilter === filter.value
+                effectiveStatusFilter === filter.value
                   ? "border-black bg-black text-white"
                   : "border-stone-200 bg-white text-stone-600 hover:bg-stone-100",
               )}
@@ -456,13 +481,14 @@ export default function NotificationsPage() {
               />
             </div>
           </label>
-          <FilterSelect
-            label="Statut"
-            value={statusFilter}
-            onChange={(value) => setStatusFilter(value as FilterStatus)}
-            options={[
-              { label: "Non lues", value: "unread" },
-              { label: "Toutes", value: "all" },
+            <FilterSelect
+              label="Statut"
+              value={effectiveStatusFilter}
+              disabled={view !== "inbox"}
+              onChange={(value) => setStatusFilter(value as FilterStatus)}
+              options={[
+                { label: "Non lues", value: "unread" },
+                { label: "Toutes", value: "all" },
               { label: "A traiter", value: "action" },
               { label: "Lues", value: "read" },
             ]}
@@ -630,11 +656,13 @@ function MetricChip({ label, value }: { label: string; value: string }) {
 }
 
 function FilterSelect({
+  disabled = false,
   label,
   onChange,
   options,
   value,
 }: {
+  disabled?: boolean;
   label: string;
   onChange: (value: string) => void;
   options: Array<{ label: string; value: string }>;
@@ -646,9 +674,15 @@ function FilterSelect({
         {label}
       </span>
       <select
+        disabled={disabled}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm font-medium text-stone-900 outline-none"
+        className={cx(
+          "w-full rounded-2xl border px-4 py-3 text-sm font-medium outline-none",
+          disabled
+            ? "cursor-not-allowed border-stone-200 bg-stone-100 text-stone-500"
+            : "border-stone-200 bg-white text-stone-900",
+        )}
       >
         {options.map((option) => (
           <option key={`${label}-${option.value}`} value={option.value}>

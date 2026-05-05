@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
   Building2,
+  Camera,
+  CheckCheck,
   ChevronsUpDown,
   ChevronRight,
   CircleDollarSign,
@@ -13,6 +15,8 @@ import {
   FileStack,
   FolderKanban,
   LayoutDashboard,
+  Siren,
+  ShieldAlert,
   type LucideIcon,
   LogOut,
   PanelLeftClose,
@@ -23,7 +27,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/components/auth-context";
-import { type AppPermission } from "@/lib/auth";
+import { type AppPermission, type UserRole } from "@/lib/auth";
 import { cx } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import type {
@@ -37,8 +41,10 @@ type NavItem = {
   href: string;
   label: string;
   shortLabel: string;
+  helper: string;
   icon: LucideIcon;
   permission: AppPermission;
+  isActive?: (pathname: string, searchParams: URLSearchParams) => boolean;
 };
 
 const searchSectionLabel: Record<GlobalSearchResult["section"], string> = {
@@ -49,11 +55,12 @@ const searchSectionLabel: Record<GlobalSearchResult["section"], string> = {
   user: "Utilisateur",
 };
 
-const navItems: NavItem[] = [
+const allNavItems: NavItem[] = [
   {
     href: "/",
     label: "Tableau de bord",
     shortLabel: "Accueil",
+    helper: "Overview",
     icon: LayoutDashboard,
     permission: "dashboard.view",
   },
@@ -61,6 +68,7 @@ const navItems: NavItem[] = [
     href: "/projects",
     label: "Projets",
     shortLabel: "Projets",
+    helper: "Portfolio",
     icon: FolderKanban,
     permission: "projects.view",
   },
@@ -68,52 +76,167 @@ const navItems: NavItem[] = [
     href: "/documentation",
     label: "Documentation",
     shortLabel: "Docs",
+    helper: "Guides",
     icon: BookOpenText,
     permission: "documentation.view",
   },
   {
     href: "/site",
-    label: "Suivi chantier",
-    shortLabel: "Site",
+    label: "Chantier",
+    shortLabel: "Chantier",
+    helper: "Aujourd'hui",
     icon: SquarePen,
     permission: "site.view",
+    isActive: (pathname, params) =>
+      pathname === "/site" && !["photos", "ncr"].includes(params.get("tab") ?? "overview"),
+  },
+  {
+    href: "/site?tab=photos",
+    label: "Photos",
+    shortLabel: "Photos",
+    helper: "Journal photo",
+    icon: Camera,
+    permission: "site.view",
+    isActive: (pathname, params) => pathname === "/site" && params.get("tab") === "photos",
+  },
+  {
+    href: "/site?tab=ncr",
+    label: "NC",
+    shortLabel: "NC",
+    helper: "Non-conformites",
+    icon: ShieldAlert,
+    permission: "site.view",
+    isActive: (pathname, params) => pathname === "/site" && params.get("tab") === "ncr",
   },
   {
     href: "/documents",
-    label: "GED & Plans",
+    label: "Documents",
     shortLabel: "Docs",
+    helper: "Bibliotheque",
     icon: FileStack,
     permission: "documents.view",
+    isActive: (pathname, params) =>
+      pathname === "/documents" && !["versions", "distribution"].includes(params.get("tab") ?? "library"),
+  },
+  {
+    href: "/documents?tab=versions",
+    label: "Versions",
+    shortLabel: "Versions",
+    helper: "Revisions",
+    icon: FileStack,
+    permission: "documents.view",
+    isActive: (pathname, params) => pathname === "/documents" && params.get("tab") === "versions",
+  },
+  {
+    href: "/documents?tab=distribution",
+    label: "Diffusion",
+    shortLabel: "Diffusion",
+    helper: "Accuses de lecture",
+    icon: FileStack,
+    permission: "documents.view",
+    isActive: (pathname, params) => pathname === "/documents" && params.get("tab") === "distribution",
   },
   {
     href: "/finance",
     label: "Finance",
     shortLabel: "Finance",
+    helper: "Decompte",
     icon: CircleDollarSign,
     permission: "finance.view",
+    isActive: (pathname, params) =>
+      pathname === "/finance" && !["invoices", "cashflow"].includes(params.get("tab") ?? "dm"),
+  },
+  {
+    href: "/finance?tab=invoices",
+    label: "Factures",
+    shortLabel: "Factures",
+    helper: "Validations",
+    icon: CircleDollarSign,
+    permission: "finance.view",
+    isActive: (pathname, params) => pathname === "/finance" && params.get("tab") === "invoices",
+  },
+  {
+    href: "/finance?tab=cashflow",
+    label: "Paiements",
+    shortLabel: "Paiements",
+    helper: "Encaissements",
+    icon: CircleDollarSign,
+    permission: "finance.view",
+    isActive: (pathname, params) => pathname === "/finance" && params.get("tab") === "cashflow",
   },
   {
     href: "/notifications",
     label: "Notifications",
     shortLabel: "Alertes",
+    helper: "Inbox",
     icon: Bell,
     permission: "notifications.view",
+    isActive: (pathname, params) =>
+      pathname === "/notifications" && !["validations", "alerts"].includes(params.get("view") ?? ""),
+  },
+  {
+    href: "/notifications?view=validations",
+    label: "Validations",
+    shortLabel: "Valider",
+    helper: "Actions a traiter",
+    icon: CheckCheck,
+    permission: "notifications.view",
+    isActive: (pathname, params) =>
+      pathname === "/notifications" && params.get("view") === "validations",
+  },
+  {
+    href: "/notifications?view=alerts",
+    label: "Alertes",
+    shortLabel: "Alertes",
+    helper: "Priorites",
+    icon: Siren,
+    permission: "notifications.view",
+    isActive: (pathname, params) => pathname === "/notifications" && params.get("view") === "alerts",
   },
   {
     href: "/admin",
     label: "Admin",
     shortLabel: "Admin",
+    helper: "Permissions",
     icon: ShieldCheck,
     permission: "admin.view",
   },
 ];
 
-function isActive(pathname: string, href: string) {
-  if (href === "/") {
+const roleNavLabels: Record<UserRole, string[]> = {
+  "Conductrice travaux": ["Chantier", "Photos", "NC", "Alertes"],
+  "Bureau d'etudes": ["Documents", "Versions", "Diffusion", "Alertes"],
+  Comptable: ["Finance", "Factures", "Paiements", "Alertes"],
+  "Chef de projet": ["Tableau de bord", "Validations", "Alertes"],
+  "Maitre d'ouvrage": ["Tableau de bord", "Validations", "Alertes"],
+  "Super Admin": [
+    "Tableau de bord",
+    "Projets",
+    "Chantier",
+    "Documents",
+    "Finance",
+    "Alertes",
+    "Admin",
+    "Documentation",
+  ],
+};
+
+function isNavItemActive(
+  pathname: string,
+  searchParams: URLSearchParams,
+  item: NavItem,
+) {
+  if (item.isActive) {
+    return item.isActive(pathname, searchParams);
+  }
+
+  if (item.href === "/") {
     return pathname === "/";
   }
 
-  return pathname.startsWith(href);
+  const hrefPath = item.href.split("?")[0] ?? item.href;
+
+  return pathname.startsWith(hrefPath);
 }
 
 function SearchResultIcon({ section }: { section: GlobalSearchResult["section"] }) {
@@ -136,6 +259,7 @@ function SearchResultIcon({ section }: { section: GlobalSearchResult["section"] 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signOut } = useAuth();
   const { activeProject, availableProjects, can, currentUser, setActiveProjectId, tenant } =
     useWorkspace();
@@ -276,7 +400,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [searchQuery]);
 
-  const visibleNavItems = navItems.filter((item) => can(item.permission));
+  const routeSearchParams = useMemo(
+    () => new URLSearchParams(searchParams.toString()),
+    [searchParams],
+  );
+  const prioritizedLabels = roleNavLabels[currentUser.role] ?? roleNavLabels["Super Admin"];
+  const visibleNavItems = prioritizedLabels
+    .map((label) => allNavItems.find((item) => item.label === label))
+    .filter((item): item is NavItem => Boolean(item))
+    .filter((item) => can(item.permission));
+  const accessibleRouteItems = allNavItems.filter((item) => can(item.permission));
   const searchSummary = useMemo(() => {
     const counts = searchResults.reduce<Record<GlobalSearchResult["section"], number>>(
       (summary, result) => ({
@@ -304,10 +437,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [searchResults]);
 
   const currentNav =
-    visibleNavItems.find((item) => item.href !== "/" && pathname.startsWith(item.href)) ??
-    visibleNavItems.find((item) => item.href === pathname) ??
+    visibleNavItems.find((item) => isNavItemActive(pathname, routeSearchParams, item)) ??
+    accessibleRouteItems.find((item) => isNavItemActive(pathname, routeSearchParams, item)) ??
     visibleNavItems[0] ??
-    navItems[0];
+    allNavItems[0];
 
   async function handleSignOut() {
     await signOut();
@@ -428,24 +561,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               sidebarCollapsed ? "px-1" : "",
             )}
           >
-            {visibleNavItems.map(({ href, label, icon: Icon }) => {
-              const active = isActive(pathname, href);
-              const sublabel =
-                href === "/"
-                  ? "Overview"
-                  : href === "/documentation"
-                    ? "Guides"
-                  : href === "/documents"
-                    ? "Document control"
-                    : href === "/finance"
-                      ? "Cashflow"
-                      : href === "/site"
-                        ? "Field ops"
-                        : href === "/notifications"
-                          ? "Inbox"
-                          : href === "/projects"
-                            ? "Portfolio"
-                            : "Permissions";
+            {visibleNavItems.map((item) => {
+              const { href, label, helper: sublabel, icon: Icon } = item;
+              const active = isNavItemActive(pathname, routeSearchParams, item);
 
               return (
                 <div key={href} className="group relative">
@@ -846,8 +964,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <nav className="fixed inset-x-4 bottom-4 z-30 rounded-[24px] border border-stone-200 bg-white p-2 shadow-lg lg:hidden">
         <div className="soft-scrollbar flex gap-2 overflow-x-auto">
-          {visibleNavItems.map(({ href, shortLabel, icon: Icon }) => {
-            const active = isActive(pathname, href);
+          {visibleNavItems.map((item) => {
+            const { href, shortLabel, icon: Icon } = item;
+            const active = isNavItemActive(pathname, routeSearchParams, item);
 
             return (
               <Link
