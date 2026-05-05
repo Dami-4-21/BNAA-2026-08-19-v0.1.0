@@ -36,6 +36,11 @@ const roleOptions: UserRole[] = [
 ];
 
 const projectStatusOptions = ["Configuration", "En execution", "Phase encaissement"];
+const projectSetupPresets = {
+  lots: ["Gros oeuvre", "Second oeuvre", "VRD"],
+  phases: ["Execution", "Visa", "Synthese"],
+  zones: ["Bloc A", "Bloc B", "Exterieur"],
+};
 
 const workflowOwnerFields: Array<{
   helper: string;
@@ -380,6 +385,58 @@ export default function AdminPage() {
       ]
     : [];
   const projectReadyCount = selectedProjectChecklist.filter((item) => item.done).length;
+  const projectReadinessPercent =
+    selectedProjectChecklist.length > 0
+      ? Math.round((projectReadyCount / selectedProjectChecklist.length) * 100)
+      : 0;
+  const nextChecklistItem = selectedProjectChecklist.find((item) => !item.done) ?? null;
+  const projectSetupStages = selectedProject && selectedProjectDraft
+    ? [
+        {
+          done: Boolean(
+            selectedProjectDraft.name &&
+              selectedProjectDraft.client &&
+              selectedProjectDraft.location,
+          ),
+          helper:
+            selectedProjectDraft.name &&
+            selectedProjectDraft.client &&
+            selectedProjectDraft.location
+              ? "Nom, client et localisation sont renseignes."
+              : "Renseignez d'abord le cadre du projet.",
+          label: "1. Cadre projet",
+        },
+        {
+          done: Boolean(
+            selectedProjectDraft.lots.length > 0 &&
+              selectedProjectDraft.phases.length > 0 &&
+              selectedProjectDraft.zones.length > 0,
+          ),
+          helper:
+            selectedProjectDraft.lots.length > 0 &&
+            selectedProjectDraft.phases.length > 0 &&
+            selectedProjectDraft.zones.length > 0
+              ? "La structure est prete pour chantier, documents et finance."
+              : "Completez lots, phases et zones.",
+          label: "2. Structure",
+        },
+        {
+          done: selectedProjectDraft.memberIds.length > 0,
+          helper:
+            selectedProjectDraft.memberIds.length > 0
+              ? `${selectedProjectDraft.memberIds.length} membre(s) affecte(s).`
+              : "Affectez l'equipe qui exploitera le projet.",
+          label: "3. Equipe",
+        },
+        {
+          done: workflowOwnerFields.every((field) => Boolean(selectedProjectDraft.workflowOwners[field.key])),
+          helper: workflowOwnerFields.every((field) => Boolean(selectedProjectDraft.workflowOwners[field.key]))
+            ? "Tous les responsables clefs sont designes."
+            : "Finalisez les responsables du workflow.",
+          label: "4. Responsables",
+        },
+      ]
+    : [];
   const nextAdminStep = !selectedProject
     ? "Selectionnez un projet pour verifier sa readiness avant de le confier aux equipes."
     : hasPendingMemberChanges
@@ -503,6 +560,13 @@ export default function AdminPage() {
       ...current,
       role,
       projectIds: role === "Super Admin" ? ["*"] : current.projectIds.filter((id) => id !== "*"),
+    }));
+  }
+
+  function applyProjectPreset(field: keyof typeof projectSetupPresets) {
+    setProjectForm((current) => ({
+      ...current,
+      [field]: projectSetupPresets[field].join(", "),
     }));
   }
 
@@ -770,11 +834,17 @@ export default function AdminPage() {
                 <StatusBadge tone="primary">{selectedProject.summary.code}</StatusBadge>
                 <StatusBadge tone="success">{selectedProject.summary.status}</StatusBadge>
                 <StatusBadge tone={projectReadyCount === selectedProjectChecklist.length ? "success" : "warning"}>
-                  {projectReadyCount}/{selectedProjectChecklist.length} readiness
+                  {projectReadinessPercent}% pret
                 </StatusBadge>
                 <p className="text-sm text-stone-600">
                   {selectedProject.summary.name} - {selectedProject.summary.client}
                 </p>
+              </div>
+              <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600">
+                <span className="font-semibold text-stone-950">Etape suivante:</span>{" "}
+                {nextChecklistItem
+                  ? `${nextChecklistItem.label} - ${nextChecklistItem.helper}`
+                  : "Le projet est complet et pret pour les equipes terrain, documents et finance."}
               </div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {selectedProjectChecklist.map((item) => (
@@ -928,6 +998,36 @@ export default function AdminPage() {
 
         <Panel title="Creer un projet">
           <form className="space-y-4" onSubmit={handleCreateProject}>
+            <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+              <p className="text-sm font-semibold text-white">Demarrage rapide</p>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Utilisez un modele simple pour gagner du temps, puis ajustez la structure selon le chantier.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => applyProjectPreset("lots")}
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10"
+                >
+                  Lots type
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyProjectPreset("phases")}
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10"
+                >
+                  Phases type
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyProjectPreset("zones")}
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10"
+                >
+                  Zones type
+                </button>
+              </div>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2">
               <FormField
                 label="Nom du projet"
@@ -1122,104 +1222,171 @@ export default function AdminPage() {
         >
           {selectedProject && selectedProjectDraft ? (
             <div className="space-y-5">
-              <div className="grid gap-4 md:grid-cols-2">
-                <FormField
-                  label="Nom du projet"
-                  value={selectedProjectDraft.name}
-                  onChange={(value) =>
-                    updateProjectDraft(selectedProject.summary.id, { name: value })
-                  }
-                />
-                <FormField
-                  label="Client"
-                  value={selectedProjectDraft.client}
-                  onChange={(value) =>
-                    updateProjectDraft(selectedProject.summary.id, { client: value })
-                  }
-                />
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
-                <FormField
-                  label="Localisation"
-                  value={selectedProjectDraft.location}
-                  onChange={(value) =>
-                    updateProjectDraft(selectedProject.summary.id, { location: value })
-                  }
-                />
-                <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-                  <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                    Statut
-                  </span>
-                  <select
-                    value={selectedProjectDraft.status}
-                    onChange={(event) =>
-                      updateProjectDraft(selectedProject.summary.id, {
-                        status: event.target.value,
-                      })
-                    }
-                    className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
+              <div className="grid gap-3 lg:grid-cols-4">
+                {projectSetupStages.map((stage) => (
+                  <div
+                    key={stage.label}
+                    className={cx(
+                      "rounded-[20px] border p-4",
+                      stage.done
+                        ? "border-emerald-200 bg-emerald-50"
+                        : "border-stone-200 bg-stone-50",
+                    )}
                   >
-                    {projectStatusOptions.map((status) => (
-                      <option key={`${selectedProject.summary.id}-${status}`} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                    <option value="Cloture">Cloture</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-[0.85fr_1.15fr]">
-                <FormField
-                  label="Budget (TND)"
-                  value={selectedProjectDraft.budgetTnd}
-                  onChange={(value) =>
-                    updateProjectDraft(selectedProject.summary.id, { budgetTnd: value })
-                  }
-                />
-                <FormField
-                  label="Prochain jalon"
-                  value={selectedProjectDraft.nextMilestone}
-                  onChange={(value) =>
-                    updateProjectDraft(selectedProject.summary.id, {
-                      nextMilestone: value,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-3">
-                <TokenEditor
-                  label="Lots"
-                  icon={Layers3}
-                  values={selectedProjectDraft.lots}
-                  onChange={(values) =>
-                    updateProjectDraft(selectedProject.summary.id, { lots: values })
-                  }
-                />
-                <TokenEditor
-                  label="Phases"
-                  icon={FolderKanban}
-                  values={selectedProjectDraft.phases}
-                  onChange={(values) =>
-                    updateProjectDraft(selectedProject.summary.id, { phases: values })
-                  }
-                />
-                <TokenEditor
-                  label="Zones"
-                  icon={MapPinned}
-                  values={selectedProjectDraft.zones}
-                  onChange={(values) =>
-                    updateProjectDraft(selectedProject.summary.id, { zones: values })
-                  }
-                />
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-stone-950">{stage.label}</p>
+                      <StatusBadge tone={stage.done ? "success" : "warning"}>
+                        {stage.done ? "Pret" : "A faire"}
+                      </StatusBadge>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-stone-600">{stage.helper}</p>
+                  </div>
+                ))}
               </div>
 
               <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-white">Responsables du workflow</p>
+                    <p className="text-sm font-semibold text-white">1. Cadre du projet</p>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Renseignez l&apos;identite du projet, son statut, son budget et son prochain jalon.
+                    </p>
+                  </div>
+                  <StatusBadge tone="primary">{selectedProject.summary.code}</StatusBadge>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <FormField
+                    label="Nom du projet"
+                    value={selectedProjectDraft.name}
+                    onChange={(value) =>
+                      updateProjectDraft(selectedProject.summary.id, { name: value })
+                    }
+                  />
+                  <FormField
+                    label="Client"
+                    value={selectedProjectDraft.client}
+                    onChange={(value) =>
+                      updateProjectDraft(selectedProject.summary.id, { client: value })
+                    }
+                  />
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
+                  <FormField
+                    label="Localisation"
+                    value={selectedProjectDraft.location}
+                    onChange={(value) =>
+                      updateProjectDraft(selectedProject.summary.id, { location: value })
+                    }
+                  />
+                  <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+                    <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                      Statut
+                    </span>
+                    <select
+                      value={selectedProjectDraft.status}
+                      onChange={(event) =>
+                        updateProjectDraft(selectedProject.summary.id, {
+                          status: event.target.value,
+                        })
+                      }
+                      className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
+                    >
+                      {projectStatusOptions.map((status) => (
+                        <option key={`${selectedProject.summary.id}-${status}`} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                      <option value="Cloture">Cloture</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-[0.85fr_1.15fr]">
+                  <FormField
+                    label="Budget (TND)"
+                    value={selectedProjectDraft.budgetTnd}
+                    onChange={(value) =>
+                      updateProjectDraft(selectedProject.summary.id, { budgetTnd: value })
+                    }
+                  />
+                  <FormField
+                    label="Prochain jalon"
+                    value={selectedProjectDraft.nextMilestone}
+                    onChange={(value) =>
+                      updateProjectDraft(selectedProject.summary.id, {
+                        nextMilestone: value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">2. Structure operationnelle</p>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Ces listes servent directement dans chantier, documents et finance.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateProjectDraft(selectedProject.summary.id, {
+                        lots:
+                          selectedProjectDraft.lots.length > 0
+                            ? selectedProjectDraft.lots
+                            : [...projectSetupPresets.lots],
+                        phases:
+                          selectedProjectDraft.phases.length > 0
+                            ? selectedProjectDraft.phases
+                            : [...projectSetupPresets.phases],
+                        zones:
+                          selectedProjectDraft.zones.length > 0
+                            ? selectedProjectDraft.zones
+                            : [...projectSetupPresets.zones],
+                      })
+                    }
+                    className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10"
+                  >
+                    Completer avec un modele type
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                  <TokenEditor
+                    label="Lots"
+                    icon={Layers3}
+                    values={selectedProjectDraft.lots}
+                    onChange={(values) =>
+                      updateProjectDraft(selectedProject.summary.id, { lots: values })
+                    }
+                  />
+                  <TokenEditor
+                    label="Phases"
+                    icon={FolderKanban}
+                    values={selectedProjectDraft.phases}
+                    onChange={(values) =>
+                      updateProjectDraft(selectedProject.summary.id, { phases: values })
+                    }
+                  />
+                  <TokenEditor
+                    label="Zones"
+                    icon={MapPinned}
+                    values={selectedProjectDraft.zones}
+                    onChange={(values) =>
+                      updateProjectDraft(selectedProject.summary.id, { zones: values })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">4. Responsables du workflow</p>
                     <p className="mt-1 text-sm text-slate-300">
                       Choisissez les referents qui piloteront le terrain, les documents, la finance et les validations.
                     </p>
@@ -1302,7 +1469,7 @@ export default function AdminPage() {
               <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-white">Affectation equipe</p>
+                    <p className="text-sm font-semibold text-white">3. Affectation equipe</p>
                     <p className="mt-1 text-sm text-slate-300">
                       Choisissez les utilisateurs qui doivent voir et exploiter ce projet dans le SaaS.
                     </p>
