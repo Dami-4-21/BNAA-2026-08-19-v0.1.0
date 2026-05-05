@@ -314,6 +314,7 @@ function FinanceModuleContent({
   );
   const selectedInvoice =
     invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? invoices[0];
+  const paymentDraftInvoiceRef = useRef(selectedInvoice?.id ?? "");
   const selectedStatusValue = manualStatusOptions.includes(statusDraft)
     ? statusDraft
     : (manualStatusOptions[0] ?? statusDraft);
@@ -354,6 +355,29 @@ function FinanceModuleContent({
           100,
       )
     : 0;
+
+  useEffect(() => {
+    if (!selectedInvoice) {
+      paymentDraftInvoiceRef.current = "";
+      return;
+    }
+
+    if (paymentDraftInvoiceRef.current === selectedInvoice.id) {
+      return;
+    }
+
+    paymentDraftInvoiceRef.current = selectedInvoice.id;
+    const paidAmount = payments
+      .filter((payment) => payment.invoiceId === selectedInvoice.id)
+      .reduce((total, payment) => total + payment.amount, 0);
+    const remainingAmount = Math.max(selectedInvoice.amountTtc - paidAmount, 0);
+
+    setPaymentDraft((current) => ({
+      amount: remainingAmount > 0 ? String(remainingAmount) : "",
+      method: current.method || "Virement",
+      reference: "",
+    }));
+  }, [payments, selectedInvoice]);
 
   const validationAction = useMemo(() => {
     if (!selectedInvoice) {
