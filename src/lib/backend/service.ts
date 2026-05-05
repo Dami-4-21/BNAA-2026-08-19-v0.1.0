@@ -183,6 +183,22 @@ function getInvoicePdfUrl(projectId: string, invoiceId: string) {
   return `/api/projects/${projectId}/finance/invoices/${invoiceId}/pdf`;
 }
 
+function normalizePeriodMonthInput(value: string) {
+  const trimmed = value.trim();
+  const monthYearMatch = trimmed.match(/^(\d{2})\/(\d{4})$/);
+  if (monthYearMatch) {
+    const [, month, year] = monthYearMatch;
+    return `${year}-${month}-01`;
+  }
+
+  const monthInputMatch = trimmed.match(/^(\d{4})-(\d{2})$/);
+  if (monthInputMatch) {
+    return `${trimmed}-01`;
+  }
+
+  return trimmed;
+}
+
 function getPhotoAccent(index: number) {
   const accents = [
     "from-sky-500/55 to-violet-300/18",
@@ -3674,6 +3690,7 @@ export async function mutateFinancePayload(
       case "create-invoice": {
         ensurePermission(user, "finance.invoice.create");
         const dmDraft = payload.dmDraft as FinanceModuleData["dmDraft"];
+        const periodMonth = normalizePeriodMonthInput(String(dmDraft.periodMonth ?? ""));
         const vatRegimeId = String(payload.vatRegimeId ?? project.finance.defaultVatRegimeId);
         const vatRegime =
           financeVatRegimes.find((item) => item.id === vatRegimeId) ?? financeVatRegimes[0];
@@ -3691,7 +3708,7 @@ export async function mutateFinancePayload(
           projectId,
           invoiceNumber: `FAC-2026-${String(maxSuffix + 1).padStart(3, "0")}`,
           project: project.summary.name,
-          periodMonth: dmDraft.periodMonth,
+          periodMonth,
           amountHt,
           tvaRate: vatRegime.rate,
           tvaAmount,

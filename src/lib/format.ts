@@ -15,6 +15,25 @@ const fullDateFormatter = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
+function resolveDate(value: string) {
+  const monthYearMatch = value.match(/^(\d{2})\/(\d{4})$/);
+  if (monthYearMatch) {
+    const [, month, year] = monthYearMatch;
+    const parsed = new Date(`${year}-${month}-01T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const monthInputMatch = value.match(/^(\d{4})-(\d{2})$/);
+  if (monthInputMatch) {
+    const [, year, month] = monthInputMatch;
+    const parsed = new Date(`${year}-${month}-01T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function formatCurrency(value: number) {
   return tndFormatter.format(value);
 }
@@ -31,9 +50,11 @@ export function formatPercent(value: number) {
 }
 
 export function formatShortDate(value: string) {
-  return dateFormatter.format(new Date(value));
+  const date = resolveDate(value);
+  return date ? dateFormatter.format(date) : value;
 }
 
 export function formatDate(value: string) {
-  return fullDateFormatter.format(new Date(value));
+  const date = resolveDate(value);
+  return date ? fullDateFormatter.format(date) : value;
 }

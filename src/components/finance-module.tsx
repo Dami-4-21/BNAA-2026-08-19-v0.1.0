@@ -139,6 +139,21 @@ function openPdf(url?: string) {
   link.click();
 }
 
+function toMonthInputValue(value: string) {
+  const monthYearMatch = value.match(/^(\d{2})\/(\d{4})$/);
+  if (monthYearMatch) {
+    const [, month, year] = monthYearMatch;
+    return `${year}-${month}`;
+  }
+
+  const isoMatch = value.match(/^(\d{4})-(\d{2})(?:-\d{2})?$/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}`;
+  }
+
+  return value;
+}
+
 export function FinanceModule() {
   const { activeProject, can, currentUser } = useWorkspace();
   const [projectData, setProjectData] = useState<FinancePayload | null>(null);
@@ -816,13 +831,22 @@ function DecompteTab({
               ))}
             </div>
           </div>
-          <Field
-            label="Mois de decompte"
-            value={dmDraft.periodMonth}
-            onChange={(value) =>
-              setDmDraft((current) => ({ ...current, periodMonth: value }))
-            }
-          />
+          <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+            <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              Mois de decompte
+            </span>
+            <input
+              type="month"
+              value={toMonthInputValue(dmDraft.periodMonth)}
+              onChange={(event) =>
+                setDmDraft((current) => ({ ...current, periodMonth: event.target.value }))
+              }
+              className="mt-3 w-full bg-transparent text-white outline-none"
+            />
+            <p className="mt-3 text-xs leading-5 text-slate-400">
+              Utilisez le mois de facturation reel pour garder les decomptes et l&apos;historique alignes.
+            </p>
+          </label>
           <NumberField
             label="Avancement saisi (%)"
             value={dmDraft.progressPct}
