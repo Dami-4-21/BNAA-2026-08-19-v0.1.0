@@ -54,6 +54,18 @@ export default function NotificationsPage() {
   const effectiveStatusFilter: FilterStatus =
     view === "validations" ? "action" : view === "alerts" ? "unread" : statusFilter;
 
+  function replaceView(nextView: NotificationView) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextView === "inbox") {
+      params.delete("view");
+    } else {
+      params.set("view", nextView);
+    }
+
+    const query = params.toString();
+    router.replace(query ? `/notifications?${query}` : "/notifications", { scroll: false });
+  }
+
   const loadNotifications = useCallback(async (options?: { preserveData?: boolean }) => {
     try {
       setError("");
@@ -120,7 +132,7 @@ export default function NotificationsPage() {
   );
 
   const filteredNotifications = useMemo(() => {
-    return (data?.notifications ?? []).filter((notification) => {
+    const matchingNotifications = (data?.notifications ?? []).filter((notification) => {
       if (effectiveStatusFilter === "unread" && notification.isRead) {
         return false;
       }
@@ -159,6 +171,18 @@ export default function NotificationsPage() {
       }
 
       return true;
+    });
+
+    return matchingNotifications.sort((left, right) => {
+      if (left.requiresAction !== right.requiresAction) {
+        return left.requiresAction ? -1 : 1;
+      }
+
+      if (left.isRead !== right.isRead) {
+        return left.isRead ? 1 : -1;
+      }
+
+      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
     });
   }, [data, effectiveStatusFilter, projectFilter, search, typeFilter]);
 
@@ -214,6 +238,38 @@ export default function NotificationsPage() {
       .map((notification) => notification.projectCode)
       .filter((projectCode): projectCode is string => Boolean(projectCode)),
   ).size;
+  const actionQueue = useMemo(
+    () =>
+      filteredNotifications
+        .filter((notification) => notification.requiresAction || !notification.isRead)
+        .slice(0, 4),
+    [filteredNotifications],
+  );
+  const projectQueue = useMemo(() => {
+    const counts = new Map<string, { actions: number; unread: number }>();
+
+    for (const notification of data?.notifications ?? []) {
+      const projectCode = notification.projectCode ?? "Sans projet";
+      const current = counts.get(projectCode) ?? { actions: 0, unread: 0 };
+      if (notification.requiresAction) {
+        current.actions += 1;
+      }
+      if (!notification.isRead) {
+        current.unread += 1;
+      }
+      counts.set(projectCode, current);
+    }
+
+    return Array.from(counts.entries())
+      .map(([projectCode, counts]) => ({ projectCode, ...counts }))
+      .sort((left, right) => {
+        if (left.actions !== right.actions) {
+          return right.actions - left.actions;
+        }
+        return right.unread - left.unread;
+      })
+      .slice(0, 5);
+  }, [data?.notifications]);
 
   function resetFilters() {
     setStatusFilter("unread");
@@ -319,6 +375,28 @@ export default function NotificationsPage() {
         action={<StatusBadge tone="primary">{heading.actionBadge}</StatusBadge>}
       />
 
+      <div className="flex flex-wrap gap-2">
+        {[
+          { label: "Boite de reception", value: "inbox" as NotificationView },
+          { label: "Validations", value: "validations" as NotificationView },
+          { label: "Alertes", value: "alerts" as NotificationView },
+        ].map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            onClick={() => replaceView(item.value)}
+            className={cx(
+              "rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
+              view === item.value
+                ? "border-black bg-black text-white"
+                : "border-stone-200 bg-white text-stone-600 hover:bg-stone-100",
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid gap-4 xl:grid-cols-4">
         <MetricChip label="A traiter" value={`${data.summary.actionRequiredCount}`} />
         <MetricChip label="Non lues" value={`${data.summary.unreadCount}`} />
@@ -356,13 +434,28 @@ export default function NotificationsPage() {
             Combinez ensuite le type, le projet et la recherche libre pour isoler une action precise.
           </p>
         </Panel>
-        <Panel title="Flux email" description="Verifiez en un coup d'oeil si les notifications critiques quittent bien le SaaS.">
+        <Panel title="Projets a surveiller" description="Reperez les projets qui concentrent le plus d'actions et de non lus.">
           <div className="space-y-3">
+            {projectQueue.length > 0 ? (
+              projectQueue.map((project) => (
+                <div
+                  key={`project-queue-${project.projectCode}`}
+                  className="rounded-[22px] border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold text-stone-950">{project.projectCode}</span>
+                    <StatusBadge tone={project.actions > 0 ? "warning" : "neutral"}>
+                      {project.actions} action(s)
+                    </StatusBadge>
+                  </div>
+                  <p className="mt-2">{project.unread} notification(s) encore non lue(s).</p>
+                </div>
+              ))
+            ) : (
+              <EmptyState label="Aucun projet ne remonte de file prioritaire actuellement." />
+            )}
             <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600">
               <span className="font-semibold text-stone-950">{queuedEmails}</span> notification(s) attendent encore un envoi ou sont capturees localement.
-            </div>
-            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600">
-              Les statuts <span className="font-semibold text-stone-950">Email en file</span> et <span className="font-semibold text-stone-950">Email capture</span> meritent une verification en priorite.
             </div>
           </div>
         </Panel>
@@ -370,11 +463,50 @@ export default function NotificationsPage() {
 
       <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
         <Panel
-          title="Actions prioritaires"
-          description="Les notifications non lues et critiques remontent en tete pour accelerer les validations et les actions terrain."
+          title="A faire maintenant"
+          description="La file courte a reprendre tout de suite pour ne pas perdre le fil du projet."
         >
           <div className="space-y-3">
-            {data.alerts.length > 0 ? (
+            {actionQueue.length > 0 ? (
+              actionQueue.map((notification) => (
+                <div
+                  key={`queue-${notification.id}`}
+                  className="rounded-[22px] border border-stone-200 bg-stone-50 p-4"
+                >
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge tone={notification.tone}>
+                          {notification.requiresAction ? "A traiter" : "A ouvrir"}
+                        </StatusBadge>
+                        {notification.projectCode ? (
+                          <StatusBadge tone="neutral">{notification.projectCode}</StatusBadge>
+                        ) : null}
+                        <span className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-500">
+                          <Clock3 className="size-3" />
+                          {notification.when}
+                        </span>
+                      </div>
+                      <p className="mt-3 text-sm font-semibold text-stone-950">
+                        {notification.title}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-stone-600">
+                        {notification.detail}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void openNotification(notification)}
+                      disabled={pendingAction === notification.id || !notification.href}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-stone-200 bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Ouvrir
+                      <ExternalLink className="size-4" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : data.alerts.length > 0 ? (
               data.alerts.map((alert) => (
                 <div
                   key={`${alert.title}-${alert.time}`}
@@ -563,6 +695,11 @@ export default function NotificationsPage() {
                         <Clock3 className="size-3" />
                         {notification.when}
                       </span>
+                      {!notification.isRead ? (
+                        <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
+                          Nouveau
+                        </span>
+                      ) : null}
                     </div>
                     <div>
                       <p className="text-base font-semibold text-stone-950">
