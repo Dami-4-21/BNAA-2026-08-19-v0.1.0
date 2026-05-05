@@ -44,6 +44,12 @@ import { useWorkspace } from "@/components/workspace-context";
 type DocumentsTab = "library" | "versions" | "distribution" | "offline";
 
 type ActiveTone = "primary" | "success" | "warning" | "danger";
+type DocumentWorkflowStep = {
+  step: string;
+  detail: string;
+  tone: ActiveTone;
+  state: "done" | "current" | "todo";
+};
 
 type DocumentFile = DocumentsPayload["files"][number];
 type Recipient = DocumentsPayload["recipients"][number];
@@ -57,22 +63,22 @@ const tabs: Array<{ key: DocumentsTab; label: string; helper: string }> = [
   {
     key: "library",
     label: "Bibliotheque",
-    helper: "Arborescence, formats, recherche et acces rapide",
+    helper: "Retrouver la bonne reference, filtrer et consulter",
   },
   {
     key: "versions",
-    label: "Versionning",
-    helper: "Historique, comparaison visuelle et version courante",
+    label: "Publier",
+    helper: "Nouvelle revision, historique et comparaison",
   },
   {
     key: "distribution",
-    label: "Diffusion",
-    helper: "Destinataires, lecture et plans obsoletes",
+    label: "Diffuser",
+    helper: "Envoyer le plan et suivre qui l'a lu",
   },
   {
     key: "offline",
-    label: "Offline mobile",
-    helper: "Cache intelligent et acces chantier sans 4G",
+    label: "Mobile chantier",
+    helper: "Preparer l'acces hors connexion pour le terrain",
   },
 ];
 
@@ -82,6 +88,104 @@ const toneByReadStatus: Record<string, ActiveTone> = {
   Lu: "success",
   "Non lu": "warning",
 };
+
+function buildDocumentWorkflowSteps({
+  readRate,
+  selectedDocument,
+  unreadRecipients,
+}: {
+  readRate: number;
+  selectedDocument?: DocumentFile;
+  unreadRecipients: Recipient[];
+}): DocumentWorkflowStep[] {
+  if (!selectedDocument) {
+    return [
+      {
+        step: "1. Choisir la reference",
+        detail: "Selectionnez un plan ou un document pour lancer le suivi.",
+        tone: "primary",
+        state: "current",
+      },
+      {
+        step: "2. Publier la revision",
+        detail: "Ajoutez la nouvelle revision et gardez une version courante claire.",
+        tone: "warning",
+        state: "todo",
+      },
+      {
+        step: "3. Lancer la diffusion",
+        detail: "Diffusez seulement la revision valide aux bons destinataires.",
+        tone: "warning",
+        state: "todo",
+      },
+      {
+        step: "4. Suivre les lectures",
+        detail: "Controlez les accuses de lecture avant execution sur chantier.",
+        tone: "warning",
+        state: "todo",
+      },
+    ];
+  }
+
+  return [
+    {
+      step: "1. Reference selectionnee",
+      detail: `${selectedDocument.code} · ${selectedDocument.revision}`,
+      tone: "primary",
+      state: "done",
+    },
+    {
+      step: "2. Revision publiee",
+      detail: selectedDocument.status === "Obsolete"
+        ? "Cette revision est obsolete. Publiez une version en vigueur."
+        : selectedDocument.isCurrent
+          ? "La version courante est bien identifiee."
+          : "Verifiez la revision courante avant diffusion.",
+      tone:
+        selectedDocument.status === "Obsolete"
+          ? "warning"
+          : selectedDocument.isCurrent
+            ? "success"
+            : "primary",
+      state:
+        selectedDocument.status === "Obsolete"
+          ? "current"
+          : selectedDocument.isCurrent
+            ? "done"
+            : "current",
+    },
+    {
+      step: "3. Diffusion",
+      detail:
+        selectedDocument.recipients > 0
+          ? `${selectedDocument.recipients} destinataire(s) suivis sur cette diffusion.`
+          : "Aucune diffusion lancee pour cette revision.",
+      tone: selectedDocument.recipients > 0 ? "success" : "warning",
+      state: selectedDocument.recipients > 0 ? "done" : "current",
+    },
+    {
+      step: "4. Lectures",
+      detail:
+        selectedDocument.recipients > 0
+          ? unreadRecipients.length === 0
+            ? "Tous les destinataires ont accuse reception."
+            : `${unreadRecipients.length} lecture(s) encore attendue(s) · ${readRate}% lus.`
+          : "Le suivi des lectures commencera apres la diffusion.",
+      tone:
+        selectedDocument.recipients === 0
+          ? "warning"
+          : unreadRecipients.length === 0
+            ? "success"
+            : "primary",
+      state:
+        selectedDocument.recipients === 0
+          ? "todo"
+          : unreadRecipients.length === 0
+            ? "done"
+            : "current",
+    },
+  ];
+}
 
 export function DocumentsModule() {
   const { activeProject, can, currentUser } = useWorkspace();
@@ -376,6 +480,15 @@ function DocumentsModuleContent({
     () => recipients.filter((recipient) => recipient.documentId === selectedDocument?.id),
     [recipients, selectedDocument],
   );
+  const unreadRecipients = useMemo(
+    () => recipientsForSelected.filter((recipient) => recipient.status !== "Lu"),
+    [recipientsForSelected],
+  );
+  const readRate = selectedDocument
+    ? Math.round(
+        (selectedDocument.readCount / Math.max(selectedDocument.recipients, 1)) * 100,
+      )
+    : 0;
   const hasMetadataChanges = Boolean(
     selectedDocument &&
       (metadataDraft.title !== selectedDocument.title ||
@@ -432,6 +545,108 @@ function DocumentsModuleContent({
   const canAcknowledgeRecipient = (recipient: Recipient) =>
     canAcknowledge &&
     (!recipient.userId || currentUserRole === "Super Admin" || recipient.userId === currentUserId);
+  const pendingRecipientForCurrentUser = unreadRecipients.find(
+    (recipient) =>
+      recipient.userId &&
+      (currentUserRole === "Super Admin" || recipient.userId === currentUserId),
+  );
+  const canAcknowledgePendingRecipient = pendingRecipientForCurrentUser
+    ? canAcknowledgeRecipient(pendingRecipientForCurrentUser)
+    : false;
+  const pendingRecipientHelper = pendingRecipientForCurrentUser
+    ? getRecipientAcknowledgeHelper(pendingRecipientForCurrentUser)
+    : "";
+  const workflowSteps = buildDocumentWorkflowSteps({
+    readRate,
+    selectedDocument,
+    unreadRecipients,
+  });
+  const nextDocumentAction = useMemo(() => {
+    if (!selectedDocument) {
+      return {
+        title: "Choisir une reference",
+        detail: "Commencez par ouvrir le bon plan ou le bon document dans la bibliotheque.",
+        helper: "La selection du document synchronise aussi les vues de publication et de diffusion.",
+        actionLabel: "Ouvrir la bibliotheque",
+        actionTone: "primary" as ActiveTone,
+        tab: "library" as DocumentsTab,
+      };
+    }
+
+    if (selectedDocument.status === "Obsolete" && canPublishVersion) {
+      return {
+        title: "Publier une revision en vigueur",
+        detail: "Le document selectionne est obsolete. Publiez une nouvelle revision avant de le redistribuer.",
+        helper: publishVersionHelper,
+        actionLabel: "Publier la revision",
+        actionTone: "warning" as ActiveTone,
+        tab: "versions" as DocumentsTab,
+      };
+    }
+
+    if (selectedDocument.recipients === 0) {
+      return {
+        title: "Lancer la diffusion",
+        detail: "La revision est prete, mais aucun destinataire n'a encore recu ce plan.",
+        helper: distributeActionHelper,
+        actionLabel: canDistribute ? "Ouvrir la diffusion" : "Voir la diffusion",
+        actionTone: canDistribute ? ("primary" as ActiveTone) : ("warning" as ActiveTone),
+        tab: "distribution" as DocumentsTab,
+      };
+    }
+
+    if (pendingRecipientForCurrentUser && canAcknowledgePendingRecipient) {
+      return {
+        title: "Confirmer votre lecture",
+        detail: "Vous faites partie des destinataires attendus sur cette diffusion.",
+        helper: pendingRecipientHelper,
+        actionLabel: "Ouvrir le suivi de lecture",
+        actionTone: "primary" as ActiveTone,
+        tab: "distribution" as DocumentsTab,
+      };
+    }
+
+    if (unreadRecipients.length > 0) {
+      return {
+        title: "Relancer le suivi de lecture",
+        detail: `${unreadRecipients.length} destinataire(s) n'ont pas encore accuse reception de cette revision.`,
+        helper: "Le suivi de lecture vous aide a verifier que le chantier travaille sur la bonne version.",
+        actionLabel: "Suivre les lectures",
+        actionTone: "warning" as ActiveTone,
+        tab: "distribution" as DocumentsTab,
+      };
+    }
+
+    if (!selectedDocument.offlineReady) {
+      return {
+        title: "Preparer le mobile chantier",
+        detail: "Ajoutez cette revision au cache pour la rendre disponible sans 4G.",
+        helper: "Le cache intelligent garde les derniers plans de terrain accessibles hors connexion.",
+        actionLabel: "Ouvrir le mode mobile",
+        actionTone: "success" as ActiveTone,
+        tab: "offline" as DocumentsTab,
+      };
+    }
+
+    return {
+      title: "Revision diffusee et suivie",
+      detail: "La reference est en vigueur, diffusee et lue. Vous pouvez continuer avec la prochaine mise a jour.",
+      helper: "La comparaison PDF et l'historique restent disponibles pour tout audit ou preparation de revision.",
+      actionLabel: "Revenir a la bibliotheque",
+      actionTone: "success" as ActiveTone,
+      tab: "library" as DocumentsTab,
+    };
+  }, [
+    canAcknowledgePendingRecipient,
+    canDistribute,
+    canPublishVersion,
+    distributeActionHelper,
+    pendingRecipientForCurrentUser,
+    pendingRecipientHelper,
+    publishVersionHelper,
+    selectedDocument,
+    unreadRecipients.length,
+  ]);
 
   const documentFilters = useMemo(
     () => [
@@ -559,7 +774,8 @@ function DocumentsModuleContent({
     <div className="space-y-6">
       <SectionHeading
         eyebrow="Documents"
-        title="Controle documentaire et diffusion des plans"
+        title="Plans d'execution et diffusion controlee"
+        description="Publier la bonne revision, la diffuser au bon groupe, puis suivre les lectures sans perdre la trace documentaire."
         action={
           <button
             onClick={() => (canPublishVersion ? selectTab("versions") : null)}
@@ -571,7 +787,7 @@ function DocumentsModuleContent({
                 : "cursor-not-allowed bg-stone-200 text-stone-500",
             )}
           >
-            Publier un plan
+            Publier une revision
           </button>
         }
       />
@@ -614,6 +830,94 @@ function DocumentsModuleContent({
           Action en cours sur la GED. Les commandes se reactiveront des que la mise a jour sera terminee.
         </div>
       ) : null}
+
+      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <Panel
+          title="Parcours documentaire"
+          description="Le flux reste simple : choisir la reference, publier la bonne revision, diffuser, puis verifier les lectures."
+        >
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {workflowSteps.map((step) => (
+              <div
+                key={step.step}
+                className={cx(
+                  "rounded-[22px] border px-4 py-4",
+                  step.state === "done"
+                    ? "border-emerald-200 bg-emerald-50"
+                    : step.state === "current"
+                      ? "border-black/10 bg-stone-100"
+                      : "border-stone-200 bg-stone-50",
+                )}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-stone-950">{step.step}</p>
+                  <StatusBadge
+                    tone={
+                      step.tone === "danger"
+                        ? "danger"
+                        : step.tone === "warning"
+                          ? "warning"
+                          : step.tone === "success"
+                            ? "success"
+                            : "primary"
+                    }
+                  >
+                    {step.state === "done"
+                      ? "Pret"
+                      : step.state === "current"
+                        ? "En cours"
+                        : "A venir"}
+                  </StatusBadge>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-stone-600">{step.detail}</p>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel
+          title="Prochaine etape"
+          description={nextDocumentAction.detail}
+          action={
+            <button
+              type="button"
+              onClick={() => selectTab(nextDocumentAction.tab)}
+              className={cx(
+                "rounded-2xl px-4 py-3 text-sm font-semibold",
+                nextDocumentAction.actionTone === "success"
+                  ? "bg-emerald-600 text-white hover:bg-emerald-500"
+                  : nextDocumentAction.actionTone === "warning"
+                    ? "bg-amber-500 text-stone-950 hover:bg-amber-400"
+                    : "bg-black text-white hover:bg-stone-800",
+              )}
+            >
+              {nextDocumentAction.actionLabel}
+            </button>
+          }
+        >
+          <div className="space-y-4">
+            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-stone-950">{nextDocumentAction.title}</p>
+                  <p className="mt-2 text-sm leading-6 text-stone-600">{nextDocumentAction.helper}</p>
+                </div>
+                {selectedDocument ? (
+                  <StatusBadge tone={selectedDocument.tone}>{selectedDocument.status}</StatusBadge>
+                ) : null}
+              </div>
+            </div>
+
+            {selectedDocument ? (
+              <div className="grid gap-3 sm:grid-cols-3">
+                <MiniStat label="Revision" value={selectedDocument.revision} />
+                <MiniStat label="Diffusion" value={selectedDocument.recipients > 0 ? `${selectedDocument.recipients} cible(s)` : "A lancer"} />
+                <MiniStat label="Lectures" value={selectedDocument.recipients > 0 ? `${readRate}%` : "0%"} />
+              </div>
+            ) : null}
+          </div>
+        </Panel>
+      </div>
 
       <Panel className="overflow-hidden">
         <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
@@ -698,7 +1002,8 @@ function DocumentsModuleContent({
 
           <div className="space-y-4">
             <Panel
-              title="Preview & comparaison"
+              title="Revision selectionnee"
+              description="Consultez la version courante, mettez a jour ses metadonnees et comparez les revisions PDF."
             >
               {selectedDocument ? (
                 <div className="space-y-4 rounded-[24px] border border-white/8 bg-white/4 p-5">
@@ -832,7 +1137,8 @@ function DocumentsModuleContent({
             </Panel>
 
             <Panel
-              title="Arborescence projet"
+              title="Classement du projet"
+              description="Retrouvez la structure par lot, phase et dossier de diffusion."
             >
               <div className="space-y-3">
                 {projectData.tree.map((root: DocumentTreeRoot) => (
@@ -1051,7 +1357,7 @@ function VersionsTab({
               {pendingAction === "publish-version"
                 ? "Publication..."
                 : canPublishSelectedVersion
-                  ? "Publier nouvelle version"
+                  ? "Publier la revision"
                   : "Publication indisponible"}
             </button>
             <button
@@ -1066,7 +1372,7 @@ function VersionsTab({
               )}
             >
               <ShieldCheck className="size-4" />
-              {pendingAction === "mark-obsolete" ? "Mise a jour..." : "Marquer obsolete"}
+              {pendingAction === "mark-obsolete" ? "Mise a jour..." : "Retirer de la diffusion"}
             </button>
           </div>
           <div className="grid gap-2 text-xs leading-5 text-slate-400 sm:grid-cols-2">
@@ -1078,8 +1384,8 @@ function VersionsTab({
         <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
           <div className="flex items-center gap-2">
             <FileStack className="size-4 text-slate-400" />
-            <p className="text-sm font-semibold text-white">
-              Historique complet des versions
+              <p className="text-sm font-semibold text-white">
+              Historique des revisions
             </p>
           </div>
           <div className="mt-4 space-y-3">
@@ -1159,7 +1465,7 @@ function DistributionTab({
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-4">
           <SelectField
-            label="Liste de diffusion"
+            label="Destinataires"
             value={draftVersion.audience}
             options={distributionOptions}
             onChange={(value) =>
@@ -1190,7 +1496,7 @@ function DistributionTab({
           <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-semibold text-white">
-                {selectedDocument.code} - accuses de reception
+                {selectedDocument.code} - suivi des lectures
               </p>
               <StatusBadge tone="primary">
                 {selectedDocument.readCount}/{selectedDocument.recipients} lus
@@ -1198,7 +1504,7 @@ function DistributionTab({
             </div>
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-slate-500">
-                <span>Taux de lecture</span>
+                <span>Lectures confirmees</span>
                 <span>
                   {Math.round(
                     (selectedDocument.readCount / Math.max(selectedDocument.recipients, 1)) * 100,
@@ -1230,7 +1536,7 @@ function DistributionTab({
               {pendingAction === "distribute"
                 ? "Diffusion en cours..."
                 : canDistributeSelected
-                  ? "Creer la diffusion controlee"
+                  ? "Lancer la diffusion"
                   : "Diffusion indisponible"}
           </button>
           <p className="text-xs leading-5 text-slate-400">{distributeActionHelper}</p>
@@ -1271,7 +1577,7 @@ function DistributionTab({
                   )}
                 >
                   <CheckCheck className="size-4" />
-                  {pendingAction === "acknowledge" ? "Mise a jour..." : "Marquer comme lu"}
+                  {pendingAction === "acknowledge" ? "Mise a jour..." : "Confirmer la lecture"}
                 </button>
               ) : null}
             </div>
