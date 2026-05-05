@@ -27,6 +27,7 @@ import {
   SectionHeading,
   SimpleBarChart,
   StatusBadge,
+  type Tone,
   cx,
 } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -94,6 +95,15 @@ type WorkflowOwnerDisplay = {
   };
 };
 
+type FinanceWorkflowStep = {
+  badge: string;
+  detail: string;
+  state: "blocked" | "current" | "done" | "pending";
+  targetTab: FinanceTab;
+  title: string;
+  tone: Tone;
+};
+
 const allManualInvoiceStatuses = [
   "Brouillon",
   "Envoyee",
@@ -106,23 +116,23 @@ const allManualInvoiceStatuses = [
 const tabs: Array<{ key: FinanceTab; label: string; helper: string }> = [
   {
     key: "dm",
-    label: "Decompte mensuel",
-    helper: "Calcul depuis avancement, retenue et avance",
+    label: "Preparer",
+    helper: "Decompte source",
   },
   {
     key: "invoices",
-    label: "Factures",
-    helper: "Validation, PDF et suivi d'encaissement",
+    label: "Envoyer & valider",
+    helper: "PDF et circuit",
   },
   {
     key: "vat",
     label: "TVA",
-    helper: "Regime applique et declaration mensuelle",
+    helper: "Regime et declaration",
   },
   {
     key: "cashflow",
-    label: "Tresorerie",
-    helper: "Prevu vs reel, couts et tensions",
+    label: "Paiements",
+    helper: "Encaissements et tresorerie",
   },
 ];
 
@@ -153,6 +163,140 @@ function toMonthInputValue(value: string) {
   }
 
   return value;
+}
+
+function toneLabel(tone: Tone) {
+  switch (tone) {
+    case "danger":
+      return "Urgent";
+    case "warning":
+      return "A suivre";
+    case "success":
+      return "Valide";
+    case "primary":
+      return "En cours";
+    default:
+      return "Info";
+  }
+}
+
+function buildFinanceWorkflowSteps({
+  invoice,
+  paymentCoverage,
+  projectApproverName,
+  clientApproverName,
+}: {
+  invoice?: InvoiceItem;
+  paymentCoverage: number;
+  projectApproverName: string;
+  clientApproverName: string;
+}): FinanceWorkflowStep[] {
+  if (!invoice) {
+    return [
+      {
+        badge: "A lancer",
+        detail: "Le decompte du mois doit etre prepare avant toute facture.",
+        state: "current",
+        targetTab: "dm",
+        title: "1. Preparer le decompte",
+        tone: "primary",
+      },
+      {
+        badge: "Attente",
+        detail: "La facture sera envoyee une fois le decompte genere.",
+        state: "pending",
+        targetTab: "invoices",
+        title: "2. Envoyer",
+        tone: "neutral" as ActiveTone,
+      },
+      {
+        badge: "Attente",
+        detail: `La validation projet sera demandee a ${projectApproverName}.`,
+        state: "pending",
+        targetTab: "invoices",
+        title: "3. Validation projet",
+        tone: "neutral" as ActiveTone,
+      },
+      {
+        badge: "Attente",
+        detail: `La validation client sera ensuite demandee a ${clientApproverName}.`,
+        state: "pending",
+        targetTab: "invoices",
+        title: "4. Validation client",
+        tone: "neutral" as ActiveTone,
+      },
+      {
+        badge: "Attente",
+        detail: "Le paiement pourra etre saisi uniquement apres les validations.",
+        state: "pending",
+        targetTab: "cashflow",
+        title: "5. Paiement recu",
+        tone: "neutral" as ActiveTone,
+      },
+    ];
+  }
+
+  const sent = invoice.status !== "Brouillon";
+  const projectValidated = invoice.validatedByMoe;
+  const clientValidated = invoice.validatedByMo;
+  const paid = invoice.status === "Payee" || Boolean(invoice.paidAt) || paymentCoverage >= 100;
+
+  return [
+    {
+      badge: "Pret",
+      detail: `${invoice.invoiceNumber} a ete prepare depuis l'avancement du projet.`,
+      state: "done",
+      targetTab: "dm",
+      title: "1. Preparer le decompte",
+      tone: "success",
+    },
+    {
+      badge: sent ? "Envoyee" : "A envoyer",
+      detail: sent
+        ? "La facture est sortie du brouillon et le PDF peut etre partage ou regenere."
+        : "Le PDF doit etre genere puis envoye pour lancer le circuit de validation.",
+      state: sent ? "done" : "current",
+      targetTab: "invoices",
+      title: "2. Envoyer",
+      tone: sent ? "success" : "primary",
+    },
+    {
+      badge: projectValidated ? "Validee" : sent ? "A traiter" : "Bloquee",
+      detail: projectValidated
+        ? `Validation projet recue par ${invoice.moeValidatedBy ?? projectApproverName}.`
+        : sent
+          ? `En attente de la validation projet par ${projectApproverName}.`
+          : "La validation projet se debloque seulement apres l'envoi de la facture.",
+      state: projectValidated ? "done" : sent ? "current" : "blocked",
+      targetTab: "invoices",
+      title: "3. Validation projet",
+      tone: projectValidated ? "success" : sent ? "warning" : "neutral",
+    },
+    {
+      badge: clientValidated ? "Validee" : projectValidated ? "A traiter" : "Bloquee",
+      detail: clientValidated
+        ? `Validation client recue par ${invoice.moValidatedBy ?? clientApproverName}.`
+        : projectValidated
+          ? `En attente de la validation client par ${clientApproverName}.`
+          : "La validation client s'ouvre une fois la validation projet terminee.",
+      state: clientValidated ? "done" : projectValidated ? "current" : "blocked",
+      targetTab: "invoices",
+      title: "4. Validation client",
+      tone: clientValidated ? "success" : projectValidated ? "warning" : "neutral",
+    },
+    {
+      badge: paid ? "Recu" : clientValidated ? `${paymentCoverage}% couvert` : "Bloque",
+      detail: paid
+        ? "Le paiement est enregistre et la facture est cloturee."
+        : clientValidated
+          ? "Le paiement peut maintenant etre saisi ou complete jusqu'au reglement total."
+          : "Le paiement reste indisponible tant que la validation client n'est pas terminee.",
+      state: paid ? "done" : clientValidated ? "current" : "blocked",
+      targetTab: "cashflow",
+      title: "5. Paiement recu",
+      tone: paid ? "success" : clientValidated ? "primary" : "neutral",
+    },
+  ];
 }
 
 export function FinanceModule() {
@@ -327,26 +471,33 @@ function FinanceModuleContent({
       selectedInvoice.status !== "Payee" &&
       !pendingAction,
   );
+  const projectApproverName = workflowOwners.projectManagerId?.name ?? "le chef de projet";
+  const clientApproverName = workflowOwners.clientApproverId?.name ?? "le maitre d'ouvrage";
+  const financeLeadName = workflowOwners.financeLeadId?.name ?? "le referent finance";
   const createInvoiceHelper = canCreateInvoice
-    ? "Acceder au decompte mensuel pour preparer une nouvelle facture."
+    ? "Preparez d'abord le decompte mensuel. La facture sera creee sans ressaisie."
     : "Votre role peut consulter la finance, mais pas creer de facture.";
   const statusActionHelper = !canManageManualStatus
-    ? "Seul le referent finance assigne peut mettre a jour le statut manuel."
+    ? `Seul ${financeLeadName} peut ajuster le statut manuel.`
     : !selectedInvoice
       ? "Selectionnez une facture pour mettre a jour son statut."
-      : "Les statuts manuels restent limites au circuit autorise pour votre role.";
+      : "Utilisez ce champ seulement pour brouillon, envoi ou litige. Les validations restent pilotees par le circuit.";
   const sendInvoiceHelper = canSendInvoice
-    ? "Genere ou regenere le PDF de la facture selectionnee avant son envoi."
-    : "Votre role ne peut pas generer ou envoyer les factures.";
+    ? !selectedInvoice
+      ? "Selectionnez une facture pour lancer son envoi."
+      : selectedInvoice.status === "Brouillon"
+        ? "Genere le PDF et lance le circuit d'envoi de la facture selectionnee."
+        : "Regenerer le PDF si besoin sans perdre l'historique de validation."
+    : "Votre role ne peut pas generer ni envoyer les factures.";
   const paymentActionHelper = !canRecordPayment
     ? "Votre role ne peut pas enregistrer les paiements."
     : !selectedInvoice
       ? "Selectionnez une facture pour enregistrer un paiement."
       : selectedInvoice.status === "Payee"
         ? "Cette facture est deja reglee en totalite."
-        : selectedInvoice.validatedByMo
-        ? "Le paiement peut etre saisi des que l'encaissement est confirme."
-        : "La validation client doit etre finalisee avant l'enregistrement d'un paiement.";
+      : selectedInvoice.validatedByMo
+        ? "Le paiement peut etre saisi des que l'encaissement est confirme par la comptabilite."
+        : `Le paiement restera bloque jusqu'a la validation client par ${clientApproverName}.`;
   const paymentCoverage = selectedInvoice
     ? Math.round(
         ((selectedInvoice.status === "Payee"
@@ -358,6 +509,20 @@ function FinanceModuleContent({
           100,
       )
     : 0;
+  const workflowSteps = useMemo(
+    () =>
+      buildFinanceWorkflowSteps({
+        clientApproverName,
+        invoice: selectedInvoice,
+        paymentCoverage,
+        projectApproverName,
+      }),
+    [clientApproverName, paymentCoverage, projectApproverName, selectedInvoice],
+  );
+  const currentWorkflowStep =
+    workflowSteps.find((step) => step.state === "current") ??
+    workflowSteps.find((step) => step.state === "blocked") ??
+    workflowSteps[0];
 
   useEffect(() => {
     if (!selectedInvoice) {
@@ -404,9 +569,6 @@ function FinanceModuleContent({
         (workflowOwners.clientApproverId?.id
           ? workflowOwners.clientApproverId.id === currentUserId
           : currentUserRole === "Maitre d'ouvrage"));
-    const projectApproverName = workflowOwners.projectManagerId?.name ?? "le chef de projet";
-    const clientApproverName = workflowOwners.clientApproverId?.name ?? "le maitre d'ouvrage";
-
     if (!selectedInvoice.validatedByMoe) {
       return {
         canRun: projectApprover,
@@ -434,12 +596,55 @@ function FinanceModuleContent({
     };
   }, [
     canValidateInvoice,
+    clientApproverName,
     currentUserId,
     currentUserRole,
+    projectApproverName,
     selectedInvoice,
     workflowOwners.clientApproverId,
     workflowOwners.projectManagerId,
   ]);
+  const financeActionCard = !selectedInvoice
+    ? {
+        action: () => (canCreateInvoice ? selectTab("dm") : null),
+        canRun: canCreateInvoice && !pendingAction,
+        helper: createInvoiceHelper,
+        label: "Preparer le decompte",
+        tone: "primary" as Tone,
+      }
+    : !selectedInvoice.status || selectedInvoice.status === "Brouillon"
+      ? {
+          action: () => (canSendInvoice ? sendInvoice(selectedInvoice.id) : null),
+          canRun: canSendInvoice && !pendingAction,
+          helper: sendInvoiceHelper,
+          label: "Envoyer la facture",
+          tone: "primary" as Tone,
+        }
+      : !selectedInvoice.validatedByMoe || !selectedInvoice.validatedByMo
+        ? {
+            action: () =>
+              validationAction.canRun ? validateInvoice(selectedInvoice.id) : null,
+            canRun: validationAction.canRun && !pendingAction,
+            helper: validationAction.helper,
+            label: validationAction.label,
+            tone: validationAction.canRun ? ("warning" as Tone) : ("neutral" as Tone),
+          }
+        : selectedInvoice.status !== "Payee"
+          ? {
+              action: () =>
+                canRegisterPaymentForSelectedInvoice ? registerPayment(selectedInvoice.id) : null,
+              canRun: canRegisterPaymentForSelectedInvoice && !pendingAction,
+              helper: paymentActionHelper,
+              label: "Enregistrer le paiement recu",
+              tone: canRegisterPaymentForSelectedInvoice ? ("success" as Tone) : ("neutral" as Tone),
+            }
+          : {
+              action: () => selectTab("cashflow", selectedInvoice.id),
+              canRun: true,
+              helper: "La facture est cloturee. Ouvrez le suivi de tresorerie pour l'historique.",
+              label: "Voir le paiement",
+              tone: "success" as Tone,
+            };
 
   function replaceModuleUrl(nextTab: FinanceTab, invoiceId?: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -661,6 +866,89 @@ function FinanceModuleContent({
         </div>
       ) : null}
 
+      <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+        <Panel
+          title="Parcours facture"
+          description="Une lecture simple pour savoir ou en est la facture et quelle etape reste a traiter."
+        >
+          <div className="space-y-3">
+            {workflowSteps.map((step) => (
+              <button
+                key={step.title}
+                type="button"
+                onClick={() => selectTab(step.targetTab, selectedInvoice?.id)}
+                className={cx(
+                  "flex w-full flex-col gap-3 rounded-[22px] border p-4 text-left transition-colors md:flex-row md:items-center md:justify-between",
+                  step.state === "current"
+                    ? "border-sky-200 bg-sky-50 text-sky-950"
+                    : step.state === "done"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+                      : "border-stone-200 bg-stone-50 text-stone-900 hover:bg-white",
+                )}
+              >
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold">{step.title}</p>
+                    <StatusBadge tone={step.tone}>{step.badge}</StatusBadge>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-current/80">{step.detail}</p>
+                </div>
+                <span className="text-sm font-semibold text-current/70">Ouvrir</span>
+              </button>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel
+          title="Prochaine etape"
+          description="L'action principale reste seule au premier plan pour eviter les allers-retours dans le circuit finance."
+        >
+          <div className="rounded-[24px] border border-stone-200 bg-black p-5 text-white">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.16em] text-white/60">Etape active</p>
+                <p className="mt-2 font-display text-2xl font-semibold">{currentWorkflowStep?.title ?? "Parcours finance"}</p>
+              </div>
+              <StatusBadge tone={financeActionCard.tone}>{toneLabel(financeActionCard.tone)}</StatusBadge>
+            </div>
+            <p className="mt-4 text-sm leading-6 text-white/75">{financeActionCard.helper}</p>
+            <button
+              type="button"
+              onClick={financeActionCard.action}
+              disabled={!financeActionCard.canRun}
+              title={financeActionCard.helper}
+              className={cx(
+                "mt-5 flex w-full items-center justify-center gap-2 rounded-[20px] px-4 py-4 text-sm font-semibold",
+                financeActionCard.canRun
+                  ? "bg-white text-stone-950 hover:bg-stone-100"
+                  : "cursor-not-allowed bg-white/10 text-white/45",
+              )}
+            >
+              {financeActionCard.label}
+            </button>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Facture suivie</p>
+              <p className="mt-3 text-sm font-semibold text-stone-950">
+                {selectedInvoice?.invoiceNumber ?? "Aucune facture"}
+              </p>
+              <p className="mt-2 text-xs leading-5 text-stone-600">
+                {selectedInvoice
+                  ? `${selectedInvoice.status} - ${formatCurrency(selectedInvoice.amountTtc)} TTC`
+                  : "Commencez par preparer un decompte pour ouvrir le circuit."}
+              </p>
+            </div>
+            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Bloquant actuel</p>
+              <p className="mt-3 text-sm font-semibold text-stone-950">{currentWorkflowStep?.badge ?? "Aucun"}</p>
+              <p className="mt-2 text-xs leading-5 text-stone-600">{currentWorkflowStep?.detail ?? "Le circuit finance est stable."}</p>
+            </div>
+          </div>
+        </Panel>
+      </div>
+
       <Panel className="overflow-hidden">
         <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
           <div className="space-y-4">
@@ -718,6 +1006,7 @@ function FinanceModuleContent({
                   updateInvoiceStatus={updateInvoiceStatus}
                   validateInvoice={validateInvoice}
                   validationAction={validationAction}
+                  workflowSteps={workflowSteps}
                   pendingAction={pendingAction}
                   downloadInvoicePdf={downloadInvoicePdf}
                   paymentDraft={paymentDraft}
@@ -989,6 +1278,7 @@ function InvoicesTab({
   updateInvoiceStatus,
   validateInvoice,
   validationAction,
+  workflowSteps,
   pendingAction,
   downloadInvoicePdf,
   paymentDraft,
@@ -1024,6 +1314,7 @@ function InvoicesTab({
     helper: string;
     label: string;
   };
+  workflowSteps: FinanceWorkflowStep[];
   pendingAction: string;
   downloadInvoicePdf: (invoice: InvoiceItem) => void;
   paymentDraft: {
@@ -1088,37 +1379,30 @@ function InvoicesTab({
           <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-semibold text-white">
-                Validation & emission
+                Sequence de la facture
               </p>
               <StatusBadge tone={selectedInvoice.tone}>{selectedInvoice.status}</StatusBadge>
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[20px] border border-white/8 bg-white/4 p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                  Validation MOE
-                </p>
-                <p className="mt-2 text-sm text-white">
-                  {selectedInvoice.validatedByMoe ? "Validee" : "En attente"}
-                </p>
-                {selectedInvoice.moeValidatedAt ? (
-                  <p className="mt-2 text-xs text-slate-400">
-                    {selectedInvoice.moeValidatedBy ?? "Equipe projet"} le {selectedInvoice.moeValidatedAt}
-                  </p>
-                ) : null}
-              </div>
-              <div className="rounded-[20px] border border-white/8 bg-white/4 p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                  Validation MO
-                </p>
-                <p className="mt-2 text-sm text-white">
-                  {selectedInvoice.validatedByMo ? "Validee" : "En attente"}
-                </p>
-                {selectedInvoice.moValidatedAt ? (
-                  <p className="mt-2 text-xs text-slate-400">
-                    {selectedInvoice.moValidatedBy ?? "Maitre d'ouvrage"} le {selectedInvoice.moValidatedAt}
-                  </p>
-                ) : null}
-              </div>
+            <div className="mt-4 space-y-3">
+              {workflowSteps.map((step) => (
+                <div
+                  key={step.title}
+                  className={cx(
+                    "rounded-[20px] border p-4",
+                    step.state === "current"
+                      ? "border-sky-400/25 bg-sky-400/10"
+                      : step.state === "done"
+                        ? "border-emerald-400/25 bg-emerald-400/10"
+                        : "border-white/8 bg-white/4",
+                  )}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-white">{step.title}</p>
+                    <StatusBadge tone={step.tone}>{step.badge}</StatusBadge>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-300">{step.detail}</p>
+                </div>
+              ))}
             </div>
             <div className="mt-4 rounded-[20px] border border-white/8 bg-white/4 p-4">
               <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
@@ -1176,7 +1460,7 @@ function InvoicesTab({
             <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
               <label className="rounded-[20px] border border-white/8 bg-white/4 p-4">
                 <span className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                  Statut facture
+                  Ajustement manuel
                 </span>
                 <select
                   value={statusValue}
@@ -1232,7 +1516,7 @@ function InvoicesTab({
                 )}
               >
                 <Send className="size-4" />
-                {pendingAction === "send-invoice" ? "Generation..." : "Generer / envoyer PDF"}
+                {pendingAction === "send-invoice" ? "Envoi..." : "Envoyer la facture"}
               </button>
               <button
                 onClick={() => (validationAction.canRun ? validateInvoice(selectedInvoice.id) : null)}
@@ -1254,7 +1538,7 @@ function InvoicesTab({
           <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-white">
-                Enregistrer un paiement
+                5. Paiement recu
               </p>
               <StatusBadge tone={paymentCoverage >= 100 ? "success" : "warning"}>
                 {paymentCoverage}% couvre
@@ -1304,7 +1588,7 @@ function InvoicesTab({
                 {pendingAction === "register-payment"
                   ? "Enregistrement..."
                   : canRecordPayment
-                    ? "Enregistrer le paiement"
+                    ? "Enregistrer le paiement recu"
                     : "Paiement indisponible"}
               </button>
               <p className="text-xs leading-5 text-slate-400">{paymentActionHelper}</p>
