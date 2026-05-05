@@ -576,8 +576,82 @@ function SiteModuleContent({
   }, [deferredSearch, photoLotFilter, photos]);
 
   const openNcrCount = ncrs.filter((ncr) => ncr.status !== "Levee").length;
+  const pendingProjectApprovals = reports.filter(
+    (report) => report.pdfReady && !report.signedByMoe,
+  ).length;
 
   const latestReport = reports[0];
+  let mobilePrimaryDisabled = false;
+  let mobilePrimaryHelper = "";
+  let mobilePrimaryLabel = "";
+  let mobilePrimaryAction: () => void = () => undefined;
+
+  if (activeTab === "rjc") {
+    mobilePrimaryDisabled = !canSubmitReport;
+    mobilePrimaryHelper = reportActionHelper;
+    mobilePrimaryLabel =
+      pendingAction === "create-report" || pendingAction === "update-report"
+        ? "Enregistrement..."
+        : editingReportId
+          ? "Mettre a jour le RJC"
+          : "Soumettre le RJC";
+    mobilePrimaryAction = () => {
+      if (canSubmitReport) {
+        void submitDailyReport();
+      }
+    };
+  } else if (activeTab === "photos") {
+    mobilePrimaryDisabled = !canSubmitPhoto;
+    mobilePrimaryHelper = photoActionHelper;
+    mobilePrimaryLabel = pendingAction === "add-photo" ? "Ajout photo..." : "Ajouter la photo";
+    mobilePrimaryAction = () => {
+      if (canSubmitPhoto) {
+        void addPhoto();
+      }
+    };
+  } else if (activeTab === "ncr") {
+    mobilePrimaryDisabled = !canSubmitNcr;
+    mobilePrimaryHelper = ncrActionHelper;
+    mobilePrimaryLabel = pendingAction === "create-ncr" ? "Creation NC..." : "Creer la NC";
+    mobilePrimaryAction = () => {
+      if (canSubmitNcr) {
+        void createNcr();
+      }
+    };
+  } else if (pendingSyncCount > 0) {
+    mobilePrimaryDisabled = !isOnline;
+    mobilePrimaryHelper = isOnline
+      ? "Synchroniser immediatement les brouillons terrain en attente."
+      : "Le reseau est necessaire pour pousser les rapports en attente.";
+    mobilePrimaryLabel = "Synchroniser";
+    mobilePrimaryAction = () => {
+      void syncPendingReports();
+    };
+  } else {
+    mobilePrimaryDisabled = !canCreateReport || Boolean(pendingAction);
+    mobilePrimaryHelper = canCreateReport
+      ? "Reprendre la saisie du rapport journalier en un seul geste."
+      : "Votre role est en lecture seule sur le rapport chantier.";
+    mobilePrimaryLabel = "Ouvrir le RJC";
+    mobilePrimaryAction = () => {
+      if (canCreateReport) {
+        selectTab("rjc");
+      }
+    };
+  }
+
+  const mobileSecondaryDisabled = activeTab === "overview"
+    ? !canAddPhoto || Boolean(pendingAction)
+    : Boolean(pendingAction);
+  const mobileSecondaryLabel = activeTab === "overview" ? "Photo" : "Apercu";
+  const mobileSecondaryHandler = () => {
+    if (activeTab === "overview") {
+      selectTab("photos");
+      return;
+    }
+
+    selectTab("overview", editingReportId ? { report: editingReportId } : undefined);
+  };
 
   const syncPendingReports = useCallback(async () => {
     if (!isOnline || syncInFlight.current) {
@@ -827,7 +901,7 @@ function SiteModuleContent({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-28 md:pb-0">
       <SectionHeading
         eyebrow="Suivi chantier"
         title="Pilotage terrain en temps reel"
@@ -1040,6 +1114,29 @@ function SiteModuleContent({
             </button>
           </div>
         </Panel>
+
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Aujourd&apos;hui</p>
+            <p className="mt-3 text-sm font-semibold text-stone-950">
+              {latestReport ? latestReport.status : "Aucun RJC"}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-stone-600">
+              {latestReport ? `${latestReport.completeness}% de completude sur le dernier rapport.` : "Commencez par saisir le rapport du jour."}
+            </p>
+          </div>
+          <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Vigilance</p>
+            <p className="mt-3 text-sm font-semibold text-stone-950">
+              {pendingProjectApprovals > 0 ? `${pendingProjectApprovals} validation(s)` : `${openNcrCount} NC ouverte(s)`}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-stone-600">
+              {pendingProjectApprovals > 0
+                ? "Des rapports sont prets mais attendent encore la validation projet."
+                : "Suivez les NC ouvertes pour garder le chantier sous controle."}
+            </p>
+          </div>
+        </div>
       </div>
 
       <Panel className="overflow-hidden">
@@ -1393,6 +1490,38 @@ function SiteModuleContent({
             ))}
           </div>
         </Panel>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-stone-200 bg-white/96 p-4 backdrop-blur md:hidden">
+        <div className="mx-auto flex max-w-xl items-center gap-3">
+          <button
+            type="button"
+            onClick={mobilePrimaryAction}
+            disabled={mobilePrimaryDisabled}
+            title={mobilePrimaryHelper}
+            className={cx(
+              "flex-1 rounded-[20px] px-4 py-4 text-sm font-semibold",
+              !mobilePrimaryDisabled
+                ? "bg-black text-white hover:bg-stone-800"
+                : "cursor-not-allowed bg-stone-200 text-stone-500",
+            )}
+          >
+            {mobilePrimaryLabel}
+          </button>
+          <button
+            type="button"
+            onClick={mobileSecondaryHandler}
+            disabled={mobileSecondaryDisabled}
+            className={cx(
+              "rounded-[20px] border px-4 py-4 text-sm font-semibold",
+              !mobileSecondaryDisabled
+                ? "border-stone-200 bg-stone-50 text-stone-900 hover:bg-stone-100"
+                : "cursor-not-allowed border-stone-200 bg-stone-100 text-stone-400",
+            )}
+          >
+            {mobileSecondaryLabel}
+          </button>
+        </div>
       </div>
     </div>
   );

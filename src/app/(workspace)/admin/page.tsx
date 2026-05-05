@@ -165,6 +165,7 @@ export default function AdminPage() {
   const [savingMembersProjectId, setSavingMembersProjectId] = useState("");
   const [savingUserId, setSavingUserId] = useState("");
   const [userDrafts, setUserDrafts] = useState<UserDrafts>({});
+  const [projectSearch, setProjectSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [userRoleFilter, setUserRoleFilter] = useState<UserRole | "all">("all");
   const [form, setForm] = useState({
@@ -308,6 +309,21 @@ export default function AdminPage() {
       return matchesRole && matchesSearch;
     }) ?? [];
   }, [data?.users, userRoleFilter, userSearch]);
+  const filteredProjects = useMemo(() => {
+    const needle = projectSearch.trim().toLowerCase();
+    return data?.projects.filter((project) => {
+      if (!needle) {
+        return true;
+      }
+
+      return (
+        project.summary.name.toLowerCase().includes(needle) ||
+        project.summary.code.toLowerCase().includes(needle) ||
+        project.summary.client.toLowerCase().includes(needle) ||
+        project.summary.location.toLowerCase().includes(needle)
+      );
+    }) ?? [];
+  }, [data?.projects, projectSearch]);
   const pendingAdminChanges =
     Object.entries(userDrafts).filter(([userId, draft]) => {
       const source = data?.users.find((user) => user.id === userId);
@@ -332,6 +348,49 @@ export default function AdminPage() {
           )
       );
     }).length;
+  const selectedProjectChecklist = selectedProject && selectedProjectDraft
+    ? [
+        {
+          done: selectedProjectDraft.lots.length > 0,
+          helper: selectedProjectDraft.lots.length > 0 ? `${selectedProjectDraft.lots.length} lot(s) en place.` : "Ajoutez au moins un lot pour alimenter chantier et finance.",
+          label: "Structure lots",
+        },
+        {
+          done: selectedProjectDraft.phases.length > 0,
+          helper: selectedProjectDraft.phases.length > 0 ? `${selectedProjectDraft.phases.length} phase(s) documentaires renseignees.` : "Les phases pilotent la GED et les revisions.",
+          label: "Phases documentaires",
+        },
+        {
+          done: selectedProjectDraft.zones.length > 0,
+          helper: selectedProjectDraft.zones.length > 0 ? `${selectedProjectDraft.zones.length} zone(s) chantier disponibles.` : "Les zones aident le journal photo et les NC.",
+          label: "Zones chantier",
+        },
+        {
+          done: selectedProjectDraft.memberIds.length > 0,
+          helper: selectedProjectDraft.memberIds.length > 0 ? `${selectedProjectDraft.memberIds.length} membre(s) affecte(s).` : "Affectez les utilisateurs avant l'exploitation projet.",
+          label: "Equipe projet",
+        },
+        {
+          done: workflowOwnerFields.every((field) => Boolean(selectedProjectDraft.workflowOwners[field.key])),
+          helper: workflowOwnerFields.every((field) => Boolean(selectedProjectDraft.workflowOwners[field.key]))
+            ? "Tous les responsables clefs sont designes."
+            : "Il manque encore un ou plusieurs responsables de workflow.",
+          label: "Responsables clefs",
+        },
+      ]
+    : [];
+  const projectReadyCount = selectedProjectChecklist.filter((item) => item.done).length;
+  const nextAdminStep = !selectedProject
+    ? "Selectionnez un projet pour verifier sa readiness avant de le confier aux equipes."
+    : hasPendingMemberChanges
+      ? "Enregistrez l'equipe du projet avant de finaliser les responsables du workflow."
+      : projectMembersHasChanges
+        ? "Validez l'affectation equipe pour synchroniser les acces projet."
+        : projectSetupHasChanges
+          ? "Enregistrez le parametrage projet pour propager lots, phases et zones dans les modules."
+          : projectReadyCount < selectedProjectChecklist.length
+            ? "Completez la checklist de readiness avant le lancement operationnel."
+            : "Le projet est pret pour l'exploitation terrain, documentaire et finance.";
 
   function replaceSelectedProject(projectId: string) {
     setSelectedProjectId(projectId);
@@ -700,16 +759,36 @@ export default function AdminPage() {
             <MetricCard label="Projets" value={projectCountLabel} />
             <MetricCard label="Changements" value={`${pendingAdminChanges}`} />
           </div>
+          <div className="mt-4 rounded-[22px] border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600">
+            <span className="font-semibold text-stone-950">Prochaine etape admin:</span> {nextAdminStep}
+          </div>
         </Panel>
         <Panel title="Projet en cours" description="Le projet selectionne centralise son parametrage, ses membres et ses responsables de workflow.">
           {selectedProject ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <StatusBadge tone="primary">{selectedProject.summary.code}</StatusBadge>
-              <StatusBadge tone="success">{selectedProject.summary.status}</StatusBadge>
-              <StatusBadge tone="warning">{selectedProject.setup.memberIds.length} membres</StatusBadge>
-              <p className="text-sm text-stone-600">
-                {selectedProject.summary.name} - {selectedProject.summary.client}
-              </p>
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <StatusBadge tone="primary">{selectedProject.summary.code}</StatusBadge>
+                <StatusBadge tone="success">{selectedProject.summary.status}</StatusBadge>
+                <StatusBadge tone={projectReadyCount === selectedProjectChecklist.length ? "success" : "warning"}>
+                  {projectReadyCount}/{selectedProjectChecklist.length} readiness
+                </StatusBadge>
+                <p className="text-sm text-stone-600">
+                  {selectedProject.summary.name} - {selectedProject.summary.client}
+                </p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {selectedProjectChecklist.map((item) => (
+                  <div key={item.label} className="rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-stone-950">{item.label}</p>
+                      <StatusBadge tone={item.done ? "success" : "warning"}>
+                        {item.done ? "Pret" : "A completer"}
+                      </StatusBadge>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-stone-600">{item.helper}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <p className="text-sm text-stone-500">Aucun projet selectionne.</p>
@@ -726,6 +805,12 @@ export default function AdminPage() {
       {success ? (
         <div className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-700">
           {success}
+        </div>
+      ) : null}
+
+      {pendingAdminChanges > 0 ? (
+        <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-800">
+          {pendingAdminChanges} changement(s) local(aux) en attente d&apos;enregistrement. Finalisez les acces utilisateurs ou le parametrage projet avant de quitter l&apos;administration.
         </div>
       ) : null}
 
@@ -940,8 +1025,17 @@ export default function AdminPage() {
 
       <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
         <Panel title="Portefeuille accessible">
+          <label className="mb-4 flex items-center gap-3 rounded-2xl border border-white/8 bg-black/10 px-4 py-3 text-sm text-white">
+            <Search className="size-4 text-slate-400" />
+            <input
+              value={projectSearch}
+              onChange={(event) => setProjectSearch(event.target.value)}
+              placeholder="Chercher un projet, un code, un client..."
+              className="w-full bg-transparent outline-none placeholder:text-slate-500"
+            />
+          </label>
           <div className="space-y-3">
-            {data.projects.map((project) => (
+            {filteredProjects.map((project) => (
               <div
                 key={project.summary.id}
                 className="rounded-[22px] border border-white/8 bg-white/4 p-4"
@@ -1014,6 +1108,11 @@ export default function AdminPage() {
                 </div>
               </div>
             ))}
+            {filteredProjects.length === 0 ? (
+              <div className="rounded-[22px] border border-dashed border-white/10 bg-white/4 px-4 py-8 text-center text-sm text-slate-300">
+                Aucun projet ne correspond a cette recherche.
+              </div>
+            ) : null}
           </div>
         </Panel>
 

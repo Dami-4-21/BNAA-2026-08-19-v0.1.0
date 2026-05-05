@@ -4,8 +4,11 @@ import Link from "next/link";
 import {
   Activity,
   ArrowUpRight,
+  BellDot,
   CircleDollarSign,
   FileCheck2,
+  FolderClock,
+  ReceiptText,
   ShieldAlert,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -150,6 +153,16 @@ export default function DashboardPage() {
       tone: data.hero.invoicesDue > 0 ? "warning" : "success",
     },
   ];
+  const actionChecklist = [
+    latestSiteAction(data),
+    documentAction(data),
+    financeAction(data),
+  ];
+  const actionCounts = {
+    approvals: data.siteReports.filter((report) => report.pdfReady && !report.signedByMoe).length,
+    unreadDocs: data.distributionQueue.filter((item) => item.acknowledgedRate < 100).length,
+    overdueInvoices: data.invoices.filter((invoice) => invoice.tone === "warning" || invoice.tone === "danger").length,
+  };
 
   return (
     <div className="space-y-6">
@@ -195,6 +208,54 @@ export default function DashboardPage() {
                 <p className="mt-2 text-sm leading-6 text-stone-600">{item.detail}</p>
               </div>
             ))}
+          </div>
+        </Panel>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <Panel title="Checklist du jour" description="Les blocages concrets a traiter maintenant, avec un point d'entree direct par flux.">
+          <div className="space-y-3">
+            {actionChecklist.map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className="flex flex-col gap-3 rounded-[22px] border border-stone-200 bg-stone-50 p-4 transition-colors hover:bg-white md:flex-row md:items-center md:justify-between"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="rounded-2xl border border-stone-200 bg-white p-3 text-stone-700">
+                    <item.icon className="size-4" />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-stone-950">{item.label}</p>
+                      <StatusBadge tone={item.tone}>{item.badge}</StatusBadge>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-stone-600">{item.detail}</p>
+                  </div>
+                </div>
+                <span className="text-sm font-semibold text-stone-500">Ouvrir</span>
+              </Link>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel title="Priorites de pilotage" description="Lecture ultra rapide pour savoir si le projet est en rythme ou s'il faut intervenir.">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Validations</p>
+              <p className="mt-3 font-display text-3xl font-semibold text-stone-950">{actionCounts.approvals}</p>
+              <p className="mt-2 text-sm leading-6 text-stone-600">RJC prets a faire signer cote projet.</p>
+            </div>
+            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Plans non lus</p>
+              <p className="mt-3 font-display text-3xl font-semibold text-stone-950">{actionCounts.unreadDocs}</p>
+              <p className="mt-2 text-sm leading-6 text-stone-600">Diffusions qui demandent encore un accuse de lecture.</p>
+            </div>
+            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Finance</p>
+              <p className="mt-3 font-display text-3xl font-semibold text-stone-950">{actionCounts.overdueInvoices}</p>
+              <p className="mt-2 text-sm leading-6 text-stone-600">Factures a reprendre avant impact sur la tresorerie.</p>
+            </div>
           </div>
         </Panel>
       </div>
@@ -541,4 +602,67 @@ export default function DashboardPage() {
       </div>
     </div>
   );
+}
+
+function latestSiteAction(data: DashboardPageData) {
+  const reportAwaitingValidation = data.siteReports.find(
+    (report) => report.pdfReady && !report.signedByMoe,
+  );
+
+  if (reportAwaitingValidation) {
+    return {
+      badge: "Validation",
+      detail: `${reportAwaitingValidation.id} est pret et attend encore la validation projet.`,
+      href: `/site?tab=overview&report=${reportAwaitingValidation.id}`,
+      icon: BellDot,
+      label: "Faire signer le RJC du jour",
+      tone: "warning" as Tone,
+    };
+  }
+
+  const latestDraft = data.siteReports.find((report) => !report.pdfReady);
+  return {
+    badge: latestDraft ? "A finaliser" : "OK",
+    detail: latestDraft
+      ? `${latestDraft.id} reste a completer et preparer avant archivage quotidien.`
+      : "Le flux terrain est a jour et aucun rapport n'attend d'action.",
+    href: latestDraft ? `/site?tab=overview&report=${latestDraft.id}` : "/site?tab=overview",
+    icon: Activity,
+    label: latestDraft ? "Finaliser le rapport journalier" : "Suivi terrain a jour",
+    tone: latestDraft ? ("primary" as Tone) : ("success" as Tone),
+  };
+}
+
+function documentAction(data: DashboardPageData) {
+  const pendingDistribution = data.distributionQueue
+    .filter((item) => item.acknowledgedRate < 100)
+    .sort((left, right) => left.acknowledgedRate - right.acknowledgedRate)[0];
+
+  return {
+    badge: pendingDistribution ? `${pendingDistribution.acknowledgedRate}% lus` : "OK",
+    detail: pendingDistribution
+      ? `${pendingDistribution.file} doit encore etre lu par ${pendingDistribution.audience}.`
+      : "La diffusion documentaire est stable sur ce projet.",
+    href: "/documents?tab=distribution",
+    icon: FolderClock,
+    label: pendingDistribution ? "Relancer la diffusion plan" : "Diffusion documentaire a jour",
+    tone: pendingDistribution ? ("warning" as Tone) : ("success" as Tone),
+  };
+}
+
+function financeAction(data: DashboardPageData) {
+  const sensitiveInvoice = data.invoices.find(
+    (invoice) => invoice.tone === "warning" || invoice.tone === "danger",
+  );
+
+  return {
+    badge: sensitiveInvoice ? sensitiveInvoice.status : "OK",
+    detail: sensitiveInvoice
+      ? `${sensitiveInvoice.number} est a reprendre avant impact sur l'encaissement.`
+      : "Aucune facture sensible ne demande une reprise immediate.",
+    href: "/finance?tab=invoices",
+    icon: ReceiptText,
+    label: sensitiveInvoice ? "Debloquer la facturation" : "Facturation sous controle",
+    tone: sensitiveInvoice ? sensitiveInvoice.tone : ("success" as Tone),
+  };
 }

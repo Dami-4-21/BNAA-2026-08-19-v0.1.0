@@ -10,6 +10,7 @@ import {
   Filter,
   History,
   MailCheck,
+  Search,
 } from "lucide-react";
 
 import { Panel, SectionHeading, StatusBadge, cx } from "@/components/ui";
@@ -45,6 +46,7 @@ export default function NotificationsPage() {
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("unread");
   const [typeFilter, setTypeFilter] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [pendingAction, setPendingAction] = useState("");
 
   const loadNotifications = useCallback(async (options?: { preserveData?: boolean }) => {
@@ -134,9 +136,26 @@ export default function NotificationsPage() {
         return false;
       }
 
+      const needle = search.trim().toLowerCase();
+      if (
+        needle &&
+        ![
+          notification.title,
+          notification.detail,
+          notification.actor,
+          notification.projectCode ?? "",
+          notification.type,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(needle)
+      ) {
+        return false;
+      }
+
       return true;
     });
-  }, [data, projectFilter, statusFilter, typeFilter]);
+  }, [data, projectFilter, search, statusFilter, typeFilter]);
 
   const quickFilters = [
     {
@@ -162,6 +181,21 @@ export default function NotificationsPage() {
       : data?.summary.unreadCount
         ? "Marquer toutes les notifications visibles comme lues."
         : "Toutes les notifications sont deja lues.";
+  const queuedEmails = (data?.notifications ?? []).filter(
+    (notification) => notification.emailStatus === "queued" || notification.emailStatus === "captured",
+  ).length;
+  const projectCount = new Set(
+    (data?.notifications ?? [])
+      .map((notification) => notification.projectCode)
+      .filter((projectCode): projectCode is string => Boolean(projectCode)),
+  ).size;
+
+  function resetFilters() {
+    setStatusFilter("unread");
+    setTypeFilter("all");
+    setProjectFilter("all");
+    setSearch("");
+  }
 
   async function runNotificationAction(
     action: NotificationAction,
@@ -267,6 +301,48 @@ export default function NotificationsPage() {
         <MetricChip label="Total" value={`${data.summary.totalCount}`} />
       </div>
 
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Panel title="Triage rapide" description="Les signaux utiles pour savoir ou reprendre sans relire toute la liste.">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MetricChip label="Actions" value={`${data.summary.actionRequiredCount}`} />
+            <MetricChip label="Emails a sortir" value={`${queuedEmails}`} />
+            <MetricChip label="Projets touches" value={`${projectCount}`} />
+          </div>
+        </Panel>
+        <Panel title="Raccourcis de lecture" description="Choisissez un angle de tri avant d'ouvrir les notifications une par une.">
+          <div className="flex flex-wrap gap-2">
+            {quickFilters.map((filter) => (
+              <button
+                key={`top-${filter.value}`}
+                type="button"
+                onClick={() => setStatusFilter(filter.value)}
+                className={cx(
+                  "rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
+                  statusFilter === filter.value
+                    ? "border-black bg-black text-white"
+                    : "border-stone-200 bg-white text-stone-600 hover:bg-stone-100",
+                )}
+              >
+                {filter.label} <span className="ml-2 text-xs opacity-80">{filter.count}</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-3 text-sm leading-6 text-stone-600">
+            Combinez ensuite le type, le projet et la recherche libre pour isoler une action precise.
+          </p>
+        </Panel>
+        <Panel title="Flux email" description="Verifiez en un coup d'oeil si les notifications critiques quittent bien le SaaS.">
+          <div className="space-y-3">
+            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600">
+              <span className="font-semibold text-stone-950">{queuedEmails}</span> notification(s) attendent encore un envoi ou sont capturees localement.
+            </div>
+            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600">
+              Les statuts <span className="font-semibold text-stone-950">Email en file</span> et <span className="font-semibold text-stone-950">Email capture</span> meritent une verification en priorite.
+            </div>
+          </div>
+        </Panel>
+      </div>
+
       <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
         <Panel
           title="Actions prioritaires"
@@ -365,7 +441,21 @@ export default function NotificationsPage() {
           ))}
         </div>
 
-        <div className="mb-5 grid gap-3 lg:grid-cols-[repeat(3,minmax(0,1fr))]">
+        <div className="mb-5 grid gap-3 lg:grid-cols-[1.2fr_repeat(3,minmax(0,1fr))]">
+          <label className="space-y-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+              Recherche
+            </span>
+            <div className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3">
+              <Search className="size-4 text-stone-400" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Titre, detail, acteur, projet..."
+                className="w-full bg-transparent text-sm font-medium text-stone-900 outline-none placeholder:text-stone-400"
+              />
+            </div>
+          </label>
           <FilterSelect
             label="Statut"
             value={statusFilter}
@@ -401,6 +491,19 @@ export default function NotificationsPage() {
               })),
             ]}
           />
+        </div>
+
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm text-stone-600">
+          <p>
+            <span className="font-semibold text-stone-950">{filteredNotifications.length}</span> notification(s) correspondent aux filtres actuels.
+          </p>
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="rounded-full border border-stone-200 bg-white px-4 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-100"
+          >
+            Reinitialiser les filtres
+          </button>
         </div>
 
         <div className="space-y-3">
@@ -507,7 +610,7 @@ export default function NotificationsPage() {
               </div>
             ))
           ) : (
-            <EmptyState label="Aucune notification ne correspond aux filtres selectionnes." />
+            <EmptyState label="Aucune notification ne correspond aux filtres selectionnes. Reinitialisez les filtres ou reduisez la recherche pour retrouver le bon flux." />
           )}
         </div>
       </Panel>
