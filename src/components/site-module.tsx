@@ -152,6 +152,13 @@ const tabs: Array<{ key: TabKey; label: string; helper: string }> = [
   },
 ];
 
+const tabIcons: Record<TabKey, typeof ClipboardCheck> = {
+  overview: Radio,
+  photos: Camera,
+  ncr: ShieldAlert,
+  rjc: ClipboardCheck,
+};
+
 const kpiIcons = [ClipboardCheck, ShieldAlert, TimerReset, Radio];
 
 const toneByStatus: Record<string, Tone> = {
@@ -651,6 +658,86 @@ function SiteModuleContent({
 
     selectTab("overview", editingReportId ? { report: editingReportId } : undefined);
   };
+  const mobileActiveTabMeta = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
+  const mobileNextStep = pendingSyncCount > 0
+    ? {
+        badge: isOnline ? "Sync requise" : "Hors ligne",
+        detail: isOnline
+          ? `${pendingSyncCount} brouillon(s) terrain attendent encore la synchronisation.`
+          : "Le reseau reviendra pour pousser automatiquement les brouillons terrain.",
+        tone: isOnline ? ("warning" as Tone) : ("danger" as Tone),
+      }
+    : activeTab === "rjc"
+      ? {
+          badge: canSubmitReport ? "Pret" : "A completer",
+          detail: reportActionHelper,
+          tone: canSubmitReport ? ("success" as Tone) : ("warning" as Tone),
+        }
+      : activeTab === "photos"
+        ? {
+            badge: canSubmitPhoto ? "Pret" : "Photo incomplete",
+            detail: photoActionHelper,
+            tone: canSubmitPhoto ? ("success" as Tone) : ("warning" as Tone),
+          }
+        : activeTab === "ncr"
+          ? {
+              badge: canSubmitNcr ? "Pret" : "NC incomplete",
+              detail: ncrActionHelper,
+              tone: canSubmitNcr ? ("success" as Tone) : ("warning" as Tone),
+            }
+          : {
+              badge:
+                pendingProjectApprovals > 0
+                  ? `${pendingProjectApprovals} validation(s)`
+                  : openNcrCount > 0
+                    ? `${openNcrCount} NC ouverte(s)`
+                    : "Terrain stable",
+              detail:
+                pendingProjectApprovals > 0
+                  ? "Des rapports sont prets et attendent encore la validation projet."
+                  : openNcrCount > 0
+                    ? "Des non-conformites restent ouvertes et meritent un suivi rapide."
+                    : "Le chantier est a jour. Reprenez le rapport ou ajoutez une photo si besoin.",
+              tone:
+                pendingProjectApprovals > 0 || openNcrCount > 0
+                  ? ("warning" as Tone)
+                  : ("success" as Tone),
+            };
+  const mobileQuickCards = [
+    {
+      disabled: !canCreateReport || Boolean(pendingAction),
+      helper: canCreateReport
+        ? "Saisir ou reprendre le rapport du jour."
+        : "Lecture seule sur le rapport journalier.",
+      icon: ClipboardCheck,
+      key: "rjc",
+      label: "RJC",
+      onClick: () => selectTab("rjc"),
+      tone: activeTab === "rjc" ? "primary" : ("neutral" as Tone),
+    },
+    {
+      disabled: !canAddPhoto || Boolean(pendingAction),
+      helper: canAddPhoto
+        ? "Ajouter une photo terrain geolocalisee."
+        : "Consultation seule du journal photo.",
+      icon: Camera,
+      key: "photos",
+      label: "Photo",
+      onClick: () => selectTab("photos"),
+      tone: activeTab === "photos" ? "primary" : ("neutral" as Tone),
+    },
+    {
+      disabled: !canCreateNcr || Boolean(pendingAction),
+      helper: canCreateNcr
+        ? "Creer ou reprendre une non-conformite."
+        : "Consultation seule des non-conformites.",
+      icon: ShieldAlert,
+      key: "ncr",
+      label: "NC",
+      onClick: () => selectTab("ncr"),
+      tone: activeTab === "ncr" ? "primary" : ("neutral" as Tone),
+    },
+  ];
 
   const syncPendingReports = useCallback(async () => {
     if (!isOnline || syncInFlight.current) {
@@ -982,166 +1069,115 @@ function SiteModuleContent({
 
       <div className="md:hidden">
         <Panel
-          title="Actions terrain"
-          description="Acces rapide pour avancer depuis le chantier avec un minimum de navigation."
+          title="Point terrain mobile"
+          description="Une seule lecture: prochaine action, acces rapides et etat du chantier."
         >
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => selectTab("rjc")}
-              disabled={!canCreateReport || Boolean(pendingAction)}
-              title={
-                canCreateReport
-                  ? "Saisir ou reprendre le rapport du jour."
-                  : "Lecture seule sur le rapport journalier."
-              }
-              className={cx(
-                "rounded-[22px] border border-stone-200 px-4 py-4 text-left transition-colors",
-                canCreateReport && !pendingAction
-                  ? "bg-black text-white hover:bg-stone-800"
-                  : "cursor-not-allowed bg-stone-200 text-stone-500",
-              )}
-            >
+          <div className="space-y-3">
+            <div className="rounded-[24px] bg-black px-4 py-4 text-white">
               <div className="flex items-center justify-between gap-3">
-                <ClipboardCheck className="size-4" />
-                <StatusBadge tone={activeTab === "rjc" ? "primary" : "neutral"}>RJC</StatusBadge>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-white/60">
+                    Prochaine action
+                  </p>
+                  <p className="mt-2 text-base font-semibold">{mobilePrimaryLabel}</p>
+                </div>
+                <StatusBadge tone={mobileNextStep.tone}>{mobileNextStep.badge}</StatusBadge>
               </div>
-              <p className="mt-3 text-xs leading-5 text-current/80">
-                {canCreateReport
-                  ? "Saisir ou reprendre le rapport du jour."
-                  : "Lecture seule sur le rapport journalier."}
-              </p>
-            </button>
+              <p className="mt-3 text-sm leading-6 text-white/75">{mobileNextStep.detail}</p>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => selectTab("photos")}
-              disabled={!canAddPhoto || Boolean(pendingAction)}
-              title={
-                canAddPhoto
-                  ? "Ajouter une photo terrain geolocalisee."
-                  : "Consultation seule du journal photo."
-              }
-              className={cx(
-                "rounded-[22px] border border-stone-200 px-4 py-4 text-left transition-colors",
-                canAddPhoto && !pendingAction
-                  ? "bg-stone-100 text-stone-950 hover:bg-stone-200"
-                  : "cursor-not-allowed bg-stone-200 text-stone-500",
-              )}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <Camera className="size-4" />
-                <StatusBadge tone={activeTab === "photos" ? "primary" : "neutral"}>
-                  Photo
-                </StatusBadge>
+            <div className="grid grid-cols-3 gap-3">
+              {mobileQuickCards.map((card) => (
+                <button
+                  key={card.key}
+                  type="button"
+                  onClick={card.onClick}
+                  disabled={card.disabled}
+                  title={card.helper}
+                  className={cx(
+                    "rounded-[22px] border border-stone-200 px-3 py-4 text-left transition-colors",
+                    !card.disabled && card.tone === "primary"
+                      ? "bg-black text-white hover:bg-stone-800"
+                      : !card.disabled
+                        ? "bg-stone-100 text-stone-950 hover:bg-stone-200"
+                        : "cursor-not-allowed bg-stone-200 text-stone-500",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <card.icon className="size-4" />
+                    <StatusBadge tone={card.tone}>{card.label}</StatusBadge>
+                  </div>
+                  <p className="mt-3 text-[11px] leading-5 text-current/80">{card.helper}</p>
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Rapport du jour</p>
+                <p className="mt-3 text-sm font-semibold text-stone-950">
+                  {latestReport ? latestReport.status : "Aucun RJC"}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-stone-600">
+                  {latestReport
+                    ? `${latestReport.completeness}% de completude sur le dernier rapport.`
+                    : "Commencez par saisir le rapport du jour."}
+                </p>
               </div>
-              <p className="mt-3 text-xs leading-5 text-current/80">
-                {canAddPhoto
-                  ? "Ajouter une photo terrain geolocalisee."
-                  : "Consultation seule du journal photo."}
-              </p>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => selectTab("ncr")}
-              disabled={!canCreateNcr || Boolean(pendingAction)}
-              title={
-                canCreateNcr
-                  ? "Creer ou reprendre une non-conformite."
-                  : "Consultation seule des non-conformites."
-              }
-              className={cx(
-                "rounded-[22px] border border-stone-200 px-4 py-4 text-left transition-colors",
-                canCreateNcr && !pendingAction
-                  ? "bg-stone-100 text-stone-950 hover:bg-stone-200"
-                  : "cursor-not-allowed bg-stone-200 text-stone-500",
-              )}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <ShieldAlert className="size-4" />
-                <StatusBadge tone={activeTab === "ncr" ? "primary" : "neutral"}>NC</StatusBadge>
-              </div>
-              <p className="mt-3 text-xs leading-5 text-current/80">
-                {canCreateNcr
-                  ? "Creer ou reprendre une non-conformite."
-                  : "Consultation seule des non-conformites."}
-              </p>
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                pendingSyncCount > 0
-                  ? void syncPendingReports()
-                  : selectTab("overview", editingReportId ? { report: editingReportId } : undefined)
-              }
-              disabled={pendingSyncCount > 0 ? !isOnline : false}
-              title={
-                pendingSyncCount > 0
-                  ? isOnline
-                    ? "Synchroniser les brouillons terrain en attente."
-                    : "Les brouillons seront synchronises au retour du reseau."
-                  : "Revenir au tableau de bord chantier."
-              }
-              className={cx(
-                "rounded-[22px] border border-stone-200 px-4 py-4 text-left transition-colors",
-                pendingSyncCount > 0
-                  ? isOnline
-                    ? "bg-sky-100 text-sky-950 hover:bg-sky-200"
-                    : "cursor-not-allowed bg-stone-200 text-stone-500"
-                  : "bg-stone-100 text-stone-950 hover:bg-stone-200",
-              )}
-            >
-              <div className="flex items-center justify-between gap-3">
-                {pendingSyncCount > 0 ? (
-                  <Radio className="size-4" />
-                ) : (
-                  <FileOutput className="size-4" />
+              <button
+                type="button"
+                onClick={() =>
+                  pendingSyncCount > 0
+                    ? void syncPendingReports()
+                    : selectTab("overview", editingReportId ? { report: editingReportId } : undefined)
+                }
+                disabled={pendingSyncCount > 0 ? !isOnline : false}
+                title={
+                  pendingSyncCount > 0
+                    ? isOnline
+                      ? "Synchroniser les brouillons terrain en attente."
+                      : "Les brouillons seront synchronises au retour du reseau."
+                    : "Revenir au tableau de bord chantier."
+                }
+                className={cx(
+                  "rounded-[22px] border border-stone-200 p-4 text-left transition-colors",
+                  pendingSyncCount > 0
+                    ? isOnline
+                      ? "bg-sky-50 text-sky-900 hover:bg-sky-100"
+                      : "cursor-not-allowed bg-stone-200 text-stone-500"
+                    : "bg-stone-50 text-stone-950 hover:bg-stone-100",
                 )}
-                <StatusBadge tone={activeTab === "overview" ? "primary" : "neutral"}>
-                  {pendingSyncCount > 0 ? "Sync" : "Apercu"}
-                </StatusBadge>
-              </div>
-              <p className="mt-3 text-xs leading-5 text-current/80">
-                {pendingSyncCount > 0
-                  ? isOnline
-                    ? "Synchroniser les brouillons terrain en attente."
-                    : "Les brouillons seront synchronises au retour du reseau."
-                  : "Revenir au tableau de bord chantier."}
-              </p>
-            </button>
+              >
+                <div className="flex items-center justify-between gap-3">
+                  {pendingSyncCount > 0 ? <Radio className="size-4" /> : <FileOutput className="size-4" />}
+                  <StatusBadge tone={pendingSyncCount > 0 ? (isOnline ? "warning" : "danger") : "neutral"}>
+                    {pendingSyncCount > 0 ? "Sync" : "Apercu"}
+                  </StatusBadge>
+                </div>
+                <p className="mt-3 text-sm font-semibold">
+                  {pendingSyncCount > 0
+                    ? `${pendingSyncCount} brouillon(s) en attente`
+                    : pendingProjectApprovals > 0
+                      ? `${pendingProjectApprovals} validation(s) projet`
+                      : `${openNcrCount} NC ouverte(s)`}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-current/80">
+                  {pendingSyncCount > 0
+                    ? isOnline
+                      ? "Synchroniser les brouillons terrain maintenant."
+                      : "Le reseau reviendra pour relancer la synchronisation."
+                    : "Reprendre l'overview chantier sans quitter le mobile."}
+                </p>
+              </button>
+            </div>
           </div>
         </Panel>
-
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Aujourd&apos;hui</p>
-            <p className="mt-3 text-sm font-semibold text-stone-950">
-              {latestReport ? latestReport.status : "Aucun RJC"}
-            </p>
-            <p className="mt-2 text-xs leading-5 text-stone-600">
-              {latestReport ? `${latestReport.completeness}% de completude sur le dernier rapport.` : "Commencez par saisir le rapport du jour."}
-            </p>
-          </div>
-          <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Vigilance</p>
-            <p className="mt-3 text-sm font-semibold text-stone-950">
-              {pendingProjectApprovals > 0 ? `${pendingProjectApprovals} validation(s)` : `${openNcrCount} NC ouverte(s)`}
-            </p>
-            <p className="mt-2 text-xs leading-5 text-stone-600">
-              {pendingProjectApprovals > 0
-                ? "Des rapports sont prets mais attendent encore la validation projet."
-                : "Suivez les NC ouvertes pour garder le chantier sous controle."}
-            </p>
-          </div>
-        </div>
       </div>
 
       <Panel className="overflow-hidden">
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-4">
-            <div className="flex flex-wrap gap-2">
+            <div className="hidden flex-wrap gap-2 md:flex">
               {tabs.map((tab) => (
                 <button
                   key={tab.key}
@@ -1157,6 +1193,30 @@ function SiteModuleContent({
                   <div className="mt-1 text-xs text-slate-400">{tab.helper}</div>
                 </button>
               ))}
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 md:hidden">
+              {tabs.map((tab) => {
+                const Icon = tabIcons[tab.key];
+
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => selectTab(tab.key)}
+                    className={cx(
+                      "rounded-[18px] border px-2 py-3 text-center",
+                      activeTab === tab.key
+                        ? "border-sky-400/25 bg-sky-400/12 text-white"
+                        : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
+                    )}
+                  >
+                    <div className="flex justify-center">
+                      <Icon className="size-4" />
+                    </div>
+                    <div className="mt-2 text-[11px] font-semibold">{tab.label}</div>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="rounded-[28px] border border-white/8 bg-white/4 p-5">
@@ -1492,7 +1552,22 @@ function SiteModuleContent({
       </div>
 
       <div className="fixed inset-x-0 bottom-0 z-20 border-t border-stone-200 bg-white/96 p-4 backdrop-blur md:hidden">
-        <div className="mx-auto flex max-w-xl items-center gap-3">
+        <div className="mx-auto max-w-xl space-y-3">
+          <div className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-stone-950">
+                {(() => {
+                  const Icon = tabIcons[mobileActiveTabMeta.key];
+                  return <Icon className="size-4" />;
+                })()}
+                {mobileActiveTabMeta.label}
+              </div>
+              <StatusBadge tone={mobileNextStep.tone}>{mobileNextStep.badge}</StatusBadge>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-stone-600">{mobilePrimaryHelper}</p>
+          </div>
+
+          <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={mobilePrimaryAction}
@@ -1520,6 +1595,7 @@ function SiteModuleContent({
           >
             {mobileSecondaryLabel}
           </button>
+        </div>
         </div>
       </div>
     </div>
@@ -1710,6 +1786,7 @@ function RjcTab({
                 Date rapport
               </span>
               <input
+                type="date"
                 value={formState.reportDate}
                 onChange={(event) =>
                   setFormState((current) => ({
@@ -1735,12 +1812,47 @@ function RjcTab({
                 }
                 className="mt-3 w-full bg-transparent text-lg font-semibold text-white outline-none"
               />
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[6, 12, 18, 24].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() =>
+                      setFormState((current) => ({
+                        ...current,
+                        workforceCount: preset,
+                      }))
+                    }
+                    className={cx(
+                      "rounded-full border px-3 py-1 text-xs font-semibold",
+                      formState.workforceCount === preset
+                        ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
+                        : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
+                    )}
+                  >
+                    {preset} pers.
+                  </button>
+                ))}
+              </div>
             </label>
+          </div>
+
+          <div className="rounded-[22px] border border-white/8 bg-white/4 p-4 md:hidden">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-white">Progression rapide</p>
+              <StatusBadge tone={reportCompleteness >= 95 ? "success" : "warning"}>
+                {reportCompleteness}%
+              </StatusBadge>
+            </div>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Renseignez date, meteo, effectif et activites avant l&apos;envoi pour obtenir un RJC pret a valider.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
             {["Ensoleille", "Nuageux", "Pluie", "Vent fort"].map((weather) => (
               <button
+                type="button"
                 key={weather}
                 onClick={() =>
                   setFormState((current) => ({
@@ -1794,6 +1906,7 @@ function RjcTab({
               <div className="mt-3 flex flex-wrap gap-2">
                 {incidentTemplates.map((tag) => (
                   <button
+                    type="button"
                     key={tag}
                     onClick={() =>
                       setFormState((current) => ({
@@ -2047,6 +2160,7 @@ function PhotosTab({
             <input
               type="file"
               accept="image/*"
+              capture="environment"
               onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)}
               className="mt-3 block w-full text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-950"
             />
@@ -2237,6 +2351,7 @@ function NcrTab({
           <div className="flex flex-wrap gap-2">
             {["Mineure", "Majeure", "Critique"].map((severity) => (
               <button
+                type="button"
                 key={severity}
                 onClick={() =>
                   setDraftNcr((current) => ({ ...current, severity }))
