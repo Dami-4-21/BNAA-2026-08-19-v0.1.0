@@ -480,7 +480,11 @@ function SiteModuleContent({
     }
 
     const nextQuery = params.toString();
-    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+    const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+    if (typeof window !== "undefined") {
+      window.history.replaceState(window.history.state, "", nextUrl);
+    }
+    router.replace(nextUrl, { scroll: false });
   }
 
   function selectTab(nextTab: TabKey, query?: { ncr?: string; report?: string }) {

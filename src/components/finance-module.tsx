@@ -407,7 +407,11 @@ function FinanceModuleContent({
     }
 
     const query = params.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    const nextUrl = query ? `${pathname}?${query}` : pathname;
+    if (typeof window !== "undefined") {
+      window.history.replaceState(window.history.state, "", nextUrl);
+    }
+    router.replace(nextUrl, { scroll: false });
   }
 
   function selectTab(nextTab: FinanceTab, invoiceId?: string) {
