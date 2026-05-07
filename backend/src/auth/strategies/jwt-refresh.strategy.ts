@@ -3,6 +3,8 @@ import { ConfigService } from "@nestjs/config";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 
+import { AuthenticatedUser } from "@/common/types/authenticated-user.interface";
+
 @Injectable()
 export class JwtRefreshStrategy extends PassportStrategy(Strategy, "jwt-refresh") {
   constructor(configService: ConfigService) {
@@ -19,7 +21,7 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, "jwt-refresh"
 
   validate(
     request: { cookies?: Record<string, string> },
-    payload: Record<string, unknown>,
+    payload: AuthenticatedUser,
   ) {
     return {
       ...payload,

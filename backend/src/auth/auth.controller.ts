@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Post } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
+import { Request, Response } from "express";
 
 import { AcceptInviteDto } from "@/auth/dto/accept-invite.dto";
 import { LoginDto } from "@/auth/dto/login.dto";
@@ -6,39 +15,108 @@ import { RegisterDto } from "@/auth/dto/register.dto";
 import { ResetPasswordDto } from "@/auth/dto/reset-password.dto";
 import { Verify2faDto } from "@/auth/dto/verify-2fa.dto";
 import { AuthService } from "@/auth/auth.service";
+import { CurrentUser } from "@/common/decorators/current-user.decorator";
+import { AuthenticatedUser } from "@/common/types/authenticated-user.interface";
+import { JwtAuthGuard } from "@/common/guards/jwt-auth.guard";
+import { JwtRefreshGuard } from "@/common/guards/jwt-refresh.guard";
 
 @Controller("auth")
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post("register")
-  register(@Body() payload: RegisterDto) {
-    return this.authService.register(payload);
+  async register(
+    @Body() payload: RegisterDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const session = await this.authService.register(payload);
+    response.cookie(
+      "refreshToken",
+      session.refreshToken,
+      this.authService.getRefreshCookieOptions(),
+    );
+
+    return {
+      ...session,
+      refreshToken: undefined,
+    };
   }
 
   @Post("login")
-  login(@Body() payload: LoginDto) {
-    return this.authService.login(payload);
+  async login(
+    @Body() payload: LoginDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const session = await this.authService.login(payload);
+
+    if ("refreshToken" in session) {
+      response.cookie(
+        "refreshToken",
+        session.refreshToken,
+        this.authService.getRefreshCookieOptions(),
+      );
+
+      return {
+        ...session,
+        refreshToken: undefined,
+      };
+    }
+
+    return session;
   }
 
   @Post("2fa/verify")
-  verify2fa(@Body() payload: Verify2faDto) {
-    return this.authService.verify2fa(payload);
+  async verify2fa(
+    @Body() payload: Verify2faDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const session = await this.authService.verify2fa(payload);
+    response.cookie(
+      "refreshToken",
+      session.refreshToken,
+      this.authService.getRefreshCookieOptions(),
+    );
+
+    return {
+      ...session,
+      refreshToken: undefined,
+    };
   }
 
+  @UseGuards(JwtRefreshGuard)
   @Post("refresh")
-  refresh() {
-    return this.authService.refresh();
+  async refresh(
+    @Req() request: Request & { user: AuthenticatedUser },
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const refreshToken = request.cookies?.refreshToken as string | undefined;
+    const session = await this.authService.refreshSession(refreshToken ?? "", request.user);
+    response.cookie(
+      "refreshToken",
+      session.refreshToken,
+      this.authService.getRefreshCookieOptions(),
+    );
+
+    return {
+      ...session,
+      refreshToken: undefined,
+    };
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post("logout")
-  logout() {
-    return this.authService.logout();
+  async logout(
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.clearCookie("refreshToken", this.authService.getRefreshCookieOptions());
+    return this.authService.logout(currentUser);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get("2fa/setup")
-  setup2fa() {
-    return this.authService.setup2fa();
+  setup2fa(@CurrentUser() currentUser: AuthenticatedUser) {
+    return this.authService.setup2fa(currentUser);
   }
 
   @Post("forgot-password")
@@ -52,7 +130,20 @@ export class AuthController {
   }
 
   @Post("accept-invite")
-  acceptInvite(@Body() payload: AcceptInviteDto) {
-    return this.authService.acceptInvite(payload);
+  async acceptInvite(
+    @Body() payload: AcceptInviteDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const session = await this.authService.acceptInvite(payload);
+    response.cookie(
+      "refreshToken",
+      session.refreshToken,
+      this.authService.getRefreshCookieOptions(),
+    );
+
+    return {
+      ...session,
+      refreshToken: undefined,
+    };
   }
 }

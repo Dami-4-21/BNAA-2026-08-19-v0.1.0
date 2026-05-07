@@ -12,6 +12,30 @@ transition safely instead of breaking the running MVP.
 - Current live product remains the root Next.js app
 - New backend workspace exists in `backend/`
 - Initial Prisma multi-schema foundation exists in `backend/prisma/`
+- Backend dependencies are installed and Prisma client generation works
+- Public-schema auth foundation is now real:
+  - tenant registration
+  - login
+  - refresh rotation
+  - logout
+  - invite acceptance
+  - password reset token flow
+- Tenant schema provisioning is now real for the first runtime slice:
+  - creates `tenant_{tenantId}`
+  - clones template tables
+  - restores the document search trigger
+- Users API is now real for:
+  - list
+  - me
+  - invite
+  - role change
+  - deactivate
+- Projects API is now real for:
+  - list
+  - create
+  - detail
+  - members
+  - add member
 - NestJS-style module tree exists for:
   - auth
   - tenants
@@ -27,16 +51,17 @@ transition safely instead of breaking the running MVP.
 
 ## What Phase 1 still needs
 
-1. Install backend dependencies and lock versions.
-2. Add a real Prisma service and database connection layer.
-3. Implement tenant provisioning from `tenant_template` into `tenant_{tenantId}`.
-4. Replace scaffold auth methods with real JWT + refresh + 2FA flows.
-5. Add real controllers/services for users and projects.
-6. Start moving frontend state toward the spec stack:
+1. Harden tenant provisioning with real migrations and a fully cloned schema contract.
+2. Complete the remaining auth surface:
+   - explicit 2FA enable/disable confirmation
+   - forgot/reset email delivery
+   - invite email delivery
+3. Start moving frontend state toward the spec stack:
    - Zustand
    - TanStack Query
    - React Hook Form + Zod
-7. Plan the repo split so the current root Next app can become `frontend/`.
+4. Plan the repo split so the current root Next app can become `frontend/`.
+5. Begin replacing the current internal backend with the new Nest API module by module.
 
 ## Transition rule
 

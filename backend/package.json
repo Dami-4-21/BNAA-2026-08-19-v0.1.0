@@ -7,7 +7,7 @@
     "build": "nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",
-    "lint": "eslint \"src/**/*.ts\"",
+    "lint": "tsc --noEmit -p tsconfig.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"
@@ -48,6 +48,7 @@
     "@types/express": "^5.0.0",
     "@types/node": "^22.8.1",
     "@types/passport-jwt": "^4.0.1",
+    "@types/pg": "^8.11.10",
     "@types/uuid": "^10.0.0",
     "eslint": "^9.14.0",
     "eslint-config-prettier": "^9.1.0",

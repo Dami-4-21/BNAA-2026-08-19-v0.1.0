@@ -1,12 +1,23 @@
 import { Injectable } from "@nestjs/common";
 
+import { buildTenantSchemaName } from "@/common/utils/tenant-schema.util";
+import { TenantDatabaseService } from "@/database/tenant-database.service";
+
 @Injectable()
 export class TenantsService {
-  provisionSchema(tenantId: string) {
+  constructor(private readonly tenantDatabase: TenantDatabaseService) {}
+
+  resolveSchemaName(tenantId: string) {
+    return buildTenantSchemaName(tenantId);
+  }
+
+  async provisionSchema(tenantId: string) {
+    const schemaName = this.resolveSchemaName(tenantId);
+    await this.tenantDatabase.provisionTenantSchema(schemaName);
+
     return {
-      mode: "scaffold",
-      next: "clone-tenant_template-into-runtime-schema",
       tenantId,
+      schemaName,
     };
   }
 }

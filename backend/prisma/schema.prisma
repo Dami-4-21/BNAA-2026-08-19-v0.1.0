@@ -139,6 +139,10 @@ model User {
   totpSecret    String?   @map("totp_secret")
   totpEnabled   Boolean   @default(false) @map("totp_enabled")
   refreshToken  String?   @map("refresh_token")
+  inviteToken   String?   @map("invite_token")
+  inviteExpiresAt DateTime? @map("invite_expires_at")
+  resetToken    String?   @map("reset_token")
+  resetExpiresAt DateTime? @map("reset_expires_at")
   invitedBy     String?   @map("invited_by") @db.Uuid
   lastLoginAt   DateTime? @map("last_login_at")
   createdAt     DateTime  @default(now()) @map("created_at")
@@ -146,6 +150,8 @@ model User {
 
   @@index([tenantId], map: "idx_users_tenant")
   @@index([email], map: "idx_users_email")
+  @@index([inviteToken], map: "idx_users_invite_token")
+  @@index([resetToken], map: "idx_users_reset_token")
   @@map("users")
   @@schema("public")
 }
