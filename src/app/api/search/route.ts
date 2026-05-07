@@ -4,7 +4,7 @@ import { sessionCookieName } from "@/lib/backend/session";
 import type { GlobalSearchPayload } from "@/lib/backend/types";
 import { getGlobalSearchPayload, isApiError } from "@/lib/backend/service";
 import {
-  fetchBridgedWorkspaceProjects,
+  fetchBridgedWorkspaceProjectIds,
   rebuildAccessCookieName,
   shouldUseRebuildProjectsBridge,
 } from "@/lib/rebuild-auth";
@@ -44,18 +44,14 @@ async function buildSearchBridgePayload(
   rebuildAccessToken: string,
   legacyPayload: GlobalSearchPayload,
 ): Promise<GlobalSearchPayload | null> {
-  const bridgedProjects = await fetchBridgedWorkspaceProjects(
+  const allowedProjectIds = await fetchBridgedWorkspaceProjectIds(
     rebuildAccessToken,
     workspaceProjects,
   );
 
-  if (!bridgedProjects) {
+  if (!allowedProjectIds) {
     return null;
   }
-
-  const allowedProjectIds = new Set(
-    bridgedProjects.legacyProjects.map((project) => project.id),
-  );
 
   return {
     ...legacyPayload,

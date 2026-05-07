@@ -269,6 +269,19 @@ export async function fetchBridgedWorkspaceProjects(
   };
 }
 
+export async function fetchBridgedWorkspaceProjectIds(
+  accessToken: string,
+  projectCatalog: WorkspaceProject[],
+) {
+  const bridgedProjects = await fetchBridgedWorkspaceProjects(accessToken, projectCatalog);
+
+  if (!bridgedProjects) {
+    return null;
+  }
+
+  return new Set(bridgedProjects.legacyProjects.map((project) => project.id));
+}
+
 export function mapRebuildProjectsToLegacyWorkspaceProjects(
   rebuildProjects: RebuildProject[],
   projectCatalog: WorkspaceProject[],
