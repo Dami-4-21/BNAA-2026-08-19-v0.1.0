@@ -20,4 +20,14 @@ export class TenantsService {
       schemaName,
     };
   }
+
+  async deprovisionSchema(tenantId: string) {
+    const schemaName = this.resolveSchemaName(tenantId);
+    await this.tenantDatabase.dropTenantSchema(schemaName);
+
+    return {
+      tenantId,
+      schemaName,
+    };
+  }
 }

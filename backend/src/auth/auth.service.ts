@@ -13,6 +13,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { v4 as uuidv4 } from "uuid";
 
 import { AcceptInviteDto } from "@/auth/dto/accept-invite.dto";
+import { Disable2faDto } from "@/auth/dto/disable-2fa.dto";
+import { Enable2faDto } from "@/auth/dto/enable-2fa.dto";
 import { LoginDto } from "@/auth/dto/login.dto";
 import { RegisterDto } from "@/auth/dto/register.dto";
 import { ResetPasswordDto } from "@/auth/dto/reset-password.dto";
@@ -47,33 +49,44 @@ export class AuthService {
     const slug = await this.createUniqueTenantSlug(payload.tenantName);
     const passwordHash = await bcrypt.hash(payload.password, 12);
 
-    await this.tenantsService.provisionSchema(tenantId);
+    let created: { tenant: Tenant; user: PublicUserWithTenant };
 
-    const created = await this.prisma.$transaction(async (tx) => {
-      const tenant = await tx.tenant.create({
-        data: {
-          id: tenantId,
-          name: payload.tenantName.trim(),
-          slug,
-        },
+    try {
+      created = await this.prisma.$transaction(async (tx) => {
+        const tenant = await tx.tenant.create({
+          data: {
+            id: tenantId,
+            name: payload.tenantName.trim(),
+            slug,
+          },
+        });
+
+        const user = await tx.user.create({
+          data: {
+            id: userId,
+            tenantId,
+            email: payload.email.toLowerCase(),
+            fullName: payload.fullName.trim(),
+            passwordHash,
+            role: UserRole.ADMIN,
+          },
+          include: {
+            tenant: true,
+          },
+        });
+
+        return { tenant, user };
       });
 
-      const user = await tx.user.create({
-        data: {
-          id: userId,
-          tenantId,
-          email: payload.email.toLowerCase(),
-          fullName: payload.fullName.trim(),
-          passwordHash,
-          role: UserRole.ADMIN,
-        },
-        include: {
-          tenant: true,
-        },
-      });
-
-      return { tenant, user };
-    });
+      await this.tenantsService.provisionSchema(tenantId);
+    } catch (error) {
+      await Promise.allSettled([
+        this.prisma.user.deleteMany({ where: { id: userId } }),
+        this.prisma.tenant.deleteMany({ where: { id: tenantId } }),
+        this.tenantsService.deprovisionSchema(tenantId),
+      ]);
+      throw error;
+    }
 
     const session = await this.createSession(created.user);
 
@@ -326,6 +339,60 @@ export class AuthService {
       secret,
       otpAuthUrl,
     };
+  }
+
+  async enable2fa(currentUser: AuthenticatedUser, payload: Enable2faDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
+
+    if (!user || !user.totpSecret) {
+      throw new BadRequestException("2FA setup has not been initialized.");
+    }
+
+    const validCode = authenticator.verify({
+      token: payload.code,
+      secret: user.totpSecret,
+    });
+
+    if (!validCode) {
+      throw new UnauthorizedException("Invalid 2FA code.");
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        totpEnabled: true,
+      },
+    });
+
+    return { ok: true };
+  }
+
+  async disable2fa(currentUser: AuthenticatedUser, payload: Disable2faDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException("User not found.");
+    }
+
+    const passwordValid = await bcrypt.compare(payload.password, user.passwordHash);
+
+    if (!passwordValid) {
+      throw new UnauthorizedException("Invalid password.");
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        totpSecret: null,
+        totpEnabled: false,
+      },
+    });
+
+    return { ok: true };
   }
 
   private async createSession(user: PublicUserWithTenant) {

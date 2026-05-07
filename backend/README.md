@@ -2,18 +2,27 @@
 
 This folder starts the `Phase 1` rebuild foundation from the May 2025 specification.
 
-What is included in this first scaffold:
+What is included in the current Phase 1 slice:
 
 - NestJS backend workspace layout
 - Prisma schema foundation for `public` and `tenant_template`
-- Auth, tenant, user, project, site, documents, finance, storage, PDF, notifications, and queue module skeletons
-- Shared guards, decorators, filters, and utility placeholders
+- Real database services for Prisma and tenant-schema SQL access
+- Real tenant schema provisioning helpers
+- Public auth foundation:
+  - register
+  - login
+  - refresh
+  - logout
+  - forgot/reset password token flow
+  - invite acceptance
+  - 2FA setup / enable / disable
+- Public users and projects APIs
+- Auth, tenant, user, project, site, documents, finance, storage, PDF, notifications, and queue module structure
+- Shared guards, decorators, filters, and utilities
 
 What is intentionally not complete yet:
 
-- Runtime business logic
-- Real Prisma service wiring
-- Real JWT/2FA flows
+- Full runtime business logic for chantier, documents, and finance
 - Real MinIO/Redis/Resend integration
 - Full API route implementation
 

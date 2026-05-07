@@ -20,10 +20,12 @@ transition safely instead of breaking the running MVP.
   - logout
   - invite acceptance
   - password reset token flow
+  - 2FA setup / enable / disable
 - Tenant schema provisioning is now real for the first runtime slice:
   - creates `tenant_{tenantId}`
   - clones template tables
   - restores the document search trigger
+  - rolls schema back cleanly if registration provisioning fails
 - Users API is now real for:
   - list
   - me
@@ -52,8 +54,7 @@ transition safely instead of breaking the running MVP.
 ## What Phase 1 still needs
 
 1. Harden tenant provisioning with real migrations and a fully cloned schema contract.
-2. Complete the remaining auth surface:
-   - explicit 2FA enable/disable confirmation
+2. Complete the remaining auth delivery surface:
    - forgot/reset email delivery
    - invite email delivery
 3. Start moving frontend state toward the spec stack:

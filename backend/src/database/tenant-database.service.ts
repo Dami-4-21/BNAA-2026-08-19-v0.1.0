@@ -55,6 +55,7 @@ export class TenantDatabaseService {
 
     try {
       await client.query("BEGIN");
+      await client.query("CREATE EXTENSION IF NOT EXISTS pgcrypto");
       await client.query(`CREATE SCHEMA IF NOT EXISTS ${this.quoteIdentifier(schemaName)}`);
 
       for (const tableName of TENANT_TABLES) {
@@ -175,6 +176,16 @@ export class TenantDatabaseService {
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async dropTenantSchema(schemaName: string) {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query(`DROP SCHEMA IF EXISTS ${this.quoteIdentifier(schemaName)} CASCADE`);
     } finally {
       client.release();
     }

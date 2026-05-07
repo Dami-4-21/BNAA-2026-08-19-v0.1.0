@@ -10,6 +10,9 @@ import {
 import { Request, Response } from "express";
 
 import { AcceptInviteDto } from "@/auth/dto/accept-invite.dto";
+import { Disable2faDto } from "@/auth/dto/disable-2fa.dto";
+import { Enable2faDto } from "@/auth/dto/enable-2fa.dto";
+import { ForgotPasswordDto } from "@/auth/dto/forgot-password.dto";
 import { LoginDto } from "@/auth/dto/login.dto";
 import { RegisterDto } from "@/auth/dto/register.dto";
 import { ResetPasswordDto } from "@/auth/dto/reset-password.dto";
@@ -119,9 +122,27 @@ export class AuthController {
     return this.authService.setup2fa(currentUser);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post("2fa/enable")
+  enable2fa(
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Body() payload: Enable2faDto,
+  ) {
+    return this.authService.enable2fa(currentUser, payload);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("2fa/disable")
+  disable2fa(
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Body() payload: Disable2faDto,
+  ) {
+    return this.authService.disable2fa(currentUser, payload);
+  }
+
   @Post("forgot-password")
-  forgotPassword(@Body("email") email: string) {
-    return this.authService.forgotPassword(email);
+  forgotPassword(@Body() payload: ForgotPasswordDto) {
+    return this.authService.forgotPassword(payload.email);
   }
 
   @Post("reset-password")
