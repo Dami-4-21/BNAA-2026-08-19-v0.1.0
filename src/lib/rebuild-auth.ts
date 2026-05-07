@@ -93,6 +93,11 @@ type RebuildProjectMembersResponse = {
   }>;
 };
 
+type BridgedWorkspaceProjects = {
+  legacyProjects: WorkspaceProject[];
+  rebuildProjects: RebuildProject[];
+};
+
 export function shouldUseRebuildAuthBridge() {
   return process.env.BNAASAAS_REBUILD_AUTH_ENABLED === "true";
 }
@@ -243,6 +248,25 @@ export async function fetchRebuildProjectMembers(
   );
 
   return payload?.items ?? null;
+}
+
+export async function fetchBridgedWorkspaceProjects(
+  accessToken: string,
+  projectCatalog: WorkspaceProject[],
+): Promise<BridgedWorkspaceProjects | null> {
+  const rebuildProjects = await fetchRebuildProjects(accessToken);
+
+  if (!rebuildProjects) {
+    return null;
+  }
+
+  return {
+    rebuildProjects,
+    legacyProjects: mapRebuildProjectsToLegacyWorkspaceProjects(
+      rebuildProjects,
+      projectCatalog,
+    ),
+  };
 }
 
 export function mapRebuildProjectsToLegacyWorkspaceProjects(

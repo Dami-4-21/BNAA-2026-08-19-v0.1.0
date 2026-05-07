@@ -4,9 +4,8 @@ import { sessionCookieName } from "@/lib/backend/session";
 import type { ProjectsPageData } from "@/lib/backend/types";
 import { getProjectsPayload, isApiError } from "@/lib/backend/service";
 import {
+  fetchBridgedWorkspaceProjects,
   fetchRebuildProjectMembers,
-  fetchRebuildProjects,
-  mapRebuildProjectsToLegacyWorkspaceProjects,
   rebuildAccessCookieName,
   shouldUseRebuildProjectsBridge,
 } from "@/lib/rebuild-auth";
@@ -45,9 +44,12 @@ async function buildProjectsBridgePayload(
   rebuildAccessToken: string,
   legacyPayload: ProjectsPageData,
 ): Promise<ProjectsPageData | null> {
-  const rebuildProjects = await fetchRebuildProjects(rebuildAccessToken);
+  const bridgedProjects = await fetchBridgedWorkspaceProjects(
+    rebuildAccessToken,
+    workspaceProjects,
+  );
 
-  if (!rebuildProjects?.length) {
+  if (!bridgedProjects?.rebuildProjects.length) {
     return null;
   }
 
@@ -57,16 +59,13 @@ async function buildProjectsBridgePayload(
       project,
     ]),
   );
-  const compatibleProjects = mapRebuildProjectsToLegacyWorkspaceProjects(
-    rebuildProjects,
-    workspaceProjects,
-  );
+  const compatibleProjects = bridgedProjects.legacyProjects;
   const compatibleProjectKeys = new Set(
     compatibleProjects.map((project) => project.name.trim().toLowerCase()),
   );
 
   const memberCounts = await Promise.all(
-    rebuildProjects.map(async (project) => {
+    bridgedProjects.rebuildProjects.map(async (project) => {
       const members = await fetchRebuildProjectMembers(rebuildAccessToken, project.id);
       return {
         memberCount: members?.length ?? null,
@@ -78,7 +77,7 @@ async function buildProjectsBridgePayload(
     memberCounts.map((entry) => [entry.projectId, entry.memberCount]),
   );
 
-  const projects = rebuildProjects
+  const projects = bridgedProjects.rebuildProjects
     .map((project) => {
       const legacyProject = legacyProjectMap.get(project.name.trim().toLowerCase());
 
@@ -93,7 +92,10 @@ async function buildProjectsBridgePayload(
     })
     .filter((project): project is ProjectsPageData["projects"][number] => project !== null);
 
-  if (!projects.length || compatibleProjectKeys.size !== rebuildProjects.length) {
+  if (
+    !projects.length ||
+    compatibleProjectKeys.size !== bridgedProjects.rebuildProjects.length
+  ) {
     return null;
   }
 

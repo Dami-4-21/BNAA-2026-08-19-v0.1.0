@@ -4,9 +4,8 @@ import { sessionCookieName } from "@/lib/backend/session";
 import type { WorkspacePayload } from "@/lib/backend/types";
 import { getWorkspacePayload, isApiError } from "@/lib/backend/service";
 import {
-  fetchRebuildProjects,
+  fetchBridgedWorkspaceProjects,
   fetchRebuildSession,
-  mapRebuildProjectsToLegacyWorkspaceProjects,
   rebuildAccessCookieName,
   shouldUseRebuildProjectsBridge,
 } from "@/lib/rebuild-auth";
@@ -39,21 +38,21 @@ export async function GET(request: NextRequest) {
 async function buildWorkspaceBridgePayload(
   rebuildAccessToken: string,
 ): Promise<WorkspacePayload | null> {
-  const [rebuildSession, rebuildProjects] = await Promise.all([
+  const [rebuildSession, bridgedProjects] = await Promise.all([
     fetchRebuildSession(rebuildAccessToken),
-    fetchRebuildProjects(rebuildAccessToken),
+    fetchBridgedWorkspaceProjects(rebuildAccessToken, workspaceProjects),
   ]);
 
-  if (!rebuildSession || !rebuildProjects) {
+  if (!rebuildSession || !bridgedProjects) {
     return null;
   }
 
-  const availableProjects = mapRebuildProjectsToLegacyWorkspaceProjects(
-    rebuildProjects,
-    workspaceProjects,
-  );
+  const availableProjects = bridgedProjects.legacyProjects;
 
-  if (rebuildProjects.length > 0 && availableProjects.length === 0) {
+  if (
+    bridgedProjects.rebuildProjects.length > 0 &&
+    availableProjects.length === 0
+  ) {
     return null;
   }
 
