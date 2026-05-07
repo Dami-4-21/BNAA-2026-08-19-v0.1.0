@@ -1,3 +1,5 @@
+import { NextResponse } from "next/server";
+
 import {
   appUsers,
   getHomePathForRole,
@@ -8,25 +10,59 @@ import {
 } from "@/lib/auth";
 
 export const rebuildAccessCookieName = "bnaasaas_api_access";
+export const rebuildRefreshCookieName = "bnaasaas_api_refresh";
+
+const rebuildAccessLifetimeSeconds = 15 * 60;
+const rebuildRefreshLifetimeSeconds = 30 * 24 * 60 * 60;
+const useSecureCookies = process.env.BNAASAAS_SECURE_COOKIE === "true";
 
 type RebuildBackendRole = "ADMIN" | "BE" | "CO" | "CP" | "CT" | "MO";
 
+type RebuildTenant = {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  isActive?: boolean;
+  createdAt?: string;
+};
+
+type RebuildUser = {
+  id: string;
+  email: string;
+  fullName: string;
+  role: RebuildBackendRole;
+  tenantId: string;
+  isActive: boolean;
+  totpEnabled: boolean;
+};
+
 type RebuildAuthMeResponse = {
-  tenant: {
-    id: string;
-    name: string;
-    slug: string;
-    plan: string;
-  };
-  user: {
-    id: string;
-    email: string;
-    fullName: string;
-    role: RebuildBackendRole;
-    tenantId: string;
-    isActive: boolean;
-    totpEnabled: boolean;
-  };
+  tenant: RebuildTenant;
+  user: RebuildUser;
+};
+
+type RebuildAuthSessionResponse = RebuildAuthMeResponse & {
+  accessToken: string;
+  requires2fa?: boolean;
+  tempToken?: string;
+};
+
+export type RebuildAppSession = {
+  homePath: string;
+  permissions: ReturnType<typeof getPermissionsForRole>;
+  tenant: RebuildTenant;
+  user: SafeUser;
+};
+
+type RebuildBridgeTokens = {
+  accessToken: string;
+  refreshToken: string;
+};
+
+type RebuildBridgeSession = {
+  session: RebuildAppSession;
+  tokens: RebuildBridgeTokens;
 };
 
 export function shouldUseRebuildAuthBridge() {
@@ -37,32 +73,170 @@ export function getRebuildApiUrl() {
   return process.env.BNAASAAS_REBUILD_API_URL?.replace(/\/+$/, "") ?? "";
 }
 
+export function applyRebuildSessionCookies(
+  response: NextResponse,
+  tokens: RebuildBridgeTokens,
+) {
+  response.cookies.set(buildRebuildCookie(rebuildAccessCookieName, tokens.accessToken, {
+    maxAge: rebuildAccessLifetimeSeconds,
+  }));
+  response.cookies.set(buildRebuildCookie(rebuildRefreshCookieName, tokens.refreshToken, {
+    maxAge: rebuildRefreshLifetimeSeconds,
+  }));
+}
+
+export function clearRebuildSessionCookies(response: NextResponse) {
+  response.cookies.set(buildExpiredRebuildCookie(rebuildAccessCookieName));
+  response.cookies.set(buildExpiredRebuildCookie(rebuildRefreshCookieName));
+}
+
+export async function authenticateWithRebuildApi(
+  email: string,
+  password: string,
+): Promise<RebuildBridgeSession | null> {
+  const apiUrl = getRebuildApiUrl();
+
+  if (!apiUrl) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(`${apiUrl}/api/v1/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        password,
+      }),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as RebuildAuthSessionResponse;
+    if (payload.requires2fa || !payload.accessToken) {
+      return null;
+    }
+
+    const refreshToken = extractCookieFromResponse(response, "refreshToken");
+    if (!refreshToken) {
+      return null;
+    }
+
+    return {
+      session: mapAuthPayloadToSession(payload),
+      tokens: {
+        accessToken: payload.accessToken,
+        refreshToken,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchRebuildSession(
   accessToken: string,
-): Promise<{
-  homePath: string;
-  permissions: ReturnType<typeof getPermissionsForRole>;
-  tenant: RebuildAuthMeResponse["tenant"];
-  user: SafeUser;
-} | null> {
+): Promise<RebuildAppSession | null> {
   const apiUrl = getRebuildApiUrl();
 
   if (!apiUrl || !accessToken) {
     return null;
   }
 
-  const response = await fetch(`${apiUrl}/api/v1/auth/me`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-    cache: "no-store",
-  });
+  try {
+    const response = await fetch(`${apiUrl}/api/v1/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      cache: "no-store",
+    });
 
-  if (!response.ok) {
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as RebuildAuthMeResponse;
+    return mapSessionPayload(payload);
+  } catch {
+    return null;
+  }
+}
+
+export async function refreshRebuildSession(
+  refreshToken: string,
+): Promise<RebuildBridgeSession | null> {
+  const apiUrl = getRebuildApiUrl();
+
+  if (!apiUrl || !refreshToken) {
     return null;
   }
 
-  const payload = (await response.json()) as RebuildAuthMeResponse;
+  try {
+    const response = await fetch(`${apiUrl}/api/v1/auth/refresh`, {
+      method: "POST",
+      headers: {
+        Cookie: `refreshToken=${encodeURIComponent(refreshToken)}`,
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as RebuildAuthSessionResponse;
+    const nextRefreshToken = extractCookieFromResponse(response, "refreshToken");
+    if (!payload.accessToken || !nextRefreshToken) {
+      return null;
+    }
+
+    return {
+      session: mapAuthPayloadToSession(payload),
+      tokens: {
+        accessToken: payload.accessToken,
+        refreshToken: nextRefreshToken,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function logoutFromRebuildApi(accessToken: string) {
+  const apiUrl = getRebuildApiUrl();
+
+  if (!apiUrl || !accessToken) {
+    return;
+  }
+
+  try {
+    await fetch(`${apiUrl}/api/v1/auth/logout`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      cache: "no-store",
+    });
+  } catch {
+    // Best-effort logout only. The local bridge cookies are still cleared.
+  }
+}
+
+function mapAuthPayloadToSession(
+  payload: RebuildAuthMeResponse | RebuildAuthSessionResponse,
+): RebuildAppSession {
+  return mapSessionPayload({
+    tenant: payload.tenant,
+    user: payload.user,
+  });
+}
+
+function mapSessionPayload(payload: RebuildAuthMeResponse): RebuildAppSession {
   const user = mapRebuildUserToSafeUser(payload.user);
 
   return {
@@ -73,7 +247,7 @@ export async function fetchRebuildSession(
   };
 }
 
-function mapRebuildUserToSafeUser(user: RebuildAuthMeResponse["user"]): SafeUser {
+function mapRebuildUserToSafeUser(user: RebuildUser): SafeUser {
   const legacyUser =
     appUsers.find((entry) => entry.email.toLowerCase() === user.email.toLowerCase()) ?? null;
 
@@ -123,4 +297,51 @@ function buildInitials(name: string) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+function buildRebuildCookie(name: string, value: string, options: { maxAge: number }) {
+  return {
+    name,
+    value,
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: useSecureCookies,
+    path: "/",
+    maxAge: options.maxAge,
+  };
+}
+
+function buildExpiredRebuildCookie(name: string) {
+  return {
+    ...buildRebuildCookie(name, "", {
+      maxAge: 0,
+    }),
+    expires: new Date(0),
+  };
+}
+
+function extractCookieFromResponse(response: Response, name: string) {
+  const setCookieHeaders = getSetCookieHeaders(response);
+
+  for (const headerValue of setCookieHeaders) {
+    const match = new RegExp(`${name}=([^;]+)`).exec(headerValue);
+    if (match?.[1]) {
+      return decodeURIComponent(match[1]);
+    }
+  }
+
+  return null;
+}
+
+function getSetCookieHeaders(response: Response) {
+  const headers = response.headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+
+  if (typeof headers.getSetCookie === "function") {
+    return headers.getSetCookie();
+  }
+
+  const setCookie = response.headers.get("set-cookie");
+  return setCookie ? [setCookie] : [];
 }

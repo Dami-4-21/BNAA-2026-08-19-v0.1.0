@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { buildSessionCookie } from "@/lib/backend/session";
 import { authenticateUser, isApiError } from "@/lib/backend/service";
+import {
+  applyRebuildSessionCookies,
+  authenticateWithRebuildApi,
+  shouldUseRebuildAuthBridge,
+} from "@/lib/rebuild-auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,6 +19,18 @@ export async function POST(request: NextRequest) {
     });
 
     response.cookies.set(buildSessionCookie(result.sessionToken));
+
+    if (shouldUseRebuildAuthBridge()) {
+      const rebuildSession = await authenticateWithRebuildApi(
+        body.email ?? "",
+        body.password ?? "",
+      );
+
+      if (rebuildSession) {
+        applyRebuildSessionCookies(response, rebuildSession.tokens);
+      }
+    }
+
     return response;
   } catch (error) {
     if (isApiError(error)) {

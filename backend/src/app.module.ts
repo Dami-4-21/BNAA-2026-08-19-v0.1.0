@@ -3,6 +3,7 @@ import { ConfigModule } from "@nestjs/config";
 import { APP_FILTER, APP_INTERCEPTOR } from "@nestjs/core";
 
 import { AuthModule } from "@/auth/auth.module";
+import { BootstrapModule } from "@/bootstrap/bootstrap.module";
 import { HttpExceptionFilter } from "@/common/filters/http-exception.filter";
 import { TenantSchemaInterceptor } from "@/common/interceptors/tenant-schema.interceptor";
 import { DatabaseModule } from "@/database/database.module";
@@ -24,6 +25,7 @@ import { UsersModule } from "@/users/users.module";
       envFilePath: ".env",
       isGlobal: true,
     }),
+    BootstrapModule,
     DatabaseModule,
     AuthModule,
     TenantsModule,
