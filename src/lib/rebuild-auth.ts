@@ -65,8 +65,39 @@ type RebuildBridgeSession = {
   tokens: RebuildBridgeTokens;
 };
 
+type RebuildProject = {
+  city: string | null;
+  createdAt: string;
+  endDate: string | null;
+  governorate: string | null;
+  id: string;
+  name: string;
+  startDate: string | null;
+  status: string;
+  type: string | null;
+};
+
+type RebuildProjectListResponse = {
+  items: RebuildProject[];
+};
+
+type RebuildProjectMembersResponse = {
+  items: Array<{
+    addedAt: string;
+    email: string;
+    fullName: string;
+    isActive: boolean;
+    role: string;
+    userId: string;
+  }>;
+};
+
 export function shouldUseRebuildAuthBridge() {
   return process.env.BNAASAAS_REBUILD_AUTH_ENABLED === "true";
+}
+
+export function shouldUseRebuildProjectsBridge() {
+  return process.env.BNAASAAS_REBUILD_PROJECTS_ENABLED === "true";
 }
 
 export function getRebuildApiUrl() {
@@ -142,29 +173,8 @@ export async function authenticateWithRebuildApi(
 export async function fetchRebuildSession(
   accessToken: string,
 ): Promise<RebuildAppSession | null> {
-  const apiUrl = getRebuildApiUrl();
-
-  if (!apiUrl || !accessToken) {
-    return null;
-  }
-
-  try {
-    const response = await fetch(`${apiUrl}/api/v1/auth/me`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload = (await response.json()) as RebuildAuthMeResponse;
-    return mapSessionPayload(payload);
-  } catch {
-    return null;
-  }
+  const payload = await fetchRebuildJson<RebuildAuthMeResponse>("/api/v1/auth/me", accessToken);
+  return payload ? mapSessionPayload(payload) : null;
 }
 
 export async function refreshRebuildSession(
@@ -208,23 +218,30 @@ export async function refreshRebuildSession(
 }
 
 export async function logoutFromRebuildApi(accessToken: string) {
-  const apiUrl = getRebuildApiUrl();
+  await fetchRebuildJson("/api/v1/auth/logout", accessToken, {
+    method: "POST",
+  });
+}
 
-  if (!apiUrl || !accessToken) {
-    return;
-  }
+export async function fetchRebuildProjects(accessToken: string) {
+  const payload = await fetchRebuildJson<RebuildProjectListResponse>(
+    "/api/v1/projects",
+    accessToken,
+  );
 
-  try {
-    await fetch(`${apiUrl}/api/v1/auth/logout`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      cache: "no-store",
-    });
-  } catch {
-    // Best-effort logout only. The local bridge cookies are still cleared.
-  }
+  return payload?.items ?? null;
+}
+
+export async function fetchRebuildProjectMembers(
+  accessToken: string,
+  projectId: string,
+) {
+  const payload = await fetchRebuildJson<RebuildProjectMembersResponse>(
+    `/api/v1/projects/${projectId}/members`,
+    accessToken,
+  );
+
+  return payload?.items ?? null;
 }
 
 function mapAuthPayloadToSession(
@@ -297,6 +314,41 @@ function buildInitials(name: string) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+async function fetchRebuildJson<T>(
+  path: string,
+  accessToken: string,
+  options?: RequestInit,
+): Promise<T | null> {
+  const apiUrl = getRebuildApiUrl();
+
+  if (!apiUrl || !accessToken) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(`${apiUrl}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(options?.headers ?? {}),
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    if (response.status === 204) {
+      return null;
+    }
+
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
 }
 
 function buildRebuildCookie(name: string, value: string, options: { maxAge: number }) {

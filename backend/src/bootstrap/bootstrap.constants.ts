@@ -54,3 +54,54 @@ export const pilotUsers: Array<{
     role: UserRole.ADMIN,
   },
 ];
+
+export const pilotProjects: Array<{
+  city: string;
+  governorate: string;
+  memberEmails: string[];
+  name: string;
+  type: string;
+}> = [
+  {
+    city: "Ariana",
+    governorate: "Tunis",
+    memberEmails: [
+      "admin@bnaa.com",
+      "adel@bnaasaas.tn",
+      "sara@bnaasaas.tn",
+      "amine@bnaasaas.tn",
+      "nour@bnaasaas.tn",
+      "hichem@bnaasaas.tn",
+      "salma@bnaasaas.tn",
+    ],
+    name: "Residence El Wifak",
+    type: "residential",
+  },
+  {
+    city: "Lac 2",
+    governorate: "Tunis",
+    memberEmails: [
+      "admin@bnaa.com",
+      "adel@bnaasaas.tn",
+      "sara@bnaasaas.tn",
+      "amine@bnaasaas.tn",
+      "hichem@bnaasaas.tn",
+      "salma@bnaasaas.tn",
+    ],
+    name: "Pole Sante Lac 2",
+    type: "healthcare",
+  },
+  {
+    city: "Mornag",
+    governorate: "Ben Arous",
+    memberEmails: [
+      "admin@bnaa.com",
+      "adel@bnaasaas.tn",
+      "sara@bnaasaas.tn",
+      "amine@bnaasaas.tn",
+      "salma@bnaasaas.tn",
+    ],
+    name: "Pont Mornag",
+    type: "infrastructure",
+  },
+];
