@@ -1,0 +1,410 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["public", "tenant_template"]
+}
+
+enum UserRole {
+  MO
+  BE
+  CP
+  CT
+  CO
+  ADMIN
+
+  @@schema("public")
+}
+
+enum ProjectStatus {
+  active
+  configuration
+  closed
+
+  @@schema("tenant_template")
+}
+
+enum DailyReportStatus {
+  draft
+  pending_signature
+  signed
+
+  @@schema("tenant_template")
+}
+
+enum WeatherCode {
+  sunny
+  cloudy
+  rain
+  strong_wind
+
+  @@schema("tenant_template")
+}
+
+enum NcrSeverity {
+  low
+  medium
+  high
+
+  @@schema("tenant_template")
+}
+
+enum NcrStatus {
+  open
+  in_progress
+  closed
+
+  @@schema("tenant_template")
+}
+
+enum DocumentStatus {
+  active
+  obsolete
+
+  @@schema("tenant_template")
+}
+
+enum DocumentPhase {
+  APS
+  APD
+  EXE
+  DOE
+
+  @@schema("tenant_template")
+}
+
+enum DocumentType {
+  plan
+  spec
+  calculation
+  report
+  other
+
+  @@schema("tenant_template")
+}
+
+enum DocumentVersionStatus {
+  pending
+  active
+
+  @@schema("tenant_template")
+}
+
+enum StatementStatus {
+  draft
+  pending_validation
+  validated
+
+  @@schema("tenant_template")
+}
+
+enum InvoiceStatus {
+  issued
+  partially_paid
+  paid
+  overdue
+  litigious
+
+  @@schema("tenant_template")
+}
+
+model Tenant {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String   @db.VarChar(255)
+  slug           String   @unique @db.VarChar(100)
+  plan           String   @default("starter") @db.VarChar(50)
+  companyMf      String?  @map("company_mf") @db.VarChar(50)
+  companyRc      String?  @map("company_rc") @db.VarChar(50)
+  companyAddress String?  @map("company_address")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  users          User[]
+
+  @@map("tenants")
+  @@schema("public")
+}
+
+model User {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  email         String    @unique @db.VarChar(255)
+  passwordHash  String    @map("password_hash")
+  fullName      String    @map("full_name") @db.VarChar(255)
+  role          UserRole
+  isActive      Boolean   @default(true) @map("is_active")
+  totpSecret    String?   @map("totp_secret")
+  totpEnabled   Boolean   @default(false) @map("totp_enabled")
+  refreshToken  String?   @map("refresh_token")
+  invitedBy     String?   @map("invited_by") @db.Uuid
+  lastLoginAt   DateTime? @map("last_login_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId], map: "idx_users_tenant")
+  @@index([email], map: "idx_users_email")
+  @@map("users")
+  @@schema("public")
+}
+
+model Project {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String         @db.VarChar(255)
+  type             String?        @db.VarChar(50)
+  status           ProjectStatus  @default(active)
+  governorate      String?        @db.VarChar(100)
+  city             String?        @db.VarChar(100)
+  gpsLat           Decimal?       @map("gps_lat") @db.Decimal(10, 7)
+  gpsLng           Decimal?       @map("gps_lng") @db.Decimal(10, 7)
+  contractAmountHt Decimal?       @map("contract_amount_ht") @db.Decimal(15, 3)
+  startDate        DateTime?      @map("start_date") @db.Date
+  endDate          DateTime?      @map("end_date") @db.Date
+  createdBy        String         @map("created_by") @db.Uuid
+  createdAt        DateTime       @default(now()) @map("created_at")
+  members          ProjectMember[]
+  reports          DailyReport[]
+  photos           Photo[]
+  ncrs             Ncr[]
+  documents        Document[]
+  statements       Statement[]
+  invoices         Invoice[]
+  notifications    Notification[]
+
+  @@map("projects")
+  @@schema("tenant_template")
+}
+
+model ProjectMember {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      String   @db.VarChar(20)
+  addedAt   DateTime @default(now()) @map("added_at")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+  @@schema("tenant_template")
+}
+
+model DailyReport {
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId          String            @map("project_id") @db.Uuid
+  reportDate         DateTime          @map("report_date") @db.Date
+  weather            WeatherCode?
+  workforceCount     Int               @default(0) @map("workforce_count")
+  workforceBreakdown Json              @default("[]") @map("workforce_breakdown")
+  activities         String?
+  incidents          Json              @default("[]")
+  notes              String?
+  status             DailyReportStatus @default(draft)
+  createdBy          String            @map("created_by") @db.Uuid
+  signedBy           String?           @map("signed_by") @db.Uuid
+  signedAt           DateTime?         @map("signed_at")
+  pdfUrl             String?           @map("pdf_url")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  project            Project           @relation(fields: [projectId], references: [id])
+  photos             Photo[]
+
+  @@unique([projectId, reportDate])
+  @@index([projectId, reportDate(sort: Desc)], map: "idx_reports_project_date")
+  @@map("daily_reports")
+  @@schema("tenant_template")
+}
+
+model Photo {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reportId      String?   @map("report_id") @db.Uuid
+  projectId     String    @map("project_id") @db.Uuid
+  fileUrl       String    @map("file_url")
+  fileKey       String    @map("file_key")
+  thumbnailUrl  String?   @map("thumbnail_url")
+  gpsLat        Decimal?  @map("gps_lat") @db.Decimal(10, 7)
+  gpsLng        Decimal?  @map("gps_lng") @db.Decimal(10, 7)
+  locationLabel String?   @map("location_label") @db.VarChar(255)
+  taskTag       String?   @map("task_tag") @db.VarChar(255)
+  isDeleted     Boolean   @default(false) @map("is_deleted")
+  uploadedBy    String    @map("uploaded_by") @db.Uuid
+  takenAt       DateTime  @default(now()) @map("taken_at")
+  project       Project   @relation(fields: [projectId], references: [id])
+  report        DailyReport? @relation(fields: [reportId], references: [id])
+
+  @@index([projectId, takenAt(sort: Desc)], map: "idx_photos_project")
+  @@index([reportId], map: "idx_photos_report")
+  @@map("photos")
+  @@schema("tenant_template")
+}
+
+model Ncr {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String      @map("project_id") @db.Uuid
+  reference   String?     @db.VarChar(30)
+  title       String      @db.VarChar(255)
+  description String?
+  severity    NcrSeverity @default(medium)
+  status      NcrStatus   @default(open)
+  assignedTo  String?     @map("assigned_to") @db.Uuid
+  deadline    DateTime?   @db.Date
+  evidenceUrl String?     @map("evidence_url")
+  createdBy   String      @map("created_by") @db.Uuid
+  closedBy    String?     @map("closed_by") @db.Uuid
+  closedAt    DateTime?   @map("closed_at")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  project     Project     @relation(fields: [projectId], references: [id])
+  photos      NcrPhoto[]
+
+  @@map("ncr")
+  @@schema("tenant_template")
+}
+
+model NcrPhoto {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ncrId      String   @map("ncr_id") @db.Uuid
+  fileUrl    String   @map("file_url")
+  fileKey    String   @map("file_key")
+  uploadedAt DateTime @default(now()) @map("uploaded_at")
+  ncr        Ncr      @relation(fields: [ncrId], references: [id])
+
+  @@map("ncr_photos")
+  @@schema("tenant_template")
+}
+
+model Document {
+  id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId    String             @map("project_id") @db.Uuid
+  name         String             @db.VarChar(255)
+  phase        DocumentPhase?
+  docType      DocumentType?      @map("doc_type")
+  status       DocumentStatus     @default(active)
+  createdBy    String             @map("created_by") @db.Uuid
+  createdAt    DateTime           @default(now()) @map("created_at")
+  searchVector Unsupported("tsvector")? @map("search_vector")
+  project      Project            @relation(fields: [projectId], references: [id])
+  versions     DocumentVersion[]
+  distributions DocumentDistribution[]
+
+  @@index([projectId, createdAt(sort: Desc)], map: "idx_docs_project")
+  @@index([searchVector], type: Gin, map: "idx_docs_fts")
+  @@map("documents")
+  @@schema("tenant_template")
+}
+
+model DocumentVersion {
+  id           String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId   String                @map("document_id") @db.Uuid
+  versionLabel String                @map("version_label") @db.VarChar(20)
+  fileUrl      String                @map("file_url")
+  fileKey      String                @map("file_key")
+  fileSizeMb   Decimal?              @map("file_size_mb") @db.Decimal(8, 2)
+  fileType     String?               @map("file_type") @db.VarChar(10)
+  versionNote  String?               @map("version_note")
+  isCurrent    Boolean               @default(true) @map("is_current")
+  status       DocumentVersionStatus @default(active)
+  uploadedBy   String                @map("uploaded_by") @db.Uuid
+  uploadedAt   DateTime              @default(now()) @map("uploaded_at")
+  document     Document              @relation(fields: [documentId], references: [id])
+  distributions DocumentDistribution[]
+
+  @@index([documentId, uploadedAt(sort: Desc)], map: "idx_versions_document")
+  @@map("document_versions")
+  @@schema("tenant_template")
+}
+
+model DocumentDistribution {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId  String    @map("document_id") @db.Uuid
+  versionId   String    @map("version_id") @db.Uuid
+  recipientId String    @map("recipient_id") @db.Uuid
+  note        String?
+  sentAt      DateTime  @default(now()) @map("sent_at")
+  readAt      DateTime? @map("read_at")
+  document    Document  @relation(fields: [documentId], references: [id])
+  version     DocumentVersion @relation(fields: [versionId], references: [id])
+
+  @@map("document_distributions")
+  @@schema("tenant_template")
+}
+
+model Statement {
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId        String          @map("project_id") @db.Uuid
+  periodMonth      DateTime        @map("period_month") @db.Date
+  lineItems        Json            @default("[]") @map("line_items")
+  subtotalHt       Decimal         @default(0) @map("subtotal_ht") @db.Decimal(15, 3)
+  retentionPct     Decimal         @default(5.00) @map("retention_pct") @db.Decimal(5, 2)
+  retentionAmount  Decimal         @default(0) @map("retention_amount") @db.Decimal(15, 3)
+  advanceDeduction Decimal         @default(0) @map("advance_deduction") @db.Decimal(15, 3)
+  netPayableHt     Decimal         @default(0) @map("net_payable_ht") @db.Decimal(15, 3)
+  status           StatementStatus @default(draft)
+  createdBy        String          @map("created_by") @db.Uuid
+  validatedBy      String?         @map("validated_by") @db.Uuid
+  validatedAt      DateTime?       @map("validated_at")
+  rejectionNote    String?         @map("rejection_note")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  project          Project         @relation(fields: [projectId], references: [id])
+  invoices         Invoice[]
+
+  @@unique([projectId, periodMonth])
+  @@map("statements")
+  @@schema("tenant_template")
+}
+
+model Invoice {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId     String        @map("project_id") @db.Uuid
+  statementId   String?       @map("statement_id") @db.Uuid
+  invoiceNumber String        @map("invoice_number") @db.VarChar(20) @unique
+  periodMonth   DateTime      @map("period_month") @db.Date
+  amountHt      Decimal       @map("amount_ht") @db.Decimal(15, 3)
+  tvaRate       Decimal       @default(19.00) @map("tva_rate") @db.Decimal(5, 2)
+  tvaAmount     Decimal       @map("tva_amount") @db.Decimal(15, 3)
+  amountTtc     Decimal       @map("amount_ttc") @db.Decimal(15, 3)
+  amountPaid    Decimal       @default(0) @map("amount_paid") @db.Decimal(15, 3)
+  dueDate       DateTime      @map("due_date") @db.Date
+  status        InvoiceStatus @default(issued)
+  pdfUrl        String?       @map("pdf_url")
+  createdBy     String        @map("created_by") @db.Uuid
+  createdAt     DateTime      @default(now()) @map("created_at")
+  project       Project       @relation(fields: [projectId], references: [id])
+  statement     Statement?    @relation(fields: [statementId], references: [id])
+  payments      Payment[]
+
+  @@map("invoices")
+  @@schema("tenant_template")
+}
+
+model Payment {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  invoiceId     String   @map("invoice_id") @db.Uuid
+  amount        Decimal  @db.Decimal(15, 3)
+  paymentDate   DateTime @map("payment_date") @db.Date
+  bankReference String?  @map("bank_reference") @db.VarChar(255)
+  notes         String?
+  recordedBy    String   @map("recorded_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id])
+
+  @@map("payments")
+  @@schema("tenant_template")
+}
+
+model Notification {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  projectId String?  @map("project_id") @db.Uuid
+  type      String   @db.VarChar(60)
+  title     String   @db.VarChar(255)
+  body      String?
+  link      String?
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+  project   Project? @relation(fields: [projectId], references: [id])
+
+  @@index([userId, createdAt(sort: Desc), isRead], map: "idx_notifs_user")
+  @@map("notifications")
+  @@schema("tenant_template")
+}
