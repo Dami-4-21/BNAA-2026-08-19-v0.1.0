@@ -1,5 +1,9 @@
 # Phase 1 Foundation Rebuild
 
+Canonical tracker: [rebuild-phases-tracker.md](C:\Users\adamb\Downloads\BNAA\bnaasaas-mvp\docs\rebuild-phases-tracker.md)
+
+Use `docs/rebuild-phases-tracker.md` as the source of truth for all rebuild phases and task completion state. This file is kept only as the original Phase 1 notes.
+
 This document tracks the first rebuild slice against the May 2025 specification.
 
 ## Goal
