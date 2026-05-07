@@ -123,6 +123,12 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get("me")
+  me(@CurrentUser() currentUser: AuthenticatedUser) {
+    return this.authService.me(currentUser);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post("2fa/enable")
   enable2fa(
     @CurrentUser() currentUser: AuthenticatedUser,

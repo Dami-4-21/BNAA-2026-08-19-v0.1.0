@@ -21,11 +21,16 @@ transition safely instead of breaking the running MVP.
   - invite acceptance
   - password reset token flow
   - 2FA setup / enable / disable
+  - authenticated `/auth/me` bootstrap endpoint
 - Tenant schema provisioning is now real for the first runtime slice:
   - creates `tenant_{tenantId}`
   - clones template tables
   - restores the document search trigger
   - rolls schema back cleanly if registration provisioning fails
+- Auth email delivery is now wired for:
+  - invite emails
+  - reset-password emails
+  - debug fallback when `RESEND_API_KEY` is not configured
 - Users API is now real for:
   - list
   - me
@@ -50,19 +55,23 @@ transition safely instead of breaking the running MVP.
   - pdf
   - notifications
   - queue
+- Docker now has a parallel rebuild lane:
+  - `postgres`
+  - `api`
+  - existing `web`
+- The current app has its first opt-in bridge to the rebuild API:
+  - session bootstrap can read from the new backend when explicitly enabled
 
 ## What Phase 1 still needs
 
 1. Harden tenant provisioning with real migrations and a fully cloned schema contract.
-2. Complete the remaining auth delivery surface:
-   - forgot/reset email delivery
-   - invite email delivery
+2. Decide and execute the first full live module cutover behind a feature flag.
 3. Start moving frontend state toward the spec stack:
    - Zustand
    - TanStack Query
    - React Hook Form + Zod
 4. Plan the repo split so the current root Next app can become `frontend/`.
-5. Begin replacing the current internal backend with the new Nest API module by module.
+5. Continue replacing the current internal backend with the new Nest API module by module.
 
 ## Transition rule
 

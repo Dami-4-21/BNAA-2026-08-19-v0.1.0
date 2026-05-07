@@ -1,9 +1,43 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${BNAASAAS_POSTGRES_DB:-bnaasaas}
+      POSTGRES_PASSWORD: ${BNAASAAS_POSTGRES_PASSWORD:-change-me}
+      POSTGRES_USER: ${BNAASAAS_POSTGRES_USER:-bnaasaas}
+    volumes:
+      - bnaasaas_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      - postgres
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      APP_NAME: BnaaSaaS
+      APP_URL: ${BNAASAAS_APP_URL:-http://192.168.100.211:3000}
+      DATABASE_URL: postgresql://${BNAASAAS_POSTGRES_USER:-bnaasaas}:${BNAASAAS_POSTGRES_PASSWORD:-change-me}@postgres:5432/${BNAASAAS_POSTGRES_DB:-bnaasaas}?schema=public
+      JWT_SECRET: ${BNAASAAS_API_JWT_SECRET:-replace-with-64-char-secret}
+      JWT_REFRESH_SECRET: ${BNAASAAS_API_JWT_REFRESH_SECRET:-replace-with-another-64-char-secret}
+      JWT_ACCESS_EXPIRES: ${BNAASAAS_API_JWT_ACCESS_EXPIRES:-15m}
+      JWT_REFRESH_EXPIRES: ${BNAASAAS_API_JWT_REFRESH_EXPIRES:-30d}
+      REDIS_URL: ${BNAASAAS_API_REDIS_URL:-redis://redis:6379}
+      RESEND_API_KEY: ${BNAASAAS_API_RESEND_KEY:-}
+      EMAIL_FROM: ${BNAASAAS_API_EMAIL_FROM:-noreply@bnaasaas.tn}
+    command: sh -c "npx prisma db push --skip-generate && node dist/main.js"
+    restart: unless-stopped
+
   web:
     container_name: bnaasaas-mvp
     build:
       context: .
       dockerfile: Dockerfile
+    depends_on:
+      - api
     ports:
       - "3000:3000"
     environment:
@@ -18,9 +52,12 @@ services:
       BNAASAAS_SMTP_PASS: ${BNAASAAS_SMTP_PASS:-}
       BNAASAAS_SMTP_FROM: ${BNAASAAS_SMTP_FROM:-}
       BNAASAAS_SMTP_SECURE: ${BNAASAAS_SMTP_SECURE:-false}
+      BNAASAAS_REBUILD_AUTH_ENABLED: ${BNAASAAS_REBUILD_AUTH_ENABLED:-false}
+      BNAASAAS_REBUILD_API_URL: ${BNAASAAS_REBUILD_API_URL:-http://api:4000}
     volumes:
       - bnaasaas_data:/data
     restart: unless-stopped
 
 volumes:
   bnaasaas_data:
+  bnaasaas_postgres_data:

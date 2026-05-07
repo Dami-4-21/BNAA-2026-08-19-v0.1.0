@@ -9,9 +9,24 @@ import {
   getAuthenticatedSession,
   isApiError,
 } from "@/lib/backend/service";
+import {
+  fetchRebuildSession,
+  rebuildAccessCookieName,
+  shouldUseRebuildAuthBridge,
+} from "@/lib/rebuild-auth";
 
 export async function GET(request: NextRequest) {
   try {
+    if (shouldUseRebuildAuthBridge()) {
+      const rebuildAccessToken =
+        request.cookies.get(rebuildAccessCookieName)?.value ?? "";
+      const rebuildSession = await fetchRebuildSession(rebuildAccessToken);
+
+      if (rebuildSession) {
+        return NextResponse.json(rebuildSession, { status: 200 });
+      }
+    }
+
     const token = request.cookies.get(sessionCookieName)?.value ?? null;
     const session = await getAuthenticatedSession(token);
 

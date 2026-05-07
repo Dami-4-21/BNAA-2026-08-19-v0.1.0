@@ -13,9 +13,11 @@ What is included in the current Phase 1 slice:
   - login
   - refresh
   - logout
+  - authenticated `/auth/me`
   - forgot/reset password token flow
   - invite acceptance
   - 2FA setup / enable / disable
+- Invite and reset-password email delivery through `Resend` with debug fallback when not configured
 - Public users and projects APIs
 - Auth, tenant, user, project, site, documents, finance, storage, PDF, notifications, and queue module structure
 - Shared guards, decorators, filters, and utilities

@@ -9,12 +9,16 @@ import { v4 as uuidv4 } from "uuid";
 
 import { AuthenticatedUser } from "@/common/types/authenticated-user.interface";
 import { PrismaService } from "@/database/prisma.service";
+import { MailService } from "@/mail/mail.service";
 import { InviteUserDto } from "@/users/dto/invite-user.dto";
 import { UpdateRoleDto } from "@/users/dto/update-role.dto";
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mailService: MailService,
+  ) {}
 
   async list(currentUser: AuthenticatedUser) {
     const users = await this.prisma.user.findMany({
@@ -72,12 +76,31 @@ export class UsersService {
       },
     });
 
+    const inviter = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: currentUser.tenantId },
+    });
+    const delivery = await this.mailService.sendInviteEmail({
+      inviteLink: this.mailService.buildInviteLink(rawToken),
+      inviterName: inviter?.fullName ?? "BnaaSaaS",
+      recipientEmail: user.email,
+      recipientName: user.fullName,
+      roleLabel: user.role,
+      tenantName: tenant?.name ?? "BnaaSaaS",
+    });
+
     return {
       id: user.id,
       email: user.email,
       role: user.role,
       inviteExpiresAt,
-      debugInviteToken: process.env.NODE_ENV === "production" ? undefined : rawToken,
+      delivery,
+      debugInviteToken:
+        process.env.NODE_ENV === "production" || delivery.mode !== "debug"
+          ? undefined
+          : rawToken,
     };
   }
 

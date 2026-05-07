@@ -22,6 +22,7 @@ import { Verify2faDto } from "@/auth/dto/verify-2fa.dto";
 import { AuthenticatedUser } from "@/common/types/authenticated-user.interface";
 import { buildTenantSlug } from "@/common/utils/tenant-schema.util";
 import { PrismaService } from "@/database/prisma.service";
+import { MailService } from "@/mail/mail.service";
 import { TenantsService } from "@/tenants/tenants.service";
 
 type PublicUserWithTenant = User & { tenant: Tenant };
@@ -33,6 +34,7 @@ export class AuthService {
     private readonly tenantsService: TenantsService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
   ) {}
 
   async register(payload: RegisterDto) {
@@ -239,10 +241,17 @@ export class AuthService {
       },
     });
 
+    const delivery = await this.mailService.sendResetPasswordEmail({
+      recipientEmail: user.email,
+      recipientName: user.fullName,
+      resetLink: this.mailService.buildResetPasswordLink(token),
+    });
+
     return {
       ok: true,
       expiresAt,
-      debugToken: this.isProduction() ? undefined : token,
+      delivery,
+      debugToken: !this.isProduction() && delivery.mode === "debug" ? token : undefined,
     };
   }
 
@@ -338,6 +347,22 @@ export class AuthService {
     return {
       secret,
       otpAuthUrl,
+    };
+  }
+
+  async me(currentUser: AuthenticatedUser) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+      include: { tenant: true },
+    });
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException("User not found.");
+    }
+
+    return {
+      user: this.serializeUser(user),
+      tenant: this.serializeTenant(user.tenant),
     };
   }
 

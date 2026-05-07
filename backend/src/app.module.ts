@@ -8,6 +8,7 @@ import { TenantSchemaInterceptor } from "@/common/interceptors/tenant-schema.int
 import { DatabaseModule } from "@/database/database.module";
 import { DocumentsModule } from "@/documents/documents.module";
 import { FinanceModule } from "@/finance/finance.module";
+import { MailModule } from "@/mail/mail.module";
 import { NotificationsModule } from "@/notifications/notifications.module";
 import { PdfModule } from "@/pdf/pdf.module";
 import { ProjectsModule } from "@/projects/projects.module";
@@ -31,6 +32,7 @@ import { UsersModule } from "@/users/users.module";
     SiteReportsModule,
     DocumentsModule,
     FinanceModule,
+    MailModule,
     StorageModule,
     PdfModule,
     NotificationsModule,
