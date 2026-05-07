@@ -28,6 +28,7 @@ services:
       REDIS_URL: ${BNAASAAS_API_REDIS_URL:-redis://redis:6379}
       RESEND_API_KEY: ${BNAASAAS_API_RESEND_KEY:-}
       EMAIL_FROM: ${BNAASAAS_API_EMAIL_FROM:-noreply@bnaasaas.tn}
+      BNAASAAS_ENABLE_COMPAT_SEED: ${BNAASAAS_ENABLE_COMPAT_SEED:-true}
     command: sh -c "npx prisma db push --skip-generate && node dist/main.js"
     restart: unless-stopped
 
