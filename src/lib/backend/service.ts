@@ -14,6 +14,7 @@ import {
 } from "@/lib/auth";
 import { saveUploadedFile } from "@/lib/backend/files";
 import { dispatchNotificationEmail as sendNotificationEmail } from "@/lib/backend/mail";
+import { buildAlertsFromNotifications } from "@/lib/backend/notification-utils";
 import { buildDailyReportPdf, buildInvoicePdf } from "@/lib/backend/pdf";
 import { resolveProjectWeather } from "@/lib/backend/weather";
 import { financeVatRegimes } from "@/lib/mock-data";
@@ -126,21 +127,6 @@ function formatRelativeTime(timestamp: string) {
   }
 
   return toDayMonth(timestamp);
-}
-
-function notificationToneRank(tone: NotificationRecord["tone"]) {
-  switch (tone) {
-    case "danger":
-      return 0;
-    case "warning":
-      return 1;
-    case "primary":
-      return 2;
-    case "success":
-      return 3;
-    default:
-      return 4;
-  }
 }
 
 function channelSupportsEmail(channel: NotificationRecord["channel"]) {
@@ -1132,30 +1118,6 @@ function toUserNotification(
     isRead: notification.readBy.includes(userId),
     when: formatRelativeTime(notification.createdAt),
   };
-}
-
-function buildAlertsFromNotifications(
-  notifications: UserNotification[],
-  projectId?: string,
-): DashboardAlert[] {
-  return notifications
-    .filter((notification) => !notification.isRead)
-    .filter((notification) => (projectId ? notification.projectId === projectId : true))
-    .sort((left, right) => {
-      const toneGap = notificationToneRank(left.tone) - notificationToneRank(right.tone);
-      if (toneGap !== 0) {
-        return toneGap;
-      }
-
-      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
-    })
-    .slice(0, 4)
-    .map((notification) => ({
-      title: notification.title,
-      detail: notification.detail,
-      time: notification.when,
-      tone: notification.tone,
-    }));
 }
 
 function buildUserActivityFeed(
