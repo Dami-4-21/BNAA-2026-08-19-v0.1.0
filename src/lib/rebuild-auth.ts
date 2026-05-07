@@ -273,7 +273,7 @@ function mapRebuildUserToSafeUser(user: RebuildUser): SafeUser {
       ...sanitizeUser(legacyUser),
       email: user.email,
       id: legacyUser.id,
-      initials: buildInitials(user.fullName),
+      initials: legacyUser.initials,
       name: user.fullName,
       role: mapBackendRoleToLegacyRole(user.role),
     };
