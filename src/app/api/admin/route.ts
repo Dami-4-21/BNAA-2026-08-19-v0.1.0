@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { sessionCookieName } from "@/lib/backend/session";
+import type { AdminPageData, ProjectWorkflowOwnerKey } from "@/lib/backend/types";
 import {
   archiveAdminProject,
   createAdminProject,
@@ -11,11 +12,33 @@ import {
   updateAdminProjectSetup,
   updateAdminUser,
 } from "@/lib/backend/service";
+import {
+  fetchBridgedWorkspaceProjects,
+  fetchRebuildSession,
+  rebuildAccessCookieName,
+  shouldUseRebuildProjectsBridge,
+} from "@/lib/rebuild-auth";
+import { workspaceProjects } from "@/lib/mock-data";
 
 export async function GET(request: NextRequest) {
   try {
     const token = request.cookies.get(sessionCookieName)?.value ?? "";
-    const payload = await getAdminPayload(token);
+    const legacyPayload = await getAdminPayload(token);
+
+    if (shouldUseRebuildProjectsBridge()) {
+      const rebuildAccessToken =
+        request.cookies.get(rebuildAccessCookieName)?.value ?? "";
+      const bridgedPayload = await buildAdminBridgePayload(
+        rebuildAccessToken,
+        legacyPayload,
+      );
+
+      if (bridgedPayload) {
+        return NextResponse.json(bridgedPayload);
+      }
+    }
+
+    const payload = legacyPayload;
     return NextResponse.json(payload);
   } catch (error) {
     if (isApiError(error)) {
@@ -143,4 +166,101 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: "Erreur creation utilisateur." }, { status: 500 });
   }
+}
+
+async function buildAdminBridgePayload(
+  rebuildAccessToken: string,
+  legacyPayload: AdminPageData,
+): Promise<AdminPageData | null> {
+  const [rebuildSession, bridgedProjects] = await Promise.all([
+    fetchRebuildSession(rebuildAccessToken),
+    fetchBridgedWorkspaceProjects(rebuildAccessToken, workspaceProjects),
+  ]);
+
+  if (!rebuildSession || !bridgedProjects) {
+    return null;
+  }
+
+  if (
+    bridgedProjects.rebuildProjects.length > 0 &&
+    bridgedProjects.legacyProjects.length === 0
+  ) {
+    return null;
+  }
+
+  const allowedProjectIds = new Set(
+    bridgedProjects.legacyProjects.map((project) => project.id),
+  );
+  const allowedProjectCodes = new Set(
+    bridgedProjects.legacyProjects.map((project) => project.code),
+  );
+  const availableProjects = legacyPayload.availableProjects.filter((project) =>
+    allowedProjectIds.has(project.id),
+  );
+  const users = legacyPayload.users
+    .map((user) => ({
+      ...user,
+      projectIds: user.projectIds.includes("*")
+        ? ["*"]
+        : user.projectIds.filter((projectId) => allowedProjectIds.has(projectId)),
+    }))
+    .filter(
+      (user) =>
+        user.role === "Super Admin" ||
+        user.projectIds.includes("*") ||
+        user.projectIds.length > 0,
+    );
+  const visibleUserIds = new Set(users.map((user) => user.id));
+  const projects = legacyPayload.projects
+    .filter((project) => allowedProjectIds.has(project.summary.id))
+    .map((project) => {
+      const members = project.members.filter((member) => visibleUserIds.has(member.id));
+      const memberIds = project.setup.memberIds.filter((memberId) =>
+        visibleUserIds.has(memberId),
+      );
+      const workflowOwners = filterWorkflowOwners(
+        project.setup.workflowOwners,
+        visibleUserIds,
+      );
+
+      return {
+        ...project,
+        memberCount: members.length,
+        members,
+        setup: {
+          ...project.setup,
+          memberIds,
+          workflowOwners,
+        },
+      };
+    });
+
+  return {
+    ...legacyPayload,
+    teamMembers: legacyPayload.teamMembers,
+    users,
+    availableProjects,
+    projects,
+    auditTrail: legacyPayload.auditTrail.filter(
+      (entry) => !entry.projectCode || allowedProjectCodes.has(entry.projectCode),
+    ),
+    tenant: {
+      ...legacyPayload.tenant,
+      activeProjects: availableProjects.length,
+      name: rebuildSession.tenant.name,
+      users: users.length,
+    },
+  };
+}
+
+function filterWorkflowOwners(
+  workflowOwners: Record<ProjectWorkflowOwnerKey, string>,
+  visibleUserIds: Set<string>,
+) {
+  return Object.fromEntries(
+    Object.entries(workflowOwners).map(([key, value]) => [
+      key,
+      value && visibleUserIds.has(value) ? value : "",
+    ]),
+  ) as Record<ProjectWorkflowOwnerKey, string>;
 }

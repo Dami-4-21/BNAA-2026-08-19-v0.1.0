@@ -72,7 +72,7 @@ Goal: build the new backend foundation in parallel and start cutting over access
 ### Remaining
 
 - [ ] Harden tenant provisioning with a real migration-driven schema contract instead of relying on template cloning only.
-- [ ] Bridge the `admin` read path to the rebuild tenant/project scope.
+- [x] Bridge the `admin` read path to the rebuild tenant/project scope.
 - [ ] Complete the first full live domain cutover so one area is served by rebuild data, not only rebuild access rules.
 - [ ] Start the frontend data-layer migration to the spec stack:
 - [ ] Zustand
