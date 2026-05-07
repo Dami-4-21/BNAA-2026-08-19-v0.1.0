@@ -2,6 +2,8 @@
 
 This file is the canonical tracker for the SaaS rebuild based on the May 2025 specification.
 
+Safety reference: `docs/safety.md`
+
 ## Update Rule
 
 - Mark a task with `[x]` only when it is implemented in the rebuild lane or in the live compatibility bridge.
