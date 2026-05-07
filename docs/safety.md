@@ -31,6 +31,7 @@ If a planned change touches any locked item below, stop and ask the user for exp
   - Auth / Admin / Settings
 - Database direction if it changes the agreed rebuild plan
 - API contract direction if it changes the agreed rebuild plan
+- Existing API routes and public route contracts are restricted
 
 ## Ask-First Changes
 
@@ -42,6 +43,7 @@ Ask for permission before changing any of the following:
 - changing the migration strategy between legacy and rebuild paths
 - changing the live deployment model
 - changing authentication/session strategy in a way that affects the agreed architecture
+- changing an existing API route path, route name, route structure, or public request/response contract
 - changing project scope, role scope, or module scope
 - removing a feature that already exists in the SaaS
 - changing data flow in a way that can break existing working modules
@@ -54,7 +56,7 @@ These are allowed as long as they do not violate the locked items above:
 - UX improvements
 - safe refactors
 - duplicate code cleanup
-- route-level compatibility bridges
+- route-level compatibility bridges only if they do not change the existing public API route path or contract
 - backend hardening that stays inside the agreed architecture
 - documentation updates
 - tests
@@ -79,6 +81,7 @@ Do not implement the change until the user approves it.
 - Do not lose important existing SaaS features.
 - Prefer additive and reversible changes.
 - Prefer feature flags and compatibility bridges over big-bang rewrites.
+- Do not rename, remove, or repurpose existing API routes without explicit approval.
 - Clean duplicated code safely when possible.
 - Keep GitHub and the server aligned after every approved change.
 
