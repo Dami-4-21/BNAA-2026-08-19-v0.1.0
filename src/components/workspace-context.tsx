@@ -16,6 +16,7 @@ import type { TenantRecord, WorkspacePayload, WorkspaceProject } from "@/lib/bac
 
 type WorkspaceContextValue = {
   isReady: boolean;
+  hasProjects: boolean;
   error: string;
   tenant: TenantRecord;
   currentUser: NonNullable<ReturnType<typeof useAuth>["currentUser"]>;
@@ -155,7 +156,8 @@ export function WorkspaceProvider({
 
   const value = useMemo(
     () => ({
-      isReady: Boolean(workspace && activeProject),
+      isReady: Boolean(workspace),
+      hasProjects: availableProjects.length > 0,
       error,
       tenant: workspace?.tenant ?? placeholderTenant,
       currentUser,

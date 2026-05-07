@@ -8,6 +8,7 @@ import {
   type SafeUser,
   type UserRole,
 } from "@/lib/auth";
+import type { WorkspaceProject } from "@/lib/backend/types";
 
 export const rebuildAccessCookieName = "bnaasaas_api_access";
 export const rebuildRefreshCookieName = "bnaasaas_api_refresh";
@@ -244,6 +245,19 @@ export async function fetchRebuildProjectMembers(
   return payload?.items ?? null;
 }
 
+export function mapRebuildProjectsToLegacyWorkspaceProjects(
+  rebuildProjects: RebuildProject[],
+  projectCatalog: WorkspaceProject[],
+) {
+  const catalogByName = new Map(
+    projectCatalog.map((project) => [buildProjectCompatibilityKey(project.name), project]),
+  );
+
+  return rebuildProjects
+    .map((project) => catalogByName.get(buildProjectCompatibilityKey(project.name)) ?? null)
+    .filter((project): project is WorkspaceProject => project !== null);
+}
+
 function mapAuthPayloadToSession(
   payload: RebuildAuthMeResponse | RebuildAuthSessionResponse,
 ): RebuildAppSession {
@@ -314,6 +328,10 @@ function buildInitials(name: string) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+function buildProjectCompatibilityKey(value: string) {
+  return value.trim().toLowerCase();
 }
 
 async function fetchRebuildJson<T>(

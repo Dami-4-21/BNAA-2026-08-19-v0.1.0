@@ -137,5 +137,38 @@ function WorkspaceReadyShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (!workspace.hasProjects) {
+    return (
+      <div className="workspace-light flex min-h-screen items-center justify-center px-4">
+        <Panel className="w-full max-w-xl">
+          <div className="flex items-start gap-4">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
+              <ShieldAlert className="size-5" />
+            </div>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <StatusBadge tone="warning">Aucun projet accessible</StatusBadge>
+                <h1 className="font-display text-2xl font-semibold text-stone-950">
+                  Votre compte n&apos;a pas encore de projet attribue
+                </h1>
+                <p className="text-sm leading-6 text-stone-600">
+                  Les acces workspace sont bien charges, mais aucun projet n&apos;est
+                  actuellement disponible pour votre profil. Contactez un administrateur pour
+                  affecter vos projets.
+                </p>
+              </div>
+              <Link
+                href="/notifications"
+                className="inline-flex rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800"
+              >
+                Ouvrir les notifications
+              </Link>
+            </div>
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+
   return <AppShell>{children}</AppShell>;
 }

@@ -6,9 +6,11 @@ import { getProjectsPayload, isApiError } from "@/lib/backend/service";
 import {
   fetchRebuildProjectMembers,
   fetchRebuildProjects,
+  mapRebuildProjectsToLegacyWorkspaceProjects,
   rebuildAccessCookieName,
   shouldUseRebuildProjectsBridge,
 } from "@/lib/rebuild-auth";
+import { workspaceProjects } from "@/lib/mock-data";
 
 export async function GET(request: NextRequest) {
   try {
@@ -51,9 +53,16 @@ async function buildProjectsBridgePayload(
 
   const legacyProjectMap = new Map(
     legacyPayload.projects.map((project) => [
-      buildProjectCompatibilityKey(project.summary.name),
+      project.summary.name.trim().toLowerCase(),
       project,
     ]),
+  );
+  const compatibleProjects = mapRebuildProjectsToLegacyWorkspaceProjects(
+    rebuildProjects,
+    workspaceProjects,
+  );
+  const compatibleProjectKeys = new Set(
+    compatibleProjects.map((project) => project.name.trim().toLowerCase()),
   );
 
   const memberCounts = await Promise.all(
@@ -71,7 +80,7 @@ async function buildProjectsBridgePayload(
 
   const projects = rebuildProjects
     .map((project) => {
-      const legacyProject = legacyProjectMap.get(buildProjectCompatibilityKey(project.name));
+      const legacyProject = legacyProjectMap.get(project.name.trim().toLowerCase());
 
       if (!legacyProject) {
         return null;
@@ -84,13 +93,9 @@ async function buildProjectsBridgePayload(
     })
     .filter((project): project is ProjectsPageData["projects"][number] => project !== null);
 
-  if (!projects.length || projects.length !== rebuildProjects.length) {
+  if (!projects.length || compatibleProjectKeys.size !== rebuildProjects.length) {
     return null;
   }
 
   return { projects };
-}
-
-function buildProjectCompatibilityKey(value: string) {
-  return value.trim().toLowerCase();
 }
