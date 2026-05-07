@@ -11,7 +11,7 @@ RUN npm install
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npx prisma generate && npm run build
+RUN npx prisma generate && npm run build && npm prune --omit=dev
 
 FROM base AS runner
 ENV NODE_ENV=production
