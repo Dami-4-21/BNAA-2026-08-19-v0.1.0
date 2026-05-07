@@ -13,15 +13,13 @@ import { workspaceProjects } from "@/lib/mock-data";
 
 export async function GET(request: NextRequest) {
   try {
-    const token = request.cookies.get(sessionCookieName)?.value ?? "";
-    const legacyPayload = await getProjectsPayload(token);
-
     if (shouldUseRebuildProjectsBridge()) {
       const rebuildAccessToken =
         request.cookies.get(rebuildAccessCookieName)?.value ?? "";
+      const legacyToken = request.cookies.get(sessionCookieName)?.value ?? "";
       const rebuildPayload = await buildProjectsBridgePayload(
         rebuildAccessToken,
-        legacyPayload,
+        legacyToken,
       );
 
       if (rebuildPayload) {
@@ -29,7 +27,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const payload = legacyPayload;
+    const token = request.cookies.get(sessionCookieName)?.value ?? "";
+    const payload = await getProjectsPayload(token);
     return NextResponse.json(payload);
   } catch (error) {
     if (isApiError(error)) {
@@ -42,16 +41,22 @@ export async function GET(request: NextRequest) {
 
 async function buildProjectsBridgePayload(
   rebuildAccessToken: string,
-  legacyPayload: ProjectsPageData,
+  legacyToken: string,
 ): Promise<ProjectsPageData | null> {
   const bridgedProjects = await fetchBridgedWorkspaceProjects(
     rebuildAccessToken,
     workspaceProjects,
   );
 
-  if (!bridgedProjects?.rebuildProjects.length) {
+  if (!bridgedProjects) {
     return null;
   }
+
+  if (bridgedProjects.rebuildProjects.length === 0) {
+    return { projects: [] };
+  }
+
+  const legacyPayload = await getProjectsPayload(legacyToken);
 
   const legacyProjectMap = new Map(
     legacyPayload.projects.map((project) => [
@@ -62,6 +67,9 @@ async function buildProjectsBridgePayload(
   const compatibleProjects = bridgedProjects.legacyProjects;
   const compatibleProjectKeys = new Set(
     compatibleProjects.map((project) => project.name.trim().toLowerCase()),
+  );
+  const compatibleProjectMap = new Map(
+    compatibleProjects.map((project) => [project.name.trim().toLowerCase(), project]),
   );
 
   const memberCounts = await Promise.all(
@@ -79,14 +87,17 @@ async function buildProjectsBridgePayload(
 
   const projects = bridgedProjects.rebuildProjects
     .map((project) => {
-      const legacyProject = legacyProjectMap.get(project.name.trim().toLowerCase());
+      const projectKey = project.name.trim().toLowerCase();
+      const legacyProject = legacyProjectMap.get(projectKey);
+      const compatibleProject = compatibleProjectMap.get(projectKey);
 
-      if (!legacyProject) {
+      if (!legacyProject || !compatibleProject) {
         return null;
       }
 
       return {
         ...legacyProject,
+        summary: compatibleProject,
         memberCount: memberCountByProjectId.get(project.id) ?? legacyProject.memberCount,
       };
     })
