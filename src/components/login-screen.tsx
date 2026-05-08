@@ -3,20 +3,36 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Building2, KeyRound, Mail } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 
 import { useAuth } from "@/components/auth-context";
 import { Panel, StatusBadge } from "@/components/ui";
 import { appUsers } from "@/lib/auth";
 import { tenant } from "@/lib/mock-data";
+import {
+  loginFormSchema,
+  type LoginFormValues,
+} from "@/lib/validation/auth";
 
 export function LoginScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { homePath, isAuthenticated, isReady, signIn } = useAuth();
-  const [email, setEmail] = useState(appUsers[0]?.email ?? "");
-  const [password, setPassword] = useState(appUsers[0]?.password ?? "");
-  const [error, setError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const {
+    formState: { errors, isSubmitting },
+    handleSubmit,
+    register,
+    reset,
+    setValue,
+  } = useForm<LoginFormValues>({
+    resolver: zodResolver(loginFormSchema),
+    defaultValues: {
+      email: appUsers[0]?.email ?? "",
+      password: appUsers[0]?.password ?? "",
+    },
+  });
 
   const nextPath = useMemo(() => searchParams.get("next") ?? homePath, [homePath, searchParams]);
 
@@ -28,19 +44,16 @@ export function LoginScreen() {
     router.replace(nextPath);
   }, [isAuthenticated, isReady, nextPath, router]);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
-    const result = await signIn({ email, password });
-    setIsSubmitting(false);
+  async function handleFormSubmit(values: LoginFormValues) {
+    const result = await signIn(values);
 
     if (!result.ok) {
-      setError(result.error);
+      setSubmitError(result.error);
       return;
     }
 
-    setError("");
-
+    setSubmitError("");
+    reset(values);
     router.replace(searchParams.get("next") ?? homePath);
   }
 
@@ -136,9 +149,17 @@ export function LoginScreen() {
                     key={user.id}
                     type="button"
                     onClick={() => {
-                      setEmail(user.email);
-                      setPassword(user.password);
-                      setError("");
+                      setValue("email", user.email, {
+                        shouldDirty: true,
+                        shouldTouch: true,
+                        shouldValidate: true,
+                      });
+                      setValue("password", user.password, {
+                        shouldDirty: true,
+                        shouldTouch: true,
+                        shouldValidate: true,
+                      });
+                      setSubmitError("");
                     }}
                     className="flex w-full items-center justify-between rounded-[20px] border border-stone-200 bg-stone-50 px-4 py-3 text-left hover:bg-stone-100"
                   >
@@ -159,7 +180,7 @@ export function LoginScreen() {
         </Panel>
 
         <Panel className="self-center">
-          <form className="space-y-5" onSubmit={handleSubmit}>
+          <form className="space-y-5" onSubmit={handleSubmit(handleFormSubmit)} noValidate>
             <div className="space-y-2">
               <StatusBadge tone="success">Acces securise</StatusBadge>
               <h2 className="font-display text-3xl font-semibold text-stone-950">
@@ -177,11 +198,14 @@ export function LoginScreen() {
                 Email
               </span>
               <input
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                {...register("email")}
                 className="mt-3 w-full bg-transparent text-base text-stone-950 outline-none"
                 placeholder="vous@entreprise.tn"
+                autoComplete="email"
               />
+              {errors.email ? (
+                <p className="mt-3 text-sm text-rose-700">{errors.email.message}</p>
+              ) : null}
             </label>
 
             <label className="block rounded-[24px] border border-stone-200 bg-stone-50 p-4">
@@ -191,16 +215,19 @@ export function LoginScreen() {
               </span>
               <input
                 type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                {...register("password")}
                 className="mt-3 w-full bg-transparent text-base text-stone-950 outline-none"
                 placeholder="Votre mot de passe"
+                autoComplete="current-password"
               />
+              {errors.password ? (
+                <p className="mt-3 text-sm text-rose-700">{errors.password.message}</p>
+              ) : null}
             </label>
 
-            {error ? (
+            {submitError ? (
               <div className="rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                {error}
+                {submitError}
               </div>
             ) : null}
 

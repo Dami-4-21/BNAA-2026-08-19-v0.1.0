@@ -77,8 +77,8 @@ Goal: build the new backend foundation in parallel and start cutting over access
 - [x] Start the frontend data-layer migration to the spec stack:
 - [x] Zustand
 - [x] TanStack Query
-- [ ] React Hook Form
-- [ ] Zod
+- [x] React Hook Form
+- [x] Zod
 - [ ] Prepare the repo split so the current root Next app can become `frontend/`.
 - [x] Define and implement the shared compat bridge pattern for the next route families so future cutovers stay consistent.
 
