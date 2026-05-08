@@ -38,6 +38,7 @@ import type {
 import { useWorkspace } from "@/components/workspace-context";
 
 type NavItem = {
+  id: NavItemId;
   href: string;
   label: string;
   shortLabel: string;
@@ -45,6 +46,28 @@ type NavItem = {
   icon: LucideIcon;
   permission: AppPermission;
   isActive?: (pathname: string, searchParams: URLSearchParams) => boolean;
+};
+
+type NavItemId =
+  | "dashboard"
+  | "projects"
+  | "documentation"
+  | "site"
+  | "site-photos"
+  | "site-ncr"
+  | "documents"
+  | "documents-versions"
+  | "documents-distribution"
+  | "finance"
+  | "finance-invoices"
+  | "finance-cashflow"
+  | "notifications"
+  | "notifications-validations"
+  | "notifications-alerts"
+  | "admin";
+
+type RoleNavigationProfile = {
+  primaryNavIds: NavItemId[];
 };
 
 const searchSectionLabel: Record<GlobalSearchResult["section"], string> = {
@@ -57,6 +80,7 @@ const searchSectionLabel: Record<GlobalSearchResult["section"], string> = {
 
 const allNavItems: NavItem[] = [
   {
+    id: "dashboard",
     href: "/",
     label: "Tableau de bord",
     shortLabel: "Accueil",
@@ -65,6 +89,7 @@ const allNavItems: NavItem[] = [
     permission: "dashboard.view",
   },
   {
+    id: "projects",
     href: "/projects",
     label: "Projets",
     shortLabel: "Projets",
@@ -73,6 +98,7 @@ const allNavItems: NavItem[] = [
     permission: "projects.view",
   },
   {
+    id: "documentation",
     href: "/documentation",
     label: "Documentation",
     shortLabel: "Docs",
@@ -81,6 +107,7 @@ const allNavItems: NavItem[] = [
     permission: "documentation.view",
   },
   {
+    id: "site",
     href: "/site",
     label: "Chantier",
     shortLabel: "Chantier",
@@ -91,6 +118,7 @@ const allNavItems: NavItem[] = [
       pathname === "/site" && !["photos", "ncr"].includes(params.get("tab") ?? "overview"),
   },
   {
+    id: "site-photos",
     href: "/site?tab=photos",
     label: "Photos",
     shortLabel: "Photos",
@@ -100,6 +128,7 @@ const allNavItems: NavItem[] = [
     isActive: (pathname, params) => pathname === "/site" && params.get("tab") === "photos",
   },
   {
+    id: "site-ncr",
     href: "/site?tab=ncr",
     label: "NC",
     shortLabel: "NC",
@@ -109,6 +138,7 @@ const allNavItems: NavItem[] = [
     isActive: (pathname, params) => pathname === "/site" && params.get("tab") === "ncr",
   },
   {
+    id: "documents",
     href: "/documents",
     label: "Documents",
     shortLabel: "Docs",
@@ -119,6 +149,7 @@ const allNavItems: NavItem[] = [
       pathname === "/documents" && !["versions", "distribution"].includes(params.get("tab") ?? "library"),
   },
   {
+    id: "documents-versions",
     href: "/documents?tab=versions",
     label: "Versions",
     shortLabel: "Versions",
@@ -128,6 +159,7 @@ const allNavItems: NavItem[] = [
     isActive: (pathname, params) => pathname === "/documents" && params.get("tab") === "versions",
   },
   {
+    id: "documents-distribution",
     href: "/documents?tab=distribution",
     label: "Diffusion",
     shortLabel: "Diffusion",
@@ -137,6 +169,7 @@ const allNavItems: NavItem[] = [
     isActive: (pathname, params) => pathname === "/documents" && params.get("tab") === "distribution",
   },
   {
+    id: "finance",
     href: "/finance",
     label: "Finance",
     shortLabel: "Finance",
@@ -147,6 +180,7 @@ const allNavItems: NavItem[] = [
       pathname === "/finance" && !["invoices", "cashflow"].includes(params.get("tab") ?? "dm"),
   },
   {
+    id: "finance-invoices",
     href: "/finance?tab=invoices",
     label: "Factures",
     shortLabel: "Factures",
@@ -156,6 +190,7 @@ const allNavItems: NavItem[] = [
     isActive: (pathname, params) => pathname === "/finance" && params.get("tab") === "invoices",
   },
   {
+    id: "finance-cashflow",
     href: "/finance?tab=cashflow",
     label: "Paiements",
     shortLabel: "Paiements",
@@ -165,6 +200,7 @@ const allNavItems: NavItem[] = [
     isActive: (pathname, params) => pathname === "/finance" && params.get("tab") === "cashflow",
   },
   {
+    id: "notifications",
     href: "/notifications",
     label: "Notifications",
     shortLabel: "Alertes",
@@ -175,6 +211,7 @@ const allNavItems: NavItem[] = [
       pathname === "/notifications" && !["validations", "alerts"].includes(params.get("view") ?? ""),
   },
   {
+    id: "notifications-validations",
     href: "/notifications?view=validations",
     label: "Validations",
     shortLabel: "Valider",
@@ -185,6 +222,7 @@ const allNavItems: NavItem[] = [
       pathname === "/notifications" && params.get("view") === "validations",
   },
   {
+    id: "notifications-alerts",
     href: "/notifications?view=alerts",
     label: "Alertes",
     shortLabel: "Alertes",
@@ -194,6 +232,7 @@ const allNavItems: NavItem[] = [
     isActive: (pathname, params) => pathname === "/notifications" && params.get("view") === "alerts",
   },
   {
+    id: "admin",
     href: "/admin",
     label: "Admin",
     shortLabel: "Admin",
@@ -203,23 +242,66 @@ const allNavItems: NavItem[] = [
   },
 ];
 
-const roleNavLabels: Record<UserRole, string[]> = {
-  "Conductrice travaux": ["Chantier", "Photos", "NC", "Alertes"],
-  "Bureau d'etudes": ["Documents", "Versions", "Diffusion", "Alertes"],
-  Comptable: ["Finance", "Factures", "Paiements", "Alertes"],
-  "Chef de projet": ["Tableau de bord", "Validations", "Alertes"],
-  "Maitre d'ouvrage": ["Tableau de bord", "Validations", "Alertes"],
-  "Super Admin": [
-    "Tableau de bord",
-    "Projets",
-    "Chantier",
-    "Documents",
-    "Finance",
-    "Alertes",
-    "Admin",
-    "Documentation",
-  ],
+const navItemsById: Record<NavItemId, NavItem> = allNavItems.reduce(
+  (registry, item) => {
+    registry[item.id] = item;
+    return registry;
+  },
+  {} as Record<NavItemId, NavItem>,
+);
+
+const roleNavigationProfiles: Record<UserRole, RoleNavigationProfile> = {
+  "Conductrice travaux": {
+    primaryNavIds: ["site", "site-photos", "site-ncr", "notifications-alerts"],
+  },
+  "Bureau d'etudes": {
+    primaryNavIds: [
+      "documents",
+      "documents-versions",
+      "documents-distribution",
+      "notifications-alerts",
+    ],
+  },
+  Comptable: {
+    primaryNavIds: [
+      "finance",
+      "finance-invoices",
+      "finance-cashflow",
+      "notifications-alerts",
+    ],
+  },
+  "Chef de projet": {
+    primaryNavIds: ["dashboard", "notifications-validations", "notifications-alerts"],
+  },
+  "Maitre d'ouvrage": {
+    primaryNavIds: ["dashboard", "notifications-validations", "notifications-alerts"],
+  },
+  "Super Admin": {
+    primaryNavIds: [
+      "dashboard",
+      "projects",
+      "site",
+      "documents",
+      "finance",
+      "notifications-alerts",
+      "admin",
+      "documentation",
+    ],
+  },
 };
+
+function dedupeNavItems(items: NavItem[]) {
+  const seen = new Set<NavItemId>();
+
+  return items.filter((item) => {
+    if (seen.has(item.id)) {
+      return false;
+    }
+
+    seen.add(item.id);
+    return true;
+  });
+}
 
 function isNavItemActive(
   pathname: string,
@@ -404,12 +486,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     () => new URLSearchParams(searchParams.toString()),
     [searchParams],
   );
-  const prioritizedLabels = roleNavLabels[currentUser.role] ?? roleNavLabels["Super Admin"];
-  const visibleNavItems = prioritizedLabels
-    .map((label) => allNavItems.find((item) => item.label === label))
-    .filter((item): item is NavItem => Boolean(item))
-    .filter((item) => can(item.permission));
-  const accessibleRouteItems = allNavItems.filter((item) => can(item.permission));
+  const currentRoleProfile =
+    roleNavigationProfiles[currentUser.role] ?? roleNavigationProfiles["Super Admin"];
+  const accessibleRouteItems = useMemo(
+    () => allNavItems.filter((item) => can(item.permission)),
+    [can],
+  );
+  const primaryNavItems = useMemo(
+    () =>
+      dedupeNavItems(
+        currentRoleProfile.primaryNavIds
+          .map((id) => navItemsById[id])
+          .filter((item) => can(item.permission)),
+      ),
+    [can, currentRoleProfile.primaryNavIds],
+  );
+  const currentAccessibleNav = useMemo(
+    () =>
+      accessibleRouteItems.find((item) =>
+        isNavItemActive(pathname, routeSearchParams, item),
+      ) ?? null,
+    [accessibleRouteItems, pathname, routeSearchParams],
+  );
+  const visibleNavItems = useMemo(
+    () =>
+      dedupeNavItems(
+        currentAccessibleNav && !primaryNavItems.some((item) => item.id === currentAccessibleNav.id)
+          ? [currentAccessibleNav, ...primaryNavItems]
+          : primaryNavItems,
+      ),
+    [currentAccessibleNav, primaryNavItems],
+  );
   const searchSummary = useMemo(() => {
     const counts = searchResults.reduce<Record<GlobalSearchResult["section"], number>>(
       (summary, result) => ({
@@ -438,7 +545,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const currentNav =
     visibleNavItems.find((item) => isNavItemActive(pathname, routeSearchParams, item)) ??
-    accessibleRouteItems.find((item) => isNavItemActive(pathname, routeSearchParams, item)) ??
+    currentAccessibleNav ??
     visibleNavItems[0] ??
     allNavItems[0];
 

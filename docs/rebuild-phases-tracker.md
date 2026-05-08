@@ -109,7 +109,7 @@ Reference: `docs/phase-2-ux-strategy.md`
 
 - [x] Create the target `frontend/` structure and plan the move out of the current repo root.
 - [x] Define the Phase 2 UX strategy while preserving the current visual design.
-- [ ] Simplify role-based navigation without changing route contracts.
+- [x] Simplify role-based navigation without changing route contracts.
 - [ ] Rework the dashboard into an action-first work queue by role.
 - [ ] Simplify the `Site` flow for field speed and mobile clarity.
 - [ ] Simplify the `Documents` flow into a guided publish/distribute/follow-up sequence.
