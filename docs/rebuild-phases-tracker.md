@@ -84,7 +84,7 @@ Goal: build the new backend foundation in parallel and start cutting over access
 - [x] Replace the fixed legacy service clock with runtime date helpers.
 - [x] Decouple shared live payload types from `mock-data` runtime inference.
 - [x] Choose one canonical pilot seed source and make both the legacy web seed and the rebuild bootstrap consume it.
-- [ ] Prepare the repo split so the current root Next app can become `frontend/`.
+- [x] Prepare the repo split so the current root Next app can become `frontend/`.
 - [x] Define and implement the shared compat bridge pattern for the next route families so future cutovers stay consistent.
 
 ### Phase 1 Exit Criteria
@@ -99,7 +99,7 @@ Goal: move the live frontend toward the spec stack and visual system without los
 
 ### Tasks
 
-- [ ] Create the target `frontend/` structure and plan the move out of the current repo root.
+- [x] Create the target `frontend/` structure and plan the move out of the current repo root.
 - [ ] Add the dark industrial design token system from the spec.
 - [ ] Add the typography system from the spec and self-host or package-safe font loading.
 - [ ] Add the shared UI kit:
