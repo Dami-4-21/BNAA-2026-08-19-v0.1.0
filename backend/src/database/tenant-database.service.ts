@@ -22,7 +22,7 @@ const TENANT_TABLES = [
 ] as const;
 
 const TENANT_SCHEMA_CONTRACT_NAME = "tenant-schema";
-const TENANT_SCHEMA_CONTRACT_VERSION = "2025-05-mvp-v1";
+const TENANT_SCHEMA_CONTRACT_VERSION = "2025-05-mvp-v2";
 const TENANT_SCHEMA_CONTRACT_PATH = resolve(
   __dirname,
   "../../prisma/tenant-template.sql",

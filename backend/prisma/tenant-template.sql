@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS __SCHEMA__.daily_reports (
   weather __SCHEMA__."WeatherCode",
   workforce_count INTEGER NOT NULL DEFAULT 0,
   workforce_breakdown JSONB NOT NULL DEFAULT '[]'::jsonb,
+  progress_by_lot JSONB NOT NULL DEFAULT '[]'::jsonb,
   activities TEXT,
   incidents JSONB NOT NULL DEFAULT '[]'::jsonb,
   notes TEXT,
@@ -224,7 +225,8 @@ CREATE TABLE IF NOT EXISTS __SCHEMA__.ncr (
   created_by UUID NOT NULL,
   closed_by UUID,
   closed_at TIMESTAMP,
-  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS __SCHEMA__.ncr_photos (
@@ -331,6 +333,12 @@ CREATE TABLE IF NOT EXISTS __SCHEMA__.notifications (
   is_read BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE __SCHEMA__.daily_reports
+  ADD COLUMN IF NOT EXISTS progress_by_lot JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE __SCHEMA__.ncr
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS idx_reports_project_date
   ON __SCHEMA__.daily_reports(project_id, report_date DESC);

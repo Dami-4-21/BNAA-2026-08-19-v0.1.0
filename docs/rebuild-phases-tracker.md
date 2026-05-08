@@ -146,25 +146,25 @@ Goal: rebuild the `Site` domain on the new backend and frontend stack while pres
 
 ### Backend Tasks
 
-- [ ] Create or finalize rebuild schema/models for:
-- [ ] daily reports
-- [ ] report incidents
-- [ ] site photos
-- [ ] non-conformities
-- [ ] non-conformity photos
-- [ ] Implement rebuild endpoints for:
-- [ ] create report
-- [ ] list reports
-- [ ] report detail
-- [ ] update report
-- [ ] prepare/sign report
-- [ ] create/list/update/close NCR
-- [ ] photo upload and metadata
+- [x] Create or finalize rebuild schema/models for:
+- [x] daily reports
+- [x] report incidents
+- [x] site photos
+- [x] non-conformities
+- [x] non-conformity photos
+- [x] Implement rebuild endpoints for:
+- [x] create report
+- [x] list reports
+- [x] report detail
+- [x] update report
+- [x] prepare/sign report
+- [x] create/list/update/close NCR
+- [x] photo upload and metadata
 - [ ] Implement PDF generation on the rebuild backend for daily reports.
-- [ ] Implement report lifecycle enforcement:
-- [ ] draft
-- [ ] pending signature
-- [ ] signed
+- [x] Implement report lifecycle enforcement:
+- [x] draft
+- [x] pending signature
+- [x] signed
 - [ ] Implement GPS / EXIF / thumbnail handling as required by the spec.
 - [ ] Implement notifications and email triggers for report and NCR events.
 

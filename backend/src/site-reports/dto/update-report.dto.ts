@@ -1,7 +1,6 @@
 import { Type } from "class-transformer";
 import {
   IsArray,
-  IsDateString,
   IsEnum,
   IsInt,
   IsOptional,
@@ -49,18 +48,16 @@ class ReportIncidentDto {
   action?: string;
 }
 
-export class CreateReportDto {
-  @IsDateString()
-  reportDate!: string;
-
+export class UpdateReportDto {
   @IsOptional()
   @IsEnum(WeatherCode)
   weather?: WeatherCode;
 
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  workforceCount!: number;
+  workforceCount?: number;
 
   @IsOptional()
   @IsArray()

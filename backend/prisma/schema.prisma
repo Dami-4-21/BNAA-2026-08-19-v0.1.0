@@ -203,6 +203,7 @@ model DailyReport {
   weather            WeatherCode?
   workforceCount     Int               @default(0) @map("workforce_count")
   workforceBreakdown Json              @default("[]") @map("workforce_breakdown")
+  progressByLot      Json              @default("[]") @map("progress_by_lot")
   activities         String?
   incidents          Json              @default("[]")
   notes              String?
@@ -260,6 +261,7 @@ model Ncr {
   closedBy    String?     @map("closed_by") @db.Uuid
   closedAt    DateTime?   @map("closed_at")
   createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
   project     Project     @relation(fields: [projectId], references: [id])
   photos      NcrPhoto[]
 
