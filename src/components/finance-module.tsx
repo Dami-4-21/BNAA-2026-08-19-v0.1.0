@@ -116,13 +116,13 @@ const allManualInvoiceStatuses = [
 const tabs: Array<{ key: FinanceTab; label: string; helper: string }> = [
   {
     key: "dm",
-    label: "Preparer",
-    helper: "Decompte source",
+    label: "Decompte",
+    helper: "Preparation du mois",
   },
   {
     key: "invoices",
-    label: "Envoyer & valider",
-    helper: "PDF et circuit",
+    label: "Validation",
+    helper: "Envoi, circuit et PDF",
   },
   {
     key: "vat",
@@ -131,8 +131,8 @@ const tabs: Array<{ key: FinanceTab; label: string; helper: string }> = [
   },
   {
     key: "cashflow",
-    label: "Paiements",
-    helper: "Encaissements et tresorerie",
+    label: "Paiement",
+    helper: "Encaissement et tresorerie",
   },
 ];
 
@@ -1137,6 +1137,10 @@ function DecompteTab({
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-4">
+          <StepHeading
+            title="1. Preparer le decompte"
+            description="Choisissez la periode, reprenez l'avancement et verifiez les montants avant de generer la facture."
+          />
           <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
             <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
               Lots relies au decompte
@@ -1219,6 +1223,10 @@ function DecompteTab({
         </div>
 
         <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+          <StepHeading
+            title="2. Verifier le calcul"
+            description="Controlez retenue, avance, TVA et total TTC avant d'ouvrir le circuit de validation."
+          />
           <div className="flex items-center gap-2">
             <Receipt className="size-4 text-slate-400" />
             <p className="text-sm font-semibold text-white">
@@ -1333,6 +1341,10 @@ function InvoicesTab({
 }) {
   return (
     <div className="space-y-4">
+      <StepHeading
+        title="1. Choisir la facture a traiter"
+        description="Selectionnez d'abord la facture du mois pour concentrer l'envoi, la validation et l'encaissement sur une seule reference."
+      />
       <div className="space-y-3">
         {invoices.map((invoice) => (
           <button
@@ -1377,6 +1389,10 @@ function InvoicesTab({
       {selectedInvoice ? (
         <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
           <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+            <StepHeading
+              title="2. Suivre le circuit de validation"
+              description="Verifiez ou la facture se trouve dans le parcours, puis n'ouvrez que l'etape suivante."
+            />
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-semibold text-white">
                 Sequence de la facture
@@ -1457,6 +1473,10 @@ function InvoicesTab({
                 )}
               </div>
             </div>
+            <StepHeading
+              title="3. Agir sur la facture"
+              description="Envoyez, ajustez ou validez seulement quand l'etape precedente est terminee."
+            />
             <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
               <label className="rounded-[20px] border border-white/8 bg-white/4 p-4">
                 <span className="text-xs uppercase tracking-[0.14em] text-slate-500">
@@ -1536,6 +1556,10 @@ function InvoicesTab({
           </div>
 
           <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+            <StepHeading
+              title="4. Enregistrer le paiement"
+              description="Le paiement ne s'ouvre qu'apres validation client. Saisissez ensuite l'encaissement pour cloturer la facture."
+            />
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-white">
                 5. Paiement recu
@@ -1713,6 +1737,10 @@ function CashflowTab({
 
   return (
     <div className="space-y-4">
+      <StepHeading
+        title="5. Suivre l'encaissement"
+        description="Comparez recettes prevues, paiements recus et tension de tresorerie pour savoir ou relancer."
+      />
       <SimpleBarChart data={chartData} />
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -1799,6 +1827,21 @@ function NumberField({
         className="mt-3 w-full bg-transparent text-white outline-none"
       />
     </label>
+  );
+}
+
+function StepHeading({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-[22px] border border-white/8 bg-white/4 px-4 py-3">
+      <p className="text-sm font-semibold text-white">{title}</p>
+      <p className="mt-1 text-sm leading-6 text-slate-300">{description}</p>
+    </div>
   );
 }
 

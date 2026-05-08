@@ -113,7 +113,7 @@ Reference: `docs/phase-2-ux-strategy.md`
 - [x] Rework the dashboard into an action-first work queue by role.
 - [x] Simplify the `Site` flow for field speed and mobile clarity.
 - [x] Simplify the `Documents` flow into a guided publish/distribute/follow-up sequence.
-- [ ] Simplify the `Finance` flow into a clear statement -> validation -> payment sequence.
+- [x] Simplify the `Finance` flow into a clear statement -> validation -> payment sequence.
 - [ ] Improve project setup and admin usability without reducing current capabilities.
 - [ ] Improve notifications as an action queue with stronger triage.
 - [ ] Standardize UX state quality across the SaaS:
