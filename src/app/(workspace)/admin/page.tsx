@@ -153,6 +153,17 @@ function sameWorkflowOwners(
   return workflowOwnerFields.every((field) => (left[field.key] ?? "") === (right[field.key] ?? ""));
 }
 
+function scrollToAdminSection(sectionId: string) {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  document.getElementById(sectionId)?.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+}
+
 export default function AdminPage() {
   const pathname = usePathname();
   const router = useRouter();
@@ -448,6 +459,60 @@ export default function AdminPage() {
           : projectReadyCount < selectedProjectChecklist.length
             ? "Completez la checklist de readiness avant le lancement operationnel."
             : "Le projet est pret pour l'exploitation terrain, documentaire et finance.";
+  const userCreationSteps = [
+    {
+      done: Boolean(form.name.trim() && form.email.trim()),
+      helper:
+        form.name.trim() && form.email.trim()
+          ? "Identite utilisateur renseignee."
+          : "Commencez par le nom complet et l'email.",
+      label: "1. Identite",
+    },
+    {
+      done: Boolean(form.password.trim() && form.role),
+      helper:
+        form.password.trim() && form.role
+          ? `Role cible: ${form.role}.`
+          : "Choisissez un role et un mot de passe de depart.",
+      label: "2. Role",
+    },
+    {
+      done: form.role === "Super Admin" || form.projectIds.length > 0,
+      helper:
+        form.role === "Super Admin"
+          ? "Acces total automatique."
+          : form.projectIds.length > 0
+            ? `${form.projectIds.length} projet(s) accessible(s).`
+            : "Choisissez les projets visibles pour cet utilisateur.",
+      label: "3. Visibilite projet",
+    },
+  ];
+  const projectCreationSteps = [
+    {
+      done: Boolean(projectForm.name.trim() && projectForm.code.trim()),
+      helper:
+        projectForm.name.trim() && projectForm.code.trim()
+          ? "Nom et code projet prets."
+          : "Commencez par nommer le projet et son code.",
+      label: "1. Identite",
+    },
+    {
+      done: Boolean(projectForm.client.trim() && projectForm.location.trim() && projectForm.status),
+      helper:
+        projectForm.client.trim() && projectForm.location.trim() && projectForm.status
+          ? `${projectForm.client} · ${projectForm.location}.`
+          : "Completez client, localisation et statut.",
+      label: "2. Cadre",
+    },
+    {
+      done: Boolean(projectForm.lots.trim() && projectForm.phases.trim() && projectForm.zones.trim()),
+      helper:
+        projectForm.lots.trim() && projectForm.phases.trim() && projectForm.zones.trim()
+          ? "Structure de demarrage renseignee."
+          : "Ajoutez lots, phases et zones pour lancer le projet.",
+      label: "3. Structure initiale",
+    },
+  ];
 
   function replaceSelectedProject(projectId: string) {
     setSelectedProjectId(projectId);
@@ -913,6 +978,33 @@ export default function AdminPage() {
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <Panel title="Creer un utilisateur">
           <form className="space-y-4" onSubmit={handleCreateUser}>
+            <StepHeading
+              eyebrow="Parcours utilisateur"
+              title="Invitez un profil sans perdre de vue son role et sa visibilite projet."
+              body="Le plus important: identite complete, role adapte, puis projets visibles dans le SaaS."
+            />
+
+            <div className="grid gap-3 md:grid-cols-3">
+              {userCreationSteps.map((step) => (
+                <div key={step.label} className="rounded-[20px] border border-white/8 bg-black/10 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-white">{step.label}</p>
+                    <StatusBadge tone={step.done ? "success" : "warning"}>
+                      {step.done ? "Pret" : "A faire"}
+                    </StatusBadge>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{step.helper}</p>
+                </div>
+              ))}
+            </div>
+
+            <StepHeading
+              compact
+              eyebrow="Etapes 1 et 2"
+              title="Identite et role"
+              body="Renseignez d'abord la fiche utilisateur, puis le niveau d'acces attendu."
+            />
+
             <div className="grid gap-4 md:grid-cols-2">
               <FormField
                 label="Nom complet"
@@ -947,6 +1039,13 @@ export default function AdminPage() {
                 </select>
               </label>
             </div>
+
+            <StepHeading
+              compact
+              eyebrow="Etape 3"
+              title="Visibilite projet"
+              body="Choisissez les projets visibles des le premier login pour eviter les erreurs de contexte."
+            />
 
             <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
               <div className="flex items-center gap-2">
@@ -998,6 +1097,33 @@ export default function AdminPage() {
 
         <Panel title="Creer un projet">
           <form className="space-y-4" onSubmit={handleCreateProject}>
+            <StepHeading
+              eyebrow="Parcours projet"
+              title="Preparez un projet directement exploitable par le terrain, les documents et la finance."
+              body="Le plus efficace: cadre du projet, structure initiale, puis reprise detaillee dans le parametrage projet."
+            />
+
+            <div className="grid gap-3 md:grid-cols-3">
+              {projectCreationSteps.map((step) => (
+                <div key={step.label} className="rounded-[20px] border border-white/8 bg-black/10 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-white">{step.label}</p>
+                    <StatusBadge tone={step.done ? "success" : "warning"}>
+                      {step.done ? "Pret" : "A faire"}
+                    </StatusBadge>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{step.helper}</p>
+                </div>
+              ))}
+            </div>
+
+            <StepHeading
+              compact
+              eyebrow="Etape 1"
+              title="Demarrage rapide"
+              body="Pre-remplissez les listes de base si vous voulez gagner du temps au moment du lancement."
+            />
+
             <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
               <p className="text-sm font-semibold text-white">Demarrage rapide</p>
               <p className="mt-2 text-sm leading-6 text-slate-300">
@@ -1027,6 +1153,13 @@ export default function AdminPage() {
                 </button>
               </div>
             </div>
+
+            <StepHeading
+              compact
+              eyebrow="Etape 2"
+              title="Cadre du projet"
+              body="Renseignez l'identite, le client, la localisation, le statut et le prochain jalon."
+            />
 
             <div className="grid gap-4 md:grid-cols-2">
               <FormField
@@ -1086,6 +1219,13 @@ export default function AdminPage() {
                 }
               />
             </div>
+
+            <StepHeading
+              compact
+              eyebrow="Etape 3"
+              title="Structure initiale"
+              body="Ajoutez les premiers lots, phases et zones pour que les equipes trouvent le bon contexte des le depart."
+            />
 
             <div className="grid gap-4">
               <FormField
@@ -1244,7 +1384,31 @@ export default function AdminPage() {
                 ))}
               </div>
 
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+              <div className="rounded-[22px] border border-white/8 bg-black/10 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Navigation rapide</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {[
+                    { id: "admin-project-frame", label: "1. Cadre" },
+                    { id: "admin-project-structure", label: "2. Structure" },
+                    { id: "admin-project-team", label: "3. Equipe" },
+                    { id: "admin-project-owners", label: "4. Responsables" },
+                  ].map((section) => (
+                    <button
+                      key={section.id}
+                      type="button"
+                      onClick={() => scrollToAdminSection(section.id)}
+                      className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10"
+                    >
+                      {section.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                id="admin-project-frame"
+                className="scroll-mt-28 rounded-[24px] border border-white/8 bg-white/4 p-5"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-white">1. Cadre du projet</p>
@@ -1323,7 +1487,10 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+              <div
+                id="admin-project-structure"
+                className="scroll-mt-28 rounded-[24px] border border-white/8 bg-white/4 p-5"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-white">2. Structure operationnelle</p>
@@ -1383,90 +1550,10 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">4. Responsables du workflow</p>
-                    <p className="mt-1 text-sm text-slate-300">
-                      Choisissez les referents qui piloteront le terrain, les documents, la finance et les validations.
-                    </p>
-                  </div>
-                  <StatusBadge tone="primary">Affectations clefs</StatusBadge>
-                </div>
-
-                <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                  {workflowOwnerFields.map((field) => {
-                    const options = workflowOwnerOptions[field.key] ?? [];
-
-                    return (
-                      <label
-                        key={`${selectedProject.summary.id}-${field.key}`}
-                        className="rounded-[22px] border border-white/8 bg-black/10 p-4"
-                      >
-                        <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                          {field.label}
-                        </span>
-                        <select
-                          value={selectedProjectDraft.workflowOwners[field.key] ?? ""}
-                          onChange={(event) =>
-                            updateProjectDraft(selectedProject.summary.id, {
-                              workflowOwners: {
-                                ...selectedProjectDraft.workflowOwners,
-                                [field.key]: event.target.value,
-                              },
-                            })
-                          }
-                          disabled={hasPendingMemberChanges}
-                          className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
-                        >
-                          <option value="">
-                            {options.length
-                              ? `Selectionner ${field.label.toLowerCase()}`
-                              : "Aucun membre eligible"}
-                          </option>
-                          {options.map((user) => (
-                            <option key={`${field.key}-${user.id}`} value={user.id}>
-                              {user.name} - {user.role}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="mt-3 text-sm leading-6 text-slate-400">{field.helper}</p>
-                      </label>
-                    );
-                  })}
-                </div>
-                {hasPendingMemberChanges ? (
-                  <p className="mt-4 text-sm leading-6 text-amber-300">
-                    Enregistrez d&apos;abord l&apos;equipe du projet avant de modifier les responsables du workflow.
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => void saveProjectSetup(selectedProject.summary.id)}
-                  disabled={
-                    savingProjectId === selectedProject.summary.id ||
-                    hasPendingMemberChanges ||
-                    !projectSetupHasChanges
-                  }
-                  title={projectSetupHelper}
-                  className={cx(
-                    "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
-                    savingProjectId === selectedProject.summary.id
-                      ? "cursor-not-allowed bg-stone-200 text-stone-500"
-                      : "bg-black text-white hover:bg-stone-800",
-                  )}
-                >
-                  <Save className="size-4" />
-                  {savingProjectId === selectedProject.summary.id
-                    ? "Enregistrement..."
-                    : "Enregistrer le parametrage"}
-                </button>
-              </div>
-
-              <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+              <div
+                id="admin-project-team"
+                className="scroll-mt-28 rounded-[24px] border border-white/8 bg-white/4 p-5"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-white">3. Affectation equipe</p>
@@ -1568,6 +1655,93 @@ export default function AdminPage() {
                     {savingMembersProjectId === selectedProject.summary.id
                       ? "Affectation..."
                       : "Enregistrer l'equipe"}
+                  </button>
+                </div>
+
+                <div
+                  id="admin-project-owners"
+                  className="mt-5 scroll-mt-28 rounded-[22px] border border-white/8 bg-black/10 p-5"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">4. Responsables du workflow</p>
+                      <p className="mt-1 text-sm text-slate-300">
+                        Affectez les referents terrain, documents, finance et validation une fois l&apos;equipe stabilisee.
+                      </p>
+                    </div>
+                    <StatusBadge tone="primary">Affectations clefs</StatusBadge>
+                  </div>
+
+                  {hasPendingMemberChanges ? (
+                    <div className="mt-4 rounded-[18px] border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm leading-6 text-amber-200">
+                      Enregistrez d&apos;abord l&apos;equipe du projet pour debloquer les responsables du workflow.
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    {workflowOwnerFields.map((field) => {
+                      const options = workflowOwnerOptions[field.key] ?? [];
+
+                      return (
+                        <label
+                          key={`${selectedProject.summary.id}-${field.key}`}
+                          className="rounded-[22px] border border-white/8 bg-black/20 p-4"
+                        >
+                          <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                            {field.label}
+                          </span>
+                          <select
+                            value={selectedProjectDraft.workflowOwners[field.key] ?? ""}
+                            onChange={(event) =>
+                              updateProjectDraft(selectedProject.summary.id, {
+                                workflowOwners: {
+                                  ...selectedProjectDraft.workflowOwners,
+                                  [field.key]: event.target.value,
+                                },
+                              })
+                            }
+                            disabled={hasPendingMemberChanges}
+                            className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
+                          >
+                            <option value="">
+                              {options.length
+                                ? `Selectionner ${field.label.toLowerCase()}`
+                                : "Aucun membre eligible"}
+                            </option>
+                            {options.map((user) => (
+                              <option key={`${field.key}-${user.id}`} value={user.id}>
+                                {user.name} - {user.role}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-3 text-sm leading-6 text-slate-400">{field.helper}</p>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-5 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void saveProjectSetup(selectedProject.summary.id)}
+                    disabled={
+                      savingProjectId === selectedProject.summary.id ||
+                      hasPendingMemberChanges ||
+                      !projectSetupHasChanges
+                    }
+                    title={projectSetupHelper}
+                    className={cx(
+                      "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
+                      savingProjectId === selectedProject.summary.id
+                        ? "cursor-not-allowed bg-stone-200 text-stone-500"
+                        : "bg-black text-white hover:bg-stone-800",
+                    )}
+                  >
+                    <Save className="size-4" />
+                    {savingProjectId === selectedProject.summary.id
+                      ? "Enregistrement..."
+                      : "Enregistrer le parametrage"}
                   </button>
                 </div>
               </div>
@@ -1766,6 +1940,30 @@ function CredentialCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
       <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</p>
       <p className="mt-2 text-sm font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function StepHeading({
+  body,
+  compact = false,
+  eyebrow,
+  title,
+}: {
+  body: string;
+  compact?: boolean;
+  eyebrow: string;
+  title: string;
+}) {
+  return (
+    <div className={cx(compact ? "" : "rounded-[20px] border border-white/8 bg-black/10 p-4")}>
+      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{eyebrow}</p>
+      <p className={cx("font-semibold text-white", compact ? "mt-1 text-sm" : "mt-2 text-sm")}>
+        {title}
+      </p>
+      <p className={cx("text-sm leading-6 text-slate-300", compact ? "mt-1" : "mt-2")}>
+        {body}
+      </p>
     </div>
   );
 }
