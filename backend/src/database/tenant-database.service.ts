@@ -1,5 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { Pool, PoolClient } from "pg";
 
 const TENANT_TABLES = [
@@ -18,9 +21,23 @@ const TENANT_TABLES = [
   "notifications",
 ] as const;
 
+const TENANT_SCHEMA_CONTRACT_NAME = "tenant-schema";
+const TENANT_SCHEMA_CONTRACT_VERSION = "2025-05-mvp-v1";
+const TENANT_SCHEMA_CONTRACT_PATH = resolve(
+  __dirname,
+  "../../prisma/tenant-template.sql",
+);
+
+type TenantSchemaContract = {
+  checksum: string;
+  sql: string;
+  version: string;
+};
+
 @Injectable()
 export class TenantDatabaseService {
   private readonly pool: Pool;
+  private contractPromise?: Promise<TenantSchemaContract>;
 
   constructor(configService: ConfigService) {
     this.pool = new Pool({
@@ -52,125 +69,32 @@ export class TenantDatabaseService {
 
   async provisionTenantSchema(schemaName: string) {
     const client = await this.pool.connect();
+    const contract = await this.loadTenantSchemaContract();
 
     try {
       await client.query("BEGIN");
       await client.query("CREATE EXTENSION IF NOT EXISTS pgcrypto");
       await client.query(`CREATE SCHEMA IF NOT EXISTS ${this.quoteIdentifier(schemaName)}`);
+      await this.ensureContractMetadataTable(client, schemaName);
 
-      for (const tableName of TENANT_TABLES) {
-        await client.query(
-          `CREATE TABLE IF NOT EXISTS ${this.qualify(schemaName, tableName)} (LIKE tenant_template.${this.quoteIdentifier(tableName)} INCLUDING ALL)`,
-        );
+      const missingTablesBeforeApply = await this.getMissingTenantTables(client, schemaName);
+      const appliedChecksum = await this.getAppliedContractChecksum(client, schemaName);
+
+      if (
+        appliedChecksum !== contract.checksum ||
+        missingTablesBeforeApply.length > 0
+      ) {
+        await client.query(this.renderContract(contract.sql, schemaName));
+        const missingTablesAfterApply = await this.getMissingTenantTables(client, schemaName);
+
+        if (missingTablesAfterApply.length > 0) {
+          throw new Error(
+            `Tenant schema contract incomplete for ${schemaName}: missing ${missingTablesAfterApply.join(", ")}`,
+          );
+        }
+
+        await this.recordAppliedContract(client, schemaName, contract);
       }
-
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "project_members")}
-          DROP CONSTRAINT IF EXISTS project_members_project_id_fkey,
-          ADD CONSTRAINT project_members_project_id_fkey
-          FOREIGN KEY (project_id) REFERENCES ${this.qualify(schemaName, "projects")}(id) ON DELETE CASCADE`,
-      );
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "daily_reports")}
-          DROP CONSTRAINT IF EXISTS daily_reports_project_id_fkey,
-          ADD CONSTRAINT daily_reports_project_id_fkey
-          FOREIGN KEY (project_id) REFERENCES ${this.qualify(schemaName, "projects")}(id)`,
-      );
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "photos")}
-          DROP CONSTRAINT IF EXISTS photos_project_id_fkey,
-          ADD CONSTRAINT photos_project_id_fkey
-          FOREIGN KEY (project_id) REFERENCES ${this.qualify(schemaName, "projects")}(id),
-          DROP CONSTRAINT IF EXISTS photos_report_id_fkey,
-          ADD CONSTRAINT photos_report_id_fkey
-          FOREIGN KEY (report_id) REFERENCES ${this.qualify(schemaName, "daily_reports")}(id)`,
-      );
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "ncr")}
-          DROP CONSTRAINT IF EXISTS ncr_project_id_fkey,
-          ADD CONSTRAINT ncr_project_id_fkey
-          FOREIGN KEY (project_id) REFERENCES ${this.qualify(schemaName, "projects")}(id)`,
-      );
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "ncr_photos")}
-          DROP CONSTRAINT IF EXISTS ncr_photos_ncr_id_fkey,
-          ADD CONSTRAINT ncr_photos_ncr_id_fkey
-          FOREIGN KEY (ncr_id) REFERENCES ${this.qualify(schemaName, "ncr")}(id)`,
-      );
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "documents")}
-          DROP CONSTRAINT IF EXISTS documents_project_id_fkey,
-          ADD CONSTRAINT documents_project_id_fkey
-          FOREIGN KEY (project_id) REFERENCES ${this.qualify(schemaName, "projects")}(id)`,
-      );
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "document_versions")}
-          DROP CONSTRAINT IF EXISTS document_versions_document_id_fkey,
-          ADD CONSTRAINT document_versions_document_id_fkey
-          FOREIGN KEY (document_id) REFERENCES ${this.qualify(schemaName, "documents")}(id)`,
-      );
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "document_distributions")}
-          DROP CONSTRAINT IF EXISTS document_distributions_document_id_fkey,
-          ADD CONSTRAINT document_distributions_document_id_fkey
-          FOREIGN KEY (document_id) REFERENCES ${this.qualify(schemaName, "documents")}(id),
-          DROP CONSTRAINT IF EXISTS document_distributions_version_id_fkey,
-          ADD CONSTRAINT document_distributions_version_id_fkey
-          FOREIGN KEY (version_id) REFERENCES ${this.qualify(schemaName, "document_versions")}(id)`,
-      );
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "statements")}
-          DROP CONSTRAINT IF EXISTS statements_project_id_fkey,
-          ADD CONSTRAINT statements_project_id_fkey
-          FOREIGN KEY (project_id) REFERENCES ${this.qualify(schemaName, "projects")}(id)`,
-      );
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "invoices")}
-          DROP CONSTRAINT IF EXISTS invoices_project_id_fkey,
-          ADD CONSTRAINT invoices_project_id_fkey
-          FOREIGN KEY (project_id) REFERENCES ${this.qualify(schemaName, "projects")}(id),
-          DROP CONSTRAINT IF EXISTS invoices_statement_id_fkey,
-          ADD CONSTRAINT invoices_statement_id_fkey
-          FOREIGN KEY (statement_id) REFERENCES ${this.qualify(schemaName, "statements")}(id)`,
-      );
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "payments")}
-          DROP CONSTRAINT IF EXISTS payments_invoice_id_fkey,
-          ADD CONSTRAINT payments_invoice_id_fkey
-          FOREIGN KEY (invoice_id) REFERENCES ${this.qualify(schemaName, "invoices")}(id)`,
-      );
-      await client.query(
-        `ALTER TABLE ${this.qualify(schemaName, "notifications")}
-          DROP CONSTRAINT IF EXISTS notifications_project_id_fkey,
-          ADD CONSTRAINT notifications_project_id_fkey
-          FOREIGN KEY (project_id) REFERENCES ${this.qualify(schemaName, "projects")}(id)`,
-      );
-
-      await client.query(
-        `CREATE OR REPLACE FUNCTION ${this.qualify(schemaName, "update_document_search")}()
-        RETURNS TRIGGER AS $$
-        BEGIN
-          NEW.search_vector :=
-            to_tsvector(
-              'french',
-              COALESCE(NEW.name, '') || ' ' ||
-              COALESCE(NEW.doc_type::text, '') || ' ' ||
-              COALESCE(NEW.phase::text, '')
-            );
-          RETURN NEW;
-        END;
-        $$ LANGUAGE plpgsql`,
-      );
-
-      await client.query(
-        `DROP TRIGGER IF EXISTS trig_document_search ON ${this.qualify(schemaName, "documents")}`,
-      );
-      await client.query(
-        `CREATE TRIGGER trig_document_search
-          BEFORE INSERT OR UPDATE ON ${this.qualify(schemaName, "documents")}
-          FOR EACH ROW
-          EXECUTE FUNCTION ${this.qualify(schemaName, "update_document_search")}()`,
-      );
 
       await client.query("COMMIT");
     } catch (error) {
@@ -195,7 +119,84 @@ export class TenantDatabaseService {
     return `"${value.replaceAll('"', '""')}"`;
   }
 
+  private quoteLiteral(value: string) {
+    return `'${value.replaceAll("'", "''")}'`;
+  }
+
   private qualify(schemaName: string, objectName: string) {
     return `${this.quoteIdentifier(schemaName)}.${this.quoteIdentifier(objectName)}`;
+  }
+
+  private async loadTenantSchemaContract(): Promise<TenantSchemaContract> {
+    this.contractPromise ??= readFile(TENANT_SCHEMA_CONTRACT_PATH, "utf8").then((sql) => ({
+      checksum: createHash("sha256").update(sql).digest("hex"),
+      sql,
+      version: TENANT_SCHEMA_CONTRACT_VERSION,
+    }));
+
+    return this.contractPromise;
+  }
+
+  private renderContract(contractSql: string, schemaName: string) {
+    return contractSql
+      .replaceAll("__SCHEMA_NAME__", this.quoteLiteral(schemaName))
+      .replaceAll("__SCHEMA__", this.quoteIdentifier(schemaName));
+  }
+
+  private async ensureContractMetadataTable(client: PoolClient, schemaName: string) {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS ${this.qualify(schemaName, "_schema_contracts")} (
+        contract_name VARCHAR(100) PRIMARY KEY,
+        contract_version VARCHAR(50) NOT NULL,
+        contract_checksum VARCHAR(64) NOT NULL,
+        applied_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )`,
+    );
+  }
+
+  private async getAppliedContractChecksum(client: PoolClient, schemaName: string) {
+    const result = await client.query<{ contract_checksum: string }>(
+      `SELECT contract_checksum
+       FROM ${this.qualify(schemaName, "_schema_contracts")}
+       WHERE contract_name = $1
+       LIMIT 1`,
+      [TENANT_SCHEMA_CONTRACT_NAME],
+    );
+
+    return result.rows[0]?.contract_checksum ?? null;
+  }
+
+  private async getMissingTenantTables(client: PoolClient, schemaName: string) {
+    const result = await client.query<{ table_name: string }>(
+      `SELECT table_name
+       FROM information_schema.tables
+       WHERE table_schema = $1
+         AND table_name = ANY($2::text[])`,
+      [schemaName, [...TENANT_TABLES]],
+    );
+
+    const existingTables = new Set(result.rows.map((row) => row.table_name));
+    return TENANT_TABLES.filter((tableName) => !existingTables.has(tableName));
+  }
+
+  private async recordAppliedContract(
+    client: PoolClient,
+    schemaName: string,
+    contract: TenantSchemaContract,
+  ) {
+    await client.query(
+      `INSERT INTO ${this.qualify(schemaName, "_schema_contracts")} (
+        contract_name,
+        contract_version,
+        contract_checksum,
+        applied_at
+      ) VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (contract_name)
+      DO UPDATE SET
+        contract_version = EXCLUDED.contract_version,
+        contract_checksum = EXCLUDED.contract_checksum,
+        applied_at = EXCLUDED.applied_at`,
+      [TENANT_SCHEMA_CONTRACT_NAME, contract.version, contract.checksum],
+    );
   }
 }
