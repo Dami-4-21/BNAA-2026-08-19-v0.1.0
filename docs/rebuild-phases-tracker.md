@@ -93,36 +93,42 @@ Goal: build the new backend foundation in parallel and start cutting over access
 - Workspace/project access is rebuild-backed behind flags.
 - One real live domain is served by the rebuild backend, not just access-filtered through compatibility helpers.
 
-## Phase 2 - Frontend Core and Design System Reset
+## Phase 2 - Frontend UX and Interaction Refinement
 
-Goal: move the live frontend toward the spec stack and visual system without losing current SaaS functionality.
+Goal: move the live frontend toward the spec stack and UX model from the spec without changing the current visual design language of the SaaS.
+
+Execution rule for this phase:
+
+- keep the current BNAA visual design and general UI look-and-feel
+- improve UX, interaction clarity, navigation, feedback states, and accessibility
+- do not treat this phase as a visual redesign
+
+Reference: `docs/phase-2-ux-strategy.md`
 
 ### Tasks
 
 - [x] Create the target `frontend/` structure and plan the move out of the current repo root.
-- [ ] Add the dark industrial design token system from the spec.
-- [ ] Add the typography system from the spec and self-host or package-safe font loading.
-- [ ] Add the shared UI kit:
-- [ ] Button
-- [ ] Input
-- [ ] Badge
-- [ ] Card
-- [ ] Modal
-- [ ] Table
-- [ ] Skeleton
-- [ ] Tabs
-- [ ] EmptyState
+- [x] Define the Phase 2 UX strategy while preserving the current visual design.
+- [ ] Simplify role-based navigation without changing route contracts.
+- [ ] Rework the dashboard into an action-first work queue by role.
+- [ ] Simplify the `Site` flow for field speed and mobile clarity.
+- [ ] Simplify the `Documents` flow into a guided publish/distribute/follow-up sequence.
+- [ ] Simplify the `Finance` flow into a clear statement -> validation -> payment sequence.
+- [ ] Improve project setup and admin usability without reducing current capabilities.
+- [ ] Improve notifications as an action queue with stronger triage.
+- [ ] Standardize UX state quality across the SaaS:
+- [ ] empty states
+- [ ] loading states
+- [ ] disabled-state reasons
+- [ ] inline validation
+- [ ] offline messaging
+- [ ] error recovery states
+- [ ] Improve accessibility and operational readability across primary flows.
 - [ ] Add shared formatting utilities:
 - [ ] `formatTND`
 - [ ] `formatDate`
 - [ ] `timeAgo`
 - [ ] `formatVersion`
-- [ ] Add global UX primitives from the spec:
-- [ ] autosave feedback
-- [ ] inline validation
-- [ ] disabled-state reasons
-- [ ] offline banner
-- [ ] loading skeletons
 - [ ] Introduce Zustand for session/workspace/app-shell state.
 - [ ] Introduce TanStack Query for server reads and mutations.
 - [ ] Introduce React Hook Form + Zod on the first production flows.
@@ -132,6 +138,7 @@ Goal: move the live frontend toward the spec stack and visual system without los
 
 - The app shell and shared data layer follow the new stack.
 - Rebuild-backed routes can be consumed cleanly without legacy fetch/state patterns.
+- The current visual design is preserved while UX clarity, navigation, and feedback quality are materially improved.
 
 ## Phase 3 - Site / Chantier Rebuild
 
