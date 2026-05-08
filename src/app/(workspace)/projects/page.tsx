@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUpRight,
   Building2,
@@ -12,11 +13,18 @@ import {
   Users,
 } from "lucide-react";
 
-import { apiFetch } from "@/lib/api";
-import type { ProjectsPageData } from "@/lib/backend/types";
-import { formatCurrency } from "@/lib/format";
-import { Panel, ProgressBar, SectionHeading, StatusBadge } from "@/components/ui";
+import { formatTND } from "@/lib/format";
+import {
+  EmptyStateCard,
+  InlineNotice,
+  LoadingStateCard,
+  Panel,
+  ProgressBar,
+  SectionHeading,
+  StatusBadge,
+} from "@/components/ui";
 import { useWorkspace } from "@/components/workspace-context";
+import { fetchProjects, projectsQueryKey } from "@/lib/queries/projects";
 
 const healthIcons = [Building2, Landmark, Layers3];
 
@@ -36,58 +44,30 @@ function getProjectTone(status: string) {
 export default function ProjectsPage() {
   const router = useRouter();
   const { currentUser, setActiveProjectId } = useWorkspace();
-  const [data, setData] = useState<ProjectsPageData | null>(null);
-  const [error, setError] = useState("");
   const [pendingNavigation, setPendingNavigation] = useState("");
+  const projectsQuery = useQuery({
+    queryKey: projectsQueryKey,
+    queryFn: fetchProjects,
+    placeholderData: (previous) => previous,
+    refetchOnWindowFocus: true,
+    staleTime: 15_000,
+  });
+  const data = projectsQuery.data ?? null;
+  const error =
+    projectsQuery.error instanceof Error
+      ? projectsQuery.error.message
+      : projectsQuery.isError
+        ? "Chargement portefeuille impossible."
+        : "";
 
-  const loadProjects = useCallback(async (options?: { preserveData?: boolean }) => {
-    try {
-      setError("");
-      if (!options?.preserveData) {
-        setData(null);
-      }
-      const payload = await apiFetch<ProjectsPageData>("/api/projects", { method: "GET" });
-      setData(payload);
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error ? nextError.message : "Chargement portefeuille impossible.",
-      );
-      if (!options?.preserveData) {
-        setData(null);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadProjects();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [loadProjects]);
-
-  useEffect(() => {
-    function refreshOnForeground() {
-      if (document.visibilityState === "hidden") {
-        return;
-      }
-
-      void loadProjects({ preserveData: true });
-    }
-
-    window.addEventListener("focus", refreshOnForeground);
-    document.addEventListener("visibilitychange", refreshOnForeground);
-
-    return () => {
-      window.removeEventListener("focus", refreshOnForeground);
-      document.removeEventListener("visibilitychange", refreshOnForeground);
-    };
-  }, [loadProjects]);
-
-  if (!data && !error) {
+  if (!data && projectsQuery.isPending) {
     return (
       <div className="space-y-6">
         <SectionHeading eyebrow="Portfolio" title="Chargement des projets" />
+        <LoadingStateCard
+          title="Le portefeuille se charge"
+          detail="Les projets visibles pour votre role et votre perimetre sont en cours de synchronisation."
+        />
       </div>
     );
   }
@@ -96,7 +76,9 @@ export default function ProjectsPage() {
     return (
       <div className="space-y-6">
         <SectionHeading eyebrow="Portfolio" title="Le portefeuille n'est pas disponible" />
-        <Panel>{error}</Panel>
+        <InlineNotice tone="danger" title="Impossible de charger le portefeuille">
+          {error}
+        </InlineNotice>
       </div>
     );
   }
@@ -131,10 +113,17 @@ export default function ProjectsPage() {
         }
       />
 
+      {projectsQuery.isFetching ? (
+        <InlineNotice tone="neutral" title="Rafraichissement en cours">
+          Les projets et leurs indicateurs se mettent a jour sans bloquer la navigation.
+        </InlineNotice>
+      ) : null}
+
       {data.projects.length === 0 ? (
-        <Panel>
-          Aucun projet accessible pour ce role pour le moment.
-        </Panel>
+        <EmptyStateCard
+          title="Aucun projet accessible"
+          detail="Ce role n'a encore aucun projet visible. L'administration peut affecter un perimetre projet pour debloquer l'exploitation."
+        />
       ) : (
       <div className="grid gap-4 lg:grid-cols-3">
         {data.projects.map((project, index) => {
@@ -175,7 +164,7 @@ export default function ProjectsPage() {
                   <div className="rounded-[20px] border border-white/8 bg-white/4 p-4">
                     <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Budget</p>
                     <p className="mt-2 text-sm font-semibold text-white">
-                      {formatCurrency(summary.budgetTnd)}
+                      {formatTND(summary.budgetTnd)}
                     </p>
                   </div>
                   <div className="rounded-[20px] border border-white/8 bg-white/4 p-4">

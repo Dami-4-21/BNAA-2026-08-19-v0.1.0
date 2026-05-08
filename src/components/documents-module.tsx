@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 
 import {
+  InlineNotice,
+  LoadingStateCard,
   MetricCard,
   Panel,
   ProgressBar,
@@ -231,6 +233,10 @@ export function DocumentsModule() {
     return (
       <div className="space-y-6">
         <SectionHeading eyebrow="Documents" title="Chargement de la GED" />
+        <LoadingStateCard
+          title="La GED se synchronise"
+          detail="Nous recuperons la bibliotheque, les revisions, les diffusions et la disponibilite mobile du projet actif."
+        />
       </div>
     );
   }
@@ -239,7 +245,9 @@ export function DocumentsModule() {
     return (
       <div className="space-y-6">
         <SectionHeading eyebrow="Documents" title="La GED est indisponible" />
-        <Panel>{error}</Panel>
+        <InlineNotice tone="danger" title="Impossible de charger la GED">
+          {error}
+        </InlineNotice>
       </div>
     );
   }
@@ -820,9 +828,9 @@ function DocumentsModuleContent({
       ) : null}
 
       {mutationError ? (
-        <div className="rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-4 text-sm leading-6 text-rose-700">
+        <InlineNotice tone="danger" title="Action documentaire interrompue">
           {mutationError}
-        </div>
+        </InlineNotice>
       ) : null}
 
       {pendingAction ? (

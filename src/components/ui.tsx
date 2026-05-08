@@ -113,6 +113,73 @@ export function Panel({
   );
 }
 
+export function InlineNotice({
+  tone = "neutral",
+  title,
+  children,
+}: {
+  tone?: Tone;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  const panelTone: Record<Tone, string> = {
+    neutral: "border-stone-200 bg-stone-50 text-stone-700",
+    primary: "border-black/10 bg-black text-white",
+    success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    warning: "border-amber-200 bg-amber-50 text-amber-800",
+    danger: "border-rose-200 bg-rose-50 text-rose-700",
+  };
+
+  return (
+    <div
+      className={cx("rounded-[20px] border px-4 py-3 text-sm leading-6", panelTone[tone])}
+      role={tone === "danger" ? "alert" : "status"}
+      aria-live={tone === "danger" ? "assertive" : "polite"}
+    >
+      {title ? <p className="font-semibold">{title}</p> : null}
+      <div className={title ? "mt-1" : ""}>{children}</div>
+    </div>
+  );
+}
+
+export function EmptyStateCard({
+  title,
+  detail,
+  action,
+}: {
+  title: string;
+  detail: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-[22px] border border-dashed border-stone-200 bg-stone-50 px-4 py-8 text-center">
+      <p className="text-sm font-semibold text-stone-950">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-stone-600">{detail}</p>
+      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
+    </div>
+  );
+}
+
+export function LoadingStateCard({
+  title,
+  detail,
+  tone = "neutral",
+}: {
+  title: string;
+  detail: string;
+  tone?: Tone;
+}) {
+  return (
+    <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-8">
+      <div className="flex items-center gap-3">
+        <StatusBadge tone={tone}>Synchronisation</StatusBadge>
+        <p className="text-sm font-semibold text-stone-950">{title}</p>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-stone-600">{detail}</p>
+    </div>
+  );
+}
+
 export function MetricCard({
   label,
   value,

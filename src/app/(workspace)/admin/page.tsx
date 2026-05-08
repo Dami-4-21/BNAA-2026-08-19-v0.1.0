@@ -1,7 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  startTransition,
+  type InputHTMLAttributes,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm, useWatch } from "react-hook-form";
 import {
   Building2,
   CheckCheck,
@@ -20,11 +33,37 @@ import {
   Users2,
 } from "lucide-react";
 
-import { AvatarStack, Panel, SectionHeading, StatusBadge, cx } from "@/components/ui";
-import { apiFetch } from "@/lib/api";
+import {
+  AvatarStack,
+  InlineNotice,
+  LoadingStateCard,
+  Panel,
+  SectionHeading,
+  StatusBadge,
+  cx,
+} from "@/components/ui";
 import type { UserRole } from "@/lib/auth";
 import type { AdminPageData, ProjectWorkflowOwnerKey } from "@/lib/backend/types";
 import { useWorkspace } from "@/components/workspace-context";
+import {
+  adminQueryKey,
+  closeProject,
+  createProject,
+  createUser,
+  fetchAdminData,
+  type CreateProjectPayload,
+  type CreateUserPayload,
+  updateProjectMembers,
+  updateProjectSetup,
+  updateUserAccess,
+} from "@/lib/queries/admin";
+import {
+  createProjectFormSchema,
+  type CreateUserFormInput,
+  createUserFormSchema,
+  type CreateProjectFormValues,
+  type CreateUserFormValues,
+} from "@/lib/validation/admin";
 
 const roleOptions: UserRole[] = [
   "Super Admin",
@@ -168,12 +207,10 @@ export default function AdminPage() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { currentUser, refreshWorkspace } = useWorkspace();
-  const [data, setData] = useState<AdminPageData | null>(null);
+  const queryClient = useQueryClient();
+  const { refreshWorkspace } = useWorkspace();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [closingProjectId, setClosingProjectId] = useState("");
   const [projectDrafts, setProjectDrafts] = useState<ProjectDrafts>({});
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -184,60 +221,114 @@ export default function AdminPage() {
   const [projectSearch, setProjectSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [userRoleFilter, setUserRoleFilter] = useState<UserRole | "all">("all");
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    password: "",
-    role: "Comptable" as UserRole,
-    projectIds: [] as string[],
+  const adminQuery = useQuery({
+    queryKey: adminQueryKey,
+    queryFn: fetchAdminData,
+    placeholderData: (previous) => previous,
+    refetchOnWindowFocus: true,
+    staleTime: 15_000,
   });
-  const [projectForm, setProjectForm] = useState({
-    name: "",
-    code: "",
-    client: "",
-    location: "",
-    status: "Configuration",
-    budgetTnd: "",
-    nextMilestone: "",
-    lots: "",
-    phases: "",
-    zones: "",
+  const data = adminQuery.data ?? null;
+  const createUserForm = useForm<CreateUserFormInput, unknown, CreateUserFormValues>({
+    resolver: zodResolver(createUserFormSchema),
+    defaultValues: {
+      email: "",
+      name: "",
+      password: "",
+      projectIds: [],
+      role: "Comptable",
+    },
+  });
+  const createProjectForm = useForm<CreateProjectFormValues>({
+    resolver: zodResolver(createProjectFormSchema),
+    defaultValues: {
+      name: "",
+      code: "",
+      client: "",
+      location: "",
+      status: "Configuration",
+      budgetTnd: "",
+      nextMilestone: "",
+      lots: "",
+      phases: "",
+      zones: "",
+    },
+  });
+  const form = useWatch({ control: createUserForm.control }) as CreateUserFormValues;
+  const projectForm = useWatch({
+    control: createProjectForm.control,
+  }) as CreateProjectFormValues;
+  const createUserErrors = createUserForm.formState.errors;
+  const isSubmitting = createUserForm.formState.isSubmitting;
+  const createProjectErrors = createProjectForm.formState.errors;
+  const isCreatingProject = createProjectForm.formState.isSubmitting;
+  const pageError =
+    error ||
+    (adminQuery.error instanceof Error
+      ? adminQuery.error.message
+      : adminQuery.isError
+        ? "Chargement admin impossible."
+        : "");
+  const adminMutation = useMutation({
+    mutationFn: async (
+      input:
+        | { type: "create-user"; payload: CreateUserPayload }
+        | { type: "create-project"; payload: CreateProjectPayload }
+        | {
+            type: "update-project-setup";
+            payload: Parameters<typeof updateProjectSetup>[0];
+          }
+        | { type: "update-project-members"; projectId: string; memberIds: string[] }
+        | {
+            type: "update-user";
+            userId: string;
+            payload: { projectIds: string[]; role: UserRole };
+          }
+        | { type: "archive-project"; projectId: string },
+    ) => {
+      switch (input.type) {
+        case "create-user":
+          return createUser(input.payload);
+        case "create-project":
+          return createProject(input.payload);
+        case "update-project-setup":
+          return updateProjectSetup(input.payload);
+        case "update-project-members":
+          return updateProjectMembers(input.projectId, input.memberIds);
+        case "update-user":
+          return updateUserAccess(input.userId, input.payload);
+        case "archive-project":
+          return closeProject(input.projectId);
+      }
+    },
+    onSuccess: (payload) => {
+      queryClient.setQueryData(adminQueryKey, payload);
+      refreshWorkspace();
+    },
   });
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadAdmin() {
-      try {
-        setError("");
-        const payload = await apiFetch<AdminPageData>("/api/admin", {
-          method: "GET",
-        });
-
-        if (!cancelled) {
-          setData(payload);
-          setUserDrafts(buildUserDrafts(payload.users));
-          setProjectDrafts(buildProjectDrafts(payload.projects));
-          const requestedProjectId = searchParams.get("project") ?? "";
-          setSelectedProjectId((current) =>
-            payload.projects.some((project) => project.summary.id === requestedProjectId)
-              ? requestedProjectId
-              : (current || payload.projects[0]?.summary.id || ""),
-          );
-        }
-      } catch (nextError) {
-        if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : "Chargement admin impossible.");
-        }
-      }
+    if (!data) {
+      return;
     }
 
-    void loadAdmin();
+    const requestedProjectId = searchParams.get("project") ?? "";
+    const nextUserDrafts = buildUserDrafts(data.users);
+    const nextProjectDrafts = buildProjectDrafts(data.projects);
+    const fallbackProjectId = data.projects[0]?.summary.id ?? "";
 
-    return () => {
-      cancelled = true;
-    };
-  }, [searchParams]);
+    startTransition(() => {
+      setUserDrafts(nextUserDrafts);
+      setProjectDrafts(nextProjectDrafts);
+      setSelectedProjectId((current) =>
+        data.projects.some((project) => project.summary.id === requestedProjectId)
+          ? requestedProjectId
+          : current && data.projects.some((project) => project.summary.id === current)
+            ? current
+            : fallbackProjectId,
+      );
+    });
+  }, [data, searchParams]);
 
   const projectCountLabel = useMemo(
     () => `${data?.availableProjects.length ?? 0}`,
@@ -526,37 +617,23 @@ export default function AdminPage() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
 
-  function applyAdminPayload(payload: AdminPageData) {
-    setData(payload);
-    setUserDrafts(buildUserDrafts(payload.users));
-    setProjectDrafts(buildProjectDrafts(payload.projects));
-    const requestedProjectId = searchParams.get("project") ?? "";
-    const nextProjectId = payload.projects.some((project) => project.summary.id === requestedProjectId)
-      ? requestedProjectId
-      : payload.projects.some((project) => project.summary.id === selectedProjectId)
-        ? selectedProjectId
-        : (payload.projects[0]?.summary.id ?? "");
-    setSelectedProjectId(nextProjectId);
-  }
-
-  async function handleCreateUser(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
+  async function handleCreateUser(values: CreateUserFormValues) {
     setError("");
     setSuccess("");
 
     try {
-      const payload = await apiFetch<AdminPageData>("/api/admin", {
-        method: "POST",
-        body: {
-          action: "create-user",
-          payload: form,
+      await adminMutation.mutateAsync({
+        type: "create-user",
+        payload: {
+          ...values,
+          projectIds:
+            values.role === "Super Admin"
+              ? ["*"]
+              : values.projectIds.filter((projectId) => projectId !== "*"),
         },
       });
-
-      applyAdminPayload(payload);
       setSuccess("Utilisateur cree avec succes.");
-      setForm({
+      createUserForm.reset({
         name: "",
         email: "",
         password: "",
@@ -565,34 +642,24 @@ export default function AdminPage() {
       });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Creation utilisateur impossible.");
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
-  async function handleCreateProject(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsCreatingProject(true);
+  async function handleCreateProject(values: CreateProjectFormValues) {
     setError("");
     setSuccess("");
 
     try {
-      const payload = await apiFetch<AdminPageData>("/api/admin", {
-        method: "POST",
-        body: {
-          action: "create-project",
-          payload: {
-            ...projectForm,
-            budgetTnd: Number(projectForm.budgetTnd || 0),
-          },
+      const payload = await adminMutation.mutateAsync({
+        type: "create-project",
+        payload: {
+          ...values,
+          budgetTnd: Number(values.budgetTnd || 0),
         },
       });
-
-      applyAdminPayload(payload);
-      await refreshWorkspace();
       replaceSelectedProject(payload.projects[payload.projects.length - 1]?.summary.id ?? "");
       setSuccess("Projet cree et ajoute au portefeuille.");
-      setProjectForm({
+      createProjectForm.reset({
         name: "",
         code: "",
         client: "",
@@ -606,33 +673,37 @@ export default function AdminPage() {
       });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Creation projet impossible.");
-    } finally {
-      setIsCreatingProject(false);
     }
   }
 
   function toggleProject(projectId: string) {
-    setForm((current) => ({
-      ...current,
-      projectIds: current.projectIds.includes(projectId)
-        ? current.projectIds.filter((item) => item !== projectId)
-        : [...current.projectIds, projectId],
-    }));
+    const currentProjectIds = createUserForm.getValues("projectIds") ?? [];
+    createUserForm.setValue(
+      "projectIds",
+      currentProjectIds.includes(projectId)
+        ? currentProjectIds.filter((item) => item !== projectId)
+        : [...currentProjectIds, projectId],
+      { shouldDirty: true, shouldValidate: true },
+    );
   }
 
   function handleRoleChange(role: UserRole) {
-    setForm((current) => ({
-      ...current,
-      role,
-      projectIds: role === "Super Admin" ? ["*"] : current.projectIds.filter((id) => id !== "*"),
-    }));
+    const currentProjectIds = createUserForm.getValues("projectIds") ?? [];
+    createUserForm.setValue("role", role, { shouldDirty: true, shouldValidate: true });
+    createUserForm.setValue(
+      "projectIds",
+      role === "Super Admin"
+        ? ["*"]
+        : currentProjectIds.filter((projectId) => projectId !== "*"),
+      { shouldDirty: true, shouldValidate: true },
+    );
   }
 
   function applyProjectPreset(field: keyof typeof projectSetupPresets) {
-    setProjectForm((current) => ({
-      ...current,
-      [field]: projectSetupPresets[field].join(", "),
-    }));
+    createProjectForm.setValue(field, projectSetupPresets[field].join(", "), {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
   }
 
   function updateUserDraft(userId: string, patch: Partial<UserDrafts[string]>) {
@@ -725,28 +796,22 @@ export default function AdminPage() {
     setSuccess("");
 
     try {
-      const payload = await apiFetch<AdminPageData>("/api/admin", {
-        method: "POST",
-        body: {
-          action: "update-project-setup",
-          payload: {
-            projectId,
-            name: draft.name,
-            client: draft.client,
-            location: draft.location,
-            status: draft.status,
-            budgetTnd: Number(draft.budgetTnd || 0),
-            nextMilestone: draft.nextMilestone,
-            lots: draft.lots,
-            phases: draft.phases,
-            workflowOwners: draft.workflowOwners,
-            zones: draft.zones,
-          },
+      await adminMutation.mutateAsync({
+        type: "update-project-setup",
+        payload: {
+          projectId,
+          name: draft.name,
+          client: draft.client,
+          location: draft.location,
+          status: draft.status,
+          budgetTnd: Number(draft.budgetTnd || 0),
+          nextMilestone: draft.nextMilestone,
+          lots: draft.lots,
+          phases: draft.phases,
+          workflowOwners: draft.workflowOwners,
+          zones: draft.zones,
         },
       });
-
-      applyAdminPayload(payload);
-      await refreshWorkspace();
       setSuccess("Parametrage projet mis a jour.");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Parametrage projet impossible.");
@@ -766,19 +831,11 @@ export default function AdminPage() {
     setSuccess("");
 
     try {
-      const payload = await apiFetch<AdminPageData>("/api/admin", {
-        method: "POST",
-        body: {
-          action: "update-project-members",
-          payload: {
-            projectId,
-            memberIds: draft.memberIds,
-          },
-        },
+      await adminMutation.mutateAsync({
+        type: "update-project-members",
+        projectId,
+        memberIds: draft.memberIds,
       });
-
-      applyAdminPayload(payload);
-      await refreshWorkspace();
       setSuccess("Affectation equipe mise a jour.");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Affectation equipe impossible.");
@@ -798,22 +855,14 @@ export default function AdminPage() {
     setSuccess("");
 
     try {
-      const payload = await apiFetch<AdminPageData>("/api/admin", {
-        method: "POST",
-        body: {
-          action: "update-user",
-          payload: {
-            userId,
-            role: draft.role,
-            projectIds: draft.projectIds,
-          },
+      await adminMutation.mutateAsync({
+        type: "update-user",
+        userId,
+        payload: {
+          role: draft.role,
+          projectIds: draft.projectIds,
         },
       });
-
-      applyAdminPayload(payload);
-      if (userId === currentUser.id) {
-        await refreshWorkspace();
-      }
       setSuccess("Acces utilisateur mis a jour.");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Mise a jour utilisateur impossible.");
@@ -828,18 +877,10 @@ export default function AdminPage() {
     setSuccess("");
 
     try {
-      const payload = await apiFetch<AdminPageData>("/api/admin", {
-        method: "POST",
-        body: {
-          action: "archive-project",
-          payload: {
-            projectId,
-          },
-        },
+      await adminMutation.mutateAsync({
+        type: "archive-project",
+        projectId,
       });
-
-      applyAdminPayload(payload);
-      await refreshWorkspace();
       setSuccess("Projet cloture avec succes.");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Cloture projet impossible.");
@@ -848,13 +889,17 @@ export default function AdminPage() {
     }
   }
 
-  if (!data && !error) {
+  if (!data && !pageError && adminQuery.isPending) {
     return (
       <div className="space-y-6">
         <SectionHeading
           eyebrow="Administration"
           title="Chargement de l'espace administrateur"
           action={<StatusBadge tone="neutral">Synchronisation</StatusBadge>}
+        />
+        <LoadingStateCard
+          title="L'espace administrateur se synchronise"
+          detail="Nous reprenons les utilisateurs, les projets, les acces et les responsables de workflow."
         />
       </div>
     );
@@ -868,7 +913,9 @@ export default function AdminPage() {
           title="L'administration est indisponible"
           action={<StatusBadge tone="danger">Erreur</StatusBadge>}
         />
-        <Panel>{error}</Panel>
+        <InlineNotice tone="danger" title="Impossible de charger l'administration">
+          {pageError}
+        </InlineNotice>
       </div>
     );
   }
@@ -931,22 +978,22 @@ export default function AdminPage() {
         </Panel>
       </div>
 
-      {error ? (
-        <div className="rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-4 text-sm text-rose-700">
-          {error}
-        </div>
+      {pageError ? (
+        <InlineNotice tone="danger" title="Action administrateur interrompue">
+          {pageError}
+        </InlineNotice>
       ) : null}
 
       {success ? (
-        <div className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-700">
+        <InlineNotice tone="success" title="Mise a jour enregistree">
           {success}
-        </div>
+        </InlineNotice>
       ) : null}
 
       {pendingAdminChanges > 0 ? (
-        <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-800">
+        <InlineNotice tone="warning" title="Modifications locales en attente">
           {pendingAdminChanges} changement(s) local(aux) en attente d&apos;enregistrement. Finalisez les acces utilisateurs ou le parametrage projet avant de quitter l&apos;administration.
-        </div>
+        </InlineNotice>
       ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
@@ -977,7 +1024,11 @@ export default function AdminPage() {
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <Panel title="Creer un utilisateur">
-          <form className="space-y-4" onSubmit={handleCreateUser}>
+          <form
+            className="space-y-4"
+            onSubmit={createUserForm.handleSubmit(handleCreateUser)}
+            noValidate
+          >
             <StepHeading
               eyebrow="Parcours utilisateur"
               title="Invitez un profil sans perdre de vue son role et sa visibilite projet."
@@ -1009,12 +1060,26 @@ export default function AdminPage() {
               <FormField
                 label="Nom complet"
                 value={form.name}
-                onChange={(value) => setForm((current) => ({ ...current, name: value }))}
+                error={createUserErrors.name?.message}
+                onChange={(value) =>
+                  createUserForm.setValue("name", value, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+                inputProps={createUserForm.register("name")}
               />
               <FormField
                 label="Email"
                 value={form.email}
-                onChange={(value) => setForm((current) => ({ ...current, email: value }))}
+                error={createUserErrors.email?.message}
+                onChange={(value) =>
+                  createUserForm.setValue("email", value, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+                inputProps={createUserForm.register("email")}
               />
             </div>
 
@@ -1022,13 +1087,24 @@ export default function AdminPage() {
               <FormField
                 label="Mot de passe"
                 value={form.password}
-                onChange={(value) => setForm((current) => ({ ...current, password: value }))}
+                error={createUserErrors.password?.message}
+                onChange={(value) =>
+                  createUserForm.setValue("password", value, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+                inputProps={{
+                  ...createUserForm.register("password"),
+                  type: "password",
+                }}
               />
               <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
                 <span className="text-xs uppercase tracking-[0.16em] text-slate-500">Role</span>
                 <select
                   value={form.role}
                   onChange={(event) => handleRoleChange(event.target.value as UserRole)}
+                  aria-invalid={Boolean(createUserErrors.role)}
                   className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
                 >
                   {roleOptions.map((role) => (
@@ -1037,6 +1113,9 @@ export default function AdminPage() {
                     </option>
                   ))}
                 </select>
+                {createUserErrors.role ? (
+                  <p className="mt-3 text-sm text-rose-300">{createUserErrors.role.message}</p>
+                ) : null}
               </label>
             </div>
 
@@ -1082,6 +1161,11 @@ export default function AdminPage() {
                   );
                 })}
               </div>
+              {createUserErrors.projectIds ? (
+                <p className="mt-3 text-sm text-rose-300">
+                  {createUserErrors.projectIds.message}
+                </p>
+              ) : null}
             </div>
 
             <button
@@ -1096,7 +1180,11 @@ export default function AdminPage() {
         </Panel>
 
         <Panel title="Creer un projet">
-          <form className="space-y-4" onSubmit={handleCreateProject}>
+          <form
+            className="space-y-4"
+            onSubmit={createProjectForm.handleSubmit(handleCreateProject)}
+            noValidate
+          >
             <StepHeading
               eyebrow="Parcours projet"
               title="Preparez un projet directement exploitable par le terrain, les documents et la finance."
@@ -1165,12 +1253,26 @@ export default function AdminPage() {
               <FormField
                 label="Nom du projet"
                 value={projectForm.name}
-                onChange={(value) => setProjectForm((current) => ({ ...current, name: value }))}
+                error={createProjectErrors.name?.message}
+                onChange={(value) =>
+                  createProjectForm.setValue("name", value, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+                inputProps={createProjectForm.register("name")}
               />
               <FormField
                 label="Code projet"
                 value={projectForm.code}
-                onChange={(value) => setProjectForm((current) => ({ ...current, code: value }))}
+                error={createProjectErrors.code?.message}
+                onChange={(value) =>
+                  createProjectForm.setValue("code", value, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+                inputProps={createProjectForm.register("code")}
               />
             </div>
 
@@ -1178,12 +1280,26 @@ export default function AdminPage() {
               <FormField
                 label="Client"
                 value={projectForm.client}
-                onChange={(value) => setProjectForm((current) => ({ ...current, client: value }))}
+                error={createProjectErrors.client?.message}
+                onChange={(value) =>
+                  createProjectForm.setValue("client", value, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+                inputProps={createProjectForm.register("client")}
               />
               <FormField
                 label="Localisation"
                 value={projectForm.location}
-                onChange={(value) => setProjectForm((current) => ({ ...current, location: value }))}
+                error={createProjectErrors.location?.message}
+                onChange={(value) =>
+                  createProjectForm.setValue("location", value, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+                inputProps={createProjectForm.register("location")}
               />
             </div>
 
@@ -1193,8 +1309,12 @@ export default function AdminPage() {
                 <select
                   value={projectForm.status}
                   onChange={(event) =>
-                    setProjectForm((current) => ({ ...current, status: event.target.value }))
+                    createProjectForm.setValue("status", event.target.value, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    })
                   }
+                  aria-invalid={Boolean(createProjectErrors.status)}
                   className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
                 >
                   {projectStatusOptions.map((status) => (
@@ -1203,20 +1323,35 @@ export default function AdminPage() {
                     </option>
                   ))}
                 </select>
+                {createProjectErrors.status ? (
+                  <p className="mt-3 text-sm text-rose-300">
+                    {createProjectErrors.status.message}
+                  </p>
+                ) : null}
               </label>
               <FormField
                 label="Budget (TND)"
                 value={projectForm.budgetTnd}
+                error={createProjectErrors.budgetTnd?.message}
                 onChange={(value) =>
-                  setProjectForm((current) => ({ ...current, budgetTnd: value }))
+                  createProjectForm.setValue("budgetTnd", value, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
                 }
+                inputProps={createProjectForm.register("budgetTnd")}
               />
               <FormField
                 label="Prochain jalon"
                 value={projectForm.nextMilestone}
+                error={createProjectErrors.nextMilestone?.message}
                 onChange={(value) =>
-                  setProjectForm((current) => ({ ...current, nextMilestone: value }))
+                  createProjectForm.setValue("nextMilestone", value, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
                 }
+                inputProps={createProjectForm.register("nextMilestone")}
               />
             </div>
 
@@ -1231,22 +1366,39 @@ export default function AdminPage() {
               <FormField
                 label="Lots (separes par des virgules)"
                 value={projectForm.lots}
-                onChange={(value) => setProjectForm((current) => ({ ...current, lots: value }))}
+                error={createProjectErrors.lots?.message}
+                onChange={(value) =>
+                  createProjectForm.setValue("lots", value, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+                inputProps={createProjectForm.register("lots")}
               />
               <div className="grid gap-4 md:grid-cols-2">
                 <FormField
                   label="Phases documentaires"
                   value={projectForm.phases}
+                  error={createProjectErrors.phases?.message}
                   onChange={(value) =>
-                    setProjectForm((current) => ({ ...current, phases: value }))
+                    createProjectForm.setValue("phases", value, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    })
                   }
+                  inputProps={createProjectForm.register("phases")}
                 />
                 <FormField
                   label="Zones chantier"
                   value={projectForm.zones}
+                  error={createProjectErrors.zones?.message}
                   onChange={(value) =>
-                    setProjectForm((current) => ({ ...current, zones: value }))
+                    createProjectForm.setValue("zones", value, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    })
                   }
+                  inputProps={createProjectForm.register("zones")}
                 />
               </div>
             </div>
@@ -2053,11 +2205,17 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 }
 
 function FormField({
+  error,
+  inputProps,
   label,
+  placeholder,
   value,
   onChange,
 }: {
+  error?: string;
+  inputProps?: InputHTMLAttributes<HTMLInputElement>;
   label: string;
+  placeholder?: string;
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -2065,10 +2223,17 @@ function FormField({
     <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
       <span className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</span>
       <input
+        {...inputProps}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-3 w-full bg-transparent text-white outline-none"
+        onChange={(event) => {
+          inputProps?.onChange?.(event);
+          onChange(event.target.value);
+        }}
+        placeholder={placeholder}
+        aria-invalid={Boolean(error)}
+        className="mt-3 w-full bg-transparent text-white outline-none placeholder:text-slate-500"
       />
+      {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
     </label>
   );
 }

@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 
 import {
+  InlineNotice,
+  LoadingStateCard,
   MetricCard,
   Panel,
   ProgressBar,
@@ -343,6 +345,10 @@ export function FinanceModule() {
     return (
       <div className="space-y-6">
         <SectionHeading eyebrow="Finance" title="Chargement de la finance projet" />
+        <LoadingStateCard
+          title="La finance se synchronise"
+          detail="Nous recuperons les decomptes, les validations, les paiements et la tresorerie du projet actif."
+        />
       </div>
     );
   }
@@ -351,7 +357,9 @@ export function FinanceModule() {
     return (
       <div className="space-y-6">
         <SectionHeading eyebrow="Finance" title="La finance est indisponible" />
-        <Panel>{error}</Panel>
+        <InlineNotice tone="danger" title="Impossible de charger la finance">
+          {error}
+        </InlineNotice>
       </div>
     );
   }
@@ -855,9 +863,9 @@ function FinanceModuleContent({
       ) : null}
 
       {mutationError ? (
-        <div className="rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-4 text-sm leading-6 text-rose-700">
+        <InlineNotice tone="danger" title="Action finance interrompue">
           {mutationError}
-        </div>
+        </InlineNotice>
       ) : null}
 
       {pendingAction ? (

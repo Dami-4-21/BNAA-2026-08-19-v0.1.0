@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bell,
   Building2,
@@ -29,13 +30,15 @@ import {
 import { useAuth } from "@/components/auth-context";
 import { type AppPermission, type UserRole } from "@/lib/auth";
 import { cx } from "@/components/ui";
-import { apiFetch } from "@/lib/api";
-import type {
-  GlobalSearchPayload,
-  GlobalSearchResult,
-  NotificationsPageData,
-} from "@/lib/backend/types";
+import type { GlobalSearchResult } from "@/lib/backend/types";
+import {
+  fetchNotifications,
+  notificationsQueryKey,
+  runNotificationsAction,
+} from "@/lib/queries/notifications";
+import { fetchGlobalSearch, globalSearchQueryKey } from "@/lib/queries/search";
 import { useWorkspace } from "@/components/workspace-context";
+import { useAppStore } from "@/store/app-store";
 
 type NavItem = {
   id: NavItemId;
@@ -342,30 +345,61 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const { signOut } = useAuth();
   const { activeProject, availableProjects, can, currentUser, setActiveProjectId, tenant } =
     useWorkspace();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return window.localStorage.getItem("bnaasaas-sidebar-collapsed") === "true";
-  });
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [notificationsData, setNotificationsData] = useState<NotificationsPageData | null>(
-    null,
-  );
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchLoading, setSearchLoading] = useState(false);
+  const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed);
+  const profileOpen = useAppStore((state) => state.profileOpen);
+  const notificationsOpen = useAppStore((state) => state.notificationsOpen);
+  const searchQuery = useAppStore((state) => state.searchQuery);
+  const searchOpen = useAppStore((state) => state.searchOpen);
+  const setSidebarCollapsed = useAppStore((state) => state.setSidebarCollapsed);
+  const setProfileOpen = useAppStore((state) => state.setProfileOpen);
+  const setNotificationsOpen = useAppStore((state) => state.setNotificationsOpen);
+  const setSearchOpen = useAppStore((state) => state.setSearchOpen);
+  const setSearchQuery = useAppStore((state) => state.setSearchQuery);
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const notificationsBoxRef = useRef<HTMLDivElement | null>(null);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const notificationsQuery = useQuery({
+    queryKey: notificationsQueryKey,
+    queryFn: fetchNotifications,
+    placeholderData: (previous) => previous,
+    refetchInterval: 20_000,
+    staleTime: 10_000,
+  });
+  const searchResultsQuery = useQuery({
+    queryKey: globalSearchQueryKey(deferredSearchQuery.trim()),
+    queryFn: () => fetchGlobalSearch(deferredSearchQuery.trim()),
+    enabled: deferredSearchQuery.trim().length >= 2,
+    staleTime: 20_000,
+  });
+  const searchResults = useMemo(
+    () => searchResultsQuery.data?.results ?? [],
+    [searchResultsQuery.data?.results],
+  );
+  const searchLoading =
+    searchQuery.trim().length >= 2 &&
+    (searchResultsQuery.isFetching ||
+      deferredSearchQuery.trim() !== searchQuery.trim());
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setSidebarCollapsed(
+      window.localStorage.getItem("bnaasaas-sidebar-collapsed") === "true",
+    );
+  }, [setSidebarCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
     window.localStorage.setItem(
       "bnaasaas-sidebar-collapsed",
       String(sidebarCollapsed),
@@ -385,7 +419,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     window.addEventListener("mousedown", handlePointerDown);
     return () => window.removeEventListener("mousedown", handlePointerDown);
-  }, []);
+  }, [setNotificationsOpen, setSearchOpen]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -412,75 +446,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [setNotificationsOpen, setProfileOpen, setSearchOpen]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadNotifications() {
-      try {
-        const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
-          method: "GET",
-        });
-
-        if (!cancelled) {
-          setNotificationsData(payload);
-        }
-      } catch {
-        if (!cancelled) {
-          setNotificationsData(null);
-        }
-      }
-    }
-
-    void loadNotifications();
-    const interval = window.setInterval(() => {
-      void loadNotifications();
-    }, 20000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [currentUser.id, pathname]);
-
-  useEffect(() => {
-    const needle = searchQuery.trim();
-    if (needle.length < 2) {
+    if (searchQuery.trim().length >= 2) {
+      setSearchOpen(true);
       return;
     }
 
-    let cancelled = false;
-
-    const timer = window.setTimeout(async () => {
-      try {
-        const payload = await apiFetch<GlobalSearchPayload>(
-          `/api/search?q=${encodeURIComponent(needle)}`,
-          {
-            method: "GET",
-          },
-        );
-
-        if (!cancelled) {
-          setSearchResults(payload.results);
-          setSearchOpen(true);
-        }
-      } catch {
-        if (!cancelled) {
-          setSearchResults([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setSearchLoading(false);
-        }
-      }
-    }, 220);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [searchQuery]);
+    setSearchOpen(false);
+  }, [searchQuery, setSearchOpen]);
 
   const routeSearchParams = useMemo(
     () => new URLSearchParams(searchParams.toString()),
@@ -560,7 +535,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     setSearchOpen(false);
     setSearchQuery("");
-    setSearchResults([]);
     router.push(result.href);
   }
 
@@ -574,28 +548,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   function handleSearchChange(value: string) {
     setSearchQuery(value);
     if (value.trim().length < 2) {
-      setSearchResults([]);
-      setSearchLoading(false);
       setSearchOpen(false);
       return;
     }
 
-    setSearchLoading(true);
+    setSearchOpen(true);
   }
 
   async function handleNotificationSelect(
-    notification: NonNullable<NotificationsPageData["notifications"]>[number],
+    notification: NonNullable<typeof notificationsQuery.data>["notifications"][number],
   ) {
     if (!notification.isRead) {
       try {
-        const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
-          method: "POST",
-          body: {
-            action: "mark-read",
-            payload: { notificationId: notification.id },
-          },
-        });
-        setNotificationsData(payload);
+        await runNotificationsAction("mark-read", notification.id);
+        await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
       } catch {
         // noop for preview navigation
       }
@@ -609,8 +575,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.push(notification.href);
   }
 
-  const notificationPreview = notificationsData?.notifications.slice(0, 5) ?? [];
-  const unreadNotifications = notificationsData?.summary.unreadCount ?? 0;
+  const notificationPreview = notificationsQuery.data?.notifications.slice(0, 5) ?? [];
+  const unreadNotifications = notificationsQuery.data?.summary.unreadCount ?? 0;
 
   return (
     <div className="workspace-light min-h-screen">
@@ -649,7 +615,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               BnaaSaaS
             </div>
             <button
-              onClick={() => setSidebarCollapsed((current) => !current)}
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
               title={sidebarCollapsed ? "Ouvrir la barre laterale" : "Reduire la barre laterale"}
               className="flex size-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-100"
               aria-label={sidebarCollapsed ? "Ouvrir la barre laterale" : "Reduire la barre laterale"}
@@ -889,7 +855,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <div ref={notificationsBoxRef} className="relative">
                         <button
                           type="button"
-                          onClick={() => setNotificationsOpen((current) => !current)}
+                          onClick={() => setNotificationsOpen(!notificationsOpen)}
                           className="relative flex size-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-100"
                         >
                           <Bell className="size-5" />
@@ -971,7 +937,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <div className="relative">
                         <button
                           type="button"
-                          onClick={() => setProfileOpen((current) => !current)}
+                          onClick={() => setProfileOpen(!profileOpen)}
                           className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-white px-3 py-2 shadow-sm hover:bg-stone-50"
                         >
                           <div className="flex size-10 items-center justify-center rounded-2xl bg-black text-sm font-semibold text-white">

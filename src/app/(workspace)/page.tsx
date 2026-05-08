@@ -14,14 +14,23 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
-import { Panel, ProgressBar, SectionHeading, StatusBadge, type Tone } from "@/components/ui";
+import {
+  EmptyStateCard,
+  InlineNotice,
+  LoadingStateCard,
+  Panel,
+  ProgressBar,
+  SectionHeading,
+  StatusBadge,
+  type Tone,
+} from "@/components/ui";
 import { useWorkspace } from "@/components/workspace-context";
-import { formatCurrency, formatDate } from "@/lib/format";
-import { apiFetch } from "@/lib/api";
+import { formatDate, formatTND } from "@/lib/format";
 import type { UserRole } from "@/lib/auth";
 import type { DashboardPageData } from "@/lib/backend/types";
+import { dashboardQueryKey, fetchDashboard } from "@/lib/queries/dashboard";
 
 type DashboardAction = {
   badge: string;
@@ -77,61 +86,33 @@ type DashboardModel = {
 
 export default function DashboardPage() {
   const { activeProject, availableProjects, currentUser, tenant } = useWorkspace();
-  const [data, setData] = useState<DashboardPageData | null>(null);
-  const [error, setError] = useState("");
+  const dashboardQuery = useQuery({
+    queryKey: dashboardQueryKey(activeProject.id),
+    queryFn: () => fetchDashboard(activeProject.id),
+    enabled: Boolean(activeProject.id),
+    placeholderData: (previous) => previous,
+    refetchOnWindowFocus: true,
+    staleTime: 15_000,
+  });
+  const data = dashboardQuery.data ?? null;
+  const error =
+    dashboardQuery.error instanceof Error
+      ? dashboardQuery.error.message
+      : dashboardQuery.isError
+        ? "Erreur tableau de bord."
+        : "";
 
-  const loadDashboard = useCallback(async (options?: { preserveData?: boolean }) => {
-    try {
-      setError("");
-      if (!options?.preserveData) {
-        setData(null);
-      }
-      const payload = await apiFetch<DashboardPageData>(
-        `/api/projects/${activeProject.id}/dashboard`,
-        { method: "GET" },
-      );
-      setData(payload);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Erreur tableau de bord.");
-      if (!options?.preserveData) {
-        setData(null);
-      }
-    }
-  }, [activeProject.id]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadDashboard();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [loadDashboard]);
-
-  useEffect(() => {
-    function refreshOnForeground() {
-      if (document.visibilityState === "hidden") {
-        return;
-      }
-
-      void loadDashboard({ preserveData: true });
-    }
-
-    window.addEventListener("focus", refreshOnForeground);
-    document.addEventListener("visibilitychange", refreshOnForeground);
-
-    return () => {
-      window.removeEventListener("focus", refreshOnForeground);
-      document.removeEventListener("visibilitychange", refreshOnForeground);
-    };
-  }, [loadDashboard]);
-
-  if (!data && !error) {
+  if (!data && dashboardQuery.isPending) {
     return (
       <div className="space-y-6">
         <SectionHeading
           eyebrow="Vue d'ensemble"
           title="Chargement du tableau de bord"
           action={<StatusBadge tone="neutral">Synchronisation</StatusBadge>}
+        />
+        <LoadingStateCard
+          title="Le projet se synchronise"
+          detail="Nous reprenons les priorites terrain, documentaires et finance du projet actif."
         />
       </div>
     );
@@ -145,7 +126,9 @@ export default function DashboardPage() {
           title="Le tableau de bord n'est pas disponible"
           action={<StatusBadge tone="danger">Erreur</StatusBadge>}
         />
-        <Panel>{error}</Panel>
+        <InlineNotice tone="danger" title="Impossible de charger le tableau de bord">
+          {error}
+        </InlineNotice>
       </div>
     );
   }
@@ -168,6 +151,12 @@ export default function DashboardPage() {
         title={model.title}
         action={<StatusBadge tone={model.statusTone}>{model.statusLabel}</StatusBadge>}
       />
+
+      {dashboardQuery.isFetching ? (
+        <InlineNotice tone="neutral" title="Rafraichissement en cours">
+          Les indicateurs du projet se mettent a jour sans interrompre votre lecture.
+        </InlineNotice>
+      ) : null}
 
       <p className="max-w-4xl text-sm leading-7 text-stone-600">{model.intro}</p>
 
@@ -241,9 +230,16 @@ export default function DashboardPage() {
 
         <Panel title="File d'action" description={model.checklistDescription}>
           <div className="space-y-3">
-            {model.checklist.map((item) => (
-              <ActionListItem key={`${item.href}-${item.label}`} action={item} />
-            ))}
+            {model.checklist.length > 0 ? (
+              model.checklist.map((item) => (
+                <ActionListItem key={`${item.href}-${item.label}`} action={item} />
+              ))
+            ) : (
+              <EmptyStateCard
+                title="Aucune action immediate"
+                detail="Le projet ne remonte aucune relance prioritaire pour ce role."
+              />
+            )}
           </div>
         </Panel>
 
@@ -258,9 +254,16 @@ export default function DashboardPage() {
 
       <Panel title={model.detailTitle} description={model.detailDescription}>
         <div className="grid gap-3 xl:grid-cols-2">
-          {model.detailItems.map((item) => (
-            <DashboardItemCard key={`${item.title}-${item.meta ?? item.detail}`} item={item} />
-          ))}
+          {model.detailItems.length > 0 ? (
+            model.detailItems.map((item) => (
+              <DashboardItemCard key={`${item.title}-${item.meta ?? item.detail}`} item={item} />
+            ))
+          ) : (
+            <EmptyStateCard
+              title="Aucun point detaille a traiter"
+              detail="Le projet ne remonte pas de detail complementaire pour ce role pour le moment."
+            />
+          )}
         </div>
       </Panel>
     </div>
@@ -667,7 +670,7 @@ function buildDashboardModel({
             helper: "Montant facture sur la ligne la plus recente du projet.",
             label: "Montant recent",
             tone: "primary",
-            value: data.invoices[0] ? formatCurrency(data.invoices[0].amount) : formatCurrency(0),
+            value: data.invoices[0] ? formatTND(data.invoices[0].amount) : formatTND(0),
           },
         ],
         statusLabel:
@@ -903,7 +906,7 @@ function buildInvoiceItems(data: DashboardPageData): DashboardListItem[] {
     badge: invoice.status,
     detail: `${invoice.project} - echeance ${formatDate(invoice.dueDate)}.`,
     href: "/finance?tab=invoices",
-    meta: formatCurrency(invoice.amount),
+    meta: formatTND(invoice.amount),
     title: invoice.number,
     tone: invoice.tone,
   }));
@@ -911,7 +914,7 @@ function buildInvoiceItems(data: DashboardPageData): DashboardListItem[] {
 
 function buildInvoiceMetricItems(data: DashboardPageData): DashboardListItem[] {
   return data.invoiceMetrics.map((metric) => ({
-    badge: formatCurrency(metric.value),
+    badge: formatTND(metric.value),
     detail: metric.helper,
     href: "/finance?tab=cashflow",
     title: metric.label,

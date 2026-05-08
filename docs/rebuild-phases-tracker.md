@@ -115,24 +115,24 @@ Reference: `docs/phase-2-ux-strategy.md`
 - [x] Simplify the `Documents` flow into a guided publish/distribute/follow-up sequence.
 - [x] Simplify the `Finance` flow into a clear statement -> validation -> payment sequence.
 - [x] Improve project setup and admin usability without reducing current capabilities.
-- [ ] Improve notifications as an action queue with stronger triage.
-- [ ] Standardize UX state quality across the SaaS:
-- [ ] empty states
-- [ ] loading states
-- [ ] disabled-state reasons
-- [ ] inline validation
-- [ ] offline messaging
-- [ ] error recovery states
-- [ ] Improve accessibility and operational readability across primary flows.
-- [ ] Add shared formatting utilities:
-- [ ] `formatTND`
-- [ ] `formatDate`
-- [ ] `timeAgo`
-- [ ] `formatVersion`
-- [ ] Introduce Zustand for session/workspace/app-shell state.
-- [ ] Introduce TanStack Query for server reads and mutations.
-- [ ] Introduce React Hook Form + Zod on the first production flows.
-- [ ] Rebuild the shared app shell and role layouts on the new frontend stack.
+- [x] Improve notifications as an action queue with stronger triage.
+- [x] Standardize UX state quality across the SaaS:
+- [x] empty states
+- [x] loading states
+- [x] disabled-state reasons
+- [x] inline validation
+- [x] offline messaging
+- [x] error recovery states
+- [x] Improve accessibility and operational readability across primary flows.
+- [x] Add shared formatting utilities:
+- [x] `formatTND`
+- [x] `formatDate`
+- [x] `timeAgo`
+- [x] `formatVersion`
+- [x] Introduce Zustand for session/workspace/app-shell state.
+- [x] Introduce TanStack Query for server reads and mutations.
+- [x] Introduce React Hook Form + Zod on the first production flows.
+- [x] Rebuild the shared app shell and role layouts on the new frontend stack.
 
 ### Phase 2 Exit Criteria
 

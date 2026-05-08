@@ -1,7 +1,12 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   BellRing,
   CheckCheck,
@@ -13,12 +18,23 @@ import {
   Search,
 } from "lucide-react";
 
-import { Panel, SectionHeading, StatusBadge, cx } from "@/components/ui";
-import { apiFetch } from "@/lib/api";
+import {
+  EmptyStateCard,
+  InlineNotice,
+  LoadingStateCard,
+  Panel,
+  SectionHeading,
+  StatusBadge,
+  cx,
+} from "@/components/ui";
 import type { NotificationsPageData } from "@/lib/backend/types";
 import { useWorkspace } from "@/components/workspace-context";
-
-type NotificationAction = "mark-all-read" | "mark-read" | "mark-unread";
+import {
+  type NotificationAction,
+  fetchNotifications,
+  notificationsQueryKey,
+  runNotificationsAction,
+} from "@/lib/queries/notifications";
 
 type FilterStatus = "all" | "action" | "read" | "unread";
 type NotificationView = "inbox" | "validations" | "alerts";
@@ -42,14 +58,41 @@ const emailLabelByStatus = {
 export default function NotificationsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const { setActiveProjectId } = useWorkspace();
-  const [data, setData] = useState<NotificationsPageData | null>(null);
-  const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("unread");
   const [typeFilter, setTypeFilter] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [pendingAction, setPendingAction] = useState("");
+  const notificationsQuery = useQuery({
+    queryKey: notificationsQueryKey,
+    queryFn: fetchNotifications,
+    placeholderData: (previous) => previous,
+    refetchOnWindowFocus: true,
+    staleTime: 15_000,
+  });
+  const notificationsMutation = useMutation({
+    mutationFn: ({
+      action,
+      notificationId,
+    }: {
+      action: NotificationAction;
+      notificationId?: string;
+    }) => runNotificationsAction(action, notificationId),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(notificationsQueryKey, payload);
+    },
+  });
+  const data = notificationsQuery.data ?? null;
+  const error =
+    actionError ||
+    (notificationsQuery.error instanceof Error
+      ? notificationsQuery.error.message
+      : notificationsQuery.isError
+        ? "Impossible de charger les notifications."
+        : "");
   const view = (searchParams.get("view") as NotificationView | null) ?? "inbox";
   const effectiveStatusFilter: FilterStatus =
     view === "validations" ? "action" : view === "alerts" ? "unread" : statusFilter;
@@ -65,54 +108,6 @@ export default function NotificationsPage() {
     const query = params.toString();
     router.replace(query ? `/notifications?${query}` : "/notifications", { scroll: false });
   }
-
-  const loadNotifications = useCallback(async (options?: { preserveData?: boolean }) => {
-    try {
-      setError("");
-      if (!options?.preserveData) {
-        setData(null);
-      }
-      const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
-        method: "GET",
-      });
-      setData(payload);
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "Impossible de charger les notifications.",
-      );
-      if (!options?.preserveData) {
-        setData(null);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadNotifications();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [loadNotifications]);
-
-  useEffect(() => {
-    function refreshOnForeground() {
-      if (document.visibilityState === "hidden") {
-        return;
-      }
-
-      void loadNotifications({ preserveData: true });
-    }
-
-    window.addEventListener("focus", refreshOnForeground);
-    document.addEventListener("visibilitychange", refreshOnForeground);
-
-    return () => {
-      window.removeEventListener("focus", refreshOnForeground);
-      document.removeEventListener("visibilitychange", refreshOnForeground);
-    };
-  }, [loadNotifications]);
 
   const typeOptions = useMemo(
     () =>
@@ -283,18 +278,11 @@ export default function NotificationsPage() {
     notificationId?: string,
   ) {
     try {
-      setError("");
+      setActionError("");
       setPendingAction(notificationId ?? action);
-      const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
-        method: "POST",
-        body: {
-          action,
-          payload: notificationId ? { notificationId } : {},
-        },
-      });
-      setData(payload);
+      await notificationsMutation.mutateAsync({ action, notificationId });
     } catch (nextError) {
-      setError(
+      setActionError(
         nextError instanceof Error
           ? nextError.message
           : "Impossible de mettre a jour les notifications.",
@@ -309,21 +297,17 @@ export default function NotificationsPage() {
   ) {
     try {
       setPendingAction(notification.id);
-      setError("");
+      setActionError("");
 
       if (!notification.href) {
         throw new Error("Cette notification ne pointe vers aucun ecran.");
       }
 
       if (!notification.isRead) {
-        const payload = await apiFetch<NotificationsPageData>("/api/notifications", {
-          method: "POST",
-          body: {
-            action: "mark-read",
-            payload: { notificationId: notification.id },
-          },
+        await notificationsMutation.mutateAsync({
+          action: "mark-read",
+          notificationId: notification.id,
         });
-        setData(payload);
       }
 
       if (notification.projectId) {
@@ -332,7 +316,7 @@ export default function NotificationsPage() {
 
       router.push(notification.href);
     } catch (nextError) {
-      setError(
+      setActionError(
         nextError instanceof Error
           ? nextError.message
           : "Impossible d'ouvrir la notification.",
@@ -349,6 +333,10 @@ export default function NotificationsPage() {
           title="Chargement des alertes et de l'activite"
           action={<StatusBadge tone="neutral">Synchronisation</StatusBadge>}
         />
+        <LoadingStateCard
+          title="Le centre de notifications se synchronise"
+          detail="Nous reprenons les actions a traiter, les alertes et les emails lies au projet actif."
+        />
       </div>
     );
   }
@@ -361,7 +349,9 @@ export default function NotificationsPage() {
           title="Le centre de notifications n'est pas disponible"
           action={<StatusBadge tone="danger">Erreur</StatusBadge>}
         />
-        <Panel>{error}</Panel>
+        <InlineNotice tone="danger" title="Impossible de charger les notifications">
+          {error}
+        </InlineNotice>
       </div>
     );
   }
@@ -374,6 +364,12 @@ export default function NotificationsPage() {
         description={heading.description}
         action={<StatusBadge tone="primary">{heading.actionBadge}</StatusBadge>}
       />
+
+      {notificationsQuery.isFetching ? (
+        <InlineNotice tone="neutral" title="Rafraichissement en cours">
+          Les priorites de validation et les alertes se mettent a jour sans interrompre votre triage.
+        </InlineNotice>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         {[
@@ -452,7 +448,10 @@ export default function NotificationsPage() {
                 </div>
               ))
             ) : (
-              <EmptyState label="Aucun projet ne remonte de file prioritaire actuellement." />
+              <EmptyStateCard
+                title="Aucune file prioritaire projet"
+                detail="Aucun projet ne remonte de file prioritaire actuellement."
+              />
             )}
             <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600">
               <span className="font-semibold text-stone-950">{queuedEmails}</span> notification(s) attendent encore un envoi ou sont capturees localement.
@@ -523,7 +522,10 @@ export default function NotificationsPage() {
                 </div>
               ))
             ) : (
-              <EmptyState label="Aucune alerte prioritaire pour le moment." />
+              <EmptyStateCard
+                title="Aucune alerte prioritaire"
+                detail="Aucune alerte prioritaire n'est remontee pour le moment."
+              />
             )}
           </div>
         </Panel>
@@ -558,7 +560,10 @@ export default function NotificationsPage() {
                 </div>
               ))
             ) : (
-              <EmptyState label="Aucune activite recente pour votre perimetre." />
+              <EmptyStateCard
+                title="Aucune activite recente"
+                detail="Aucune activite recente n'est remontee pour votre perimetre."
+              />
             )}
           </div>
         </Panel>
@@ -773,7 +778,10 @@ export default function NotificationsPage() {
               </div>
             ))
           ) : (
-            <EmptyState label="Aucune notification ne correspond aux filtres selectionnes. Reinitialisez les filtres ou reduisez la recherche pour retrouver le bon flux." />
+            <EmptyStateCard
+              title="Aucune notification ne correspond aux filtres"
+              detail="Reinitialisez les filtres ou reduisez la recherche pour retrouver le bon flux."
+            />
           )}
         </div>
       </Panel>
@@ -828,13 +836,5 @@ function FilterSelect({
         ))}
       </select>
     </label>
-  );
-}
-
-function EmptyState({ label }: { label: string }) {
-  return (
-    <div className="rounded-[22px] border border-dashed border-stone-200 bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">
-      {label}
-    </div>
   );
 }
