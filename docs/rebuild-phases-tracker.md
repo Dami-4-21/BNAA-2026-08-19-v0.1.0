@@ -111,7 +111,7 @@ Reference: `docs/phase-2-ux-strategy.md`
 - [x] Define the Phase 2 UX strategy while preserving the current visual design.
 - [x] Simplify role-based navigation without changing route contracts.
 - [x] Rework the dashboard into an action-first work queue by role.
-- [ ] Simplify the `Site` flow for field speed and mobile clarity.
+- [x] Simplify the `Site` flow for field speed and mobile clarity.
 - [ ] Simplify the `Documents` flow into a guided publish/distribute/follow-up sequence.
 - [ ] Simplify the `Finance` flow into a clear statement -> validation -> payment sequence.
 - [ ] Improve project setup and admin usability without reducing current capabilities.

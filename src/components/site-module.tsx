@@ -132,23 +132,23 @@ type WorkspaceProject = ReturnType<typeof useWorkspace>["activeProject"];
 const tabs: Array<{ key: TabKey; label: string; helper: string }> = [
   {
     key: "overview",
-    label: "Temps reel",
-    helper: "KPIs, meteo, derive et signatures",
+    label: "Aujourd'hui",
+    helper: "Etat du jour, alertes et validation",
   },
   {
     key: "rjc",
-    label: "Rapport journalier",
-    helper: "Creation, progression, PDF et signature",
+    label: "RJC",
+    helper: "Saisie du jour, avancement et envoi",
   },
   {
     key: "photos",
-    label: "Journal photo",
-    helper: "Galerie geo, lots et zones",
+    label: "Photos",
+    helper: "Prises de vue, zone et lot",
   },
   {
     key: "ncr",
-    label: "Non-conformites",
-    helper: "Creation, assignation et cloture",
+    label: "NC",
+    helper: "Creation, suivi et cloture",
   },
 ];
 
@@ -638,7 +638,7 @@ function SiteModuleContent({
     mobilePrimaryHelper = canCreateReport
       ? "Reprendre la saisie du rapport journalier en un seul geste."
       : "Votre role est en lecture seule sur le rapport chantier.";
-    mobilePrimaryLabel = "Ouvrir le RJC";
+    mobilePrimaryLabel = "Commencer le RJC";
     mobilePrimaryAction = () => {
       if (canCreateReport) {
         selectTab("rjc");
@@ -734,6 +734,114 @@ function SiteModuleContent({
       icon: ShieldAlert,
       key: "ncr",
       label: "NC",
+      onClick: () => selectTab("ncr"),
+      tone: activeTab === "ncr" ? "primary" : ("neutral" as Tone),
+    },
+  ];
+  const desktopLeadAction = pendingSyncCount > 0
+    ? {
+        badge: isOnline ? "Sync en attente" : "Hors ligne",
+        detail: isOnline
+          ? `${pendingSyncCount} brouillon(s) terrain attendent encore un envoi.`
+          : "Le chantier continue hors ligne. Les brouillons repartiront au retour du reseau.",
+        label: "Synchroniser les brouillons",
+        onClick: () => {
+          void syncPendingReports();
+        },
+        tone: isOnline ? ("warning" as Tone) : ("danger" as Tone),
+      }
+    : activeTab === "rjc"
+      ? {
+          badge: canSubmitReport ? "Pret a envoyer" : "RJC a completer",
+          detail: reportActionHelper,
+          label: editingReportId ? "Finaliser ce RJC" : "Continuer le RJC",
+          onClick: () =>
+            selectTab("rjc", editingReportId ? { report: editingReportId } : undefined),
+          tone: canSubmitReport ? ("success" as Tone) : ("warning" as Tone),
+        }
+      : activeTab === "photos"
+        ? {
+            badge: canSubmitPhoto ? "Photo prete" : "Photo a completer",
+            detail: photoActionHelper,
+            label: "Continuer la prise de vue",
+            onClick: () => selectTab("photos"),
+            tone: canSubmitPhoto ? ("success" as Tone) : ("warning" as Tone),
+          }
+        : activeTab === "ncr"
+          ? {
+              badge: canSubmitNcr ? "NC prete" : "NC a completer",
+              detail: ncrActionHelper,
+              label: "Continuer la NC",
+              onClick: () =>
+                selectTab("ncr", focusedNcrRef ? { ncr: focusedNcrRef } : undefined),
+              tone: canSubmitNcr ? ("success" as Tone) : ("warning" as Tone),
+            }
+          : {
+              badge:
+                pendingProjectApprovals > 0
+                  ? `${pendingProjectApprovals} validation(s)`
+                  : openNcrCount > 0
+                    ? `${openNcrCount} NC ouverte(s)`
+                    : "Terrain a jour",
+              detail:
+                pendingProjectApprovals > 0
+                  ? "Des rapports sont prets. La validation projet reste la prochaine etape."
+                  : openNcrCount > 0
+                    ? "Des non-conformites restent ouvertes et doivent etre suivies."
+                    : "Le suivi est a jour. Reprenez le RJC ou ajoutez une photo si besoin.",
+              label:
+                pendingProjectApprovals > 0
+                  ? "Ouvrir les validations"
+                  : canCreateReport
+                    ? "Commencer le RJC"
+                    : "Voir l'etat du jour",
+              onClick: () =>
+                pendingProjectApprovals > 0
+                  ? selectTab("overview")
+                  : canCreateReport
+                    ? selectTab("rjc")
+                    : selectTab("overview"),
+              tone:
+                pendingProjectApprovals > 0 || openNcrCount > 0
+                  ? ("warning" as Tone)
+                  : ("success" as Tone),
+            };
+  const fieldFlowCards = [
+    {
+      key: "rjc",
+      label: "1. RJC",
+      detail: latestReport
+        ? `${latestReport.completeness}% de completude sur le dernier rapport.`
+        : "Commencez par saisir les conditions et activites du jour.",
+      helper: canCreateReport
+        ? "Saisir, reprendre ou envoyer le rapport terrain."
+        : "Consultation seule du rapport chantier.",
+      onClick: () => selectTab("rjc"),
+      tone: activeTab === "rjc" ? "primary" : ("neutral" as Tone),
+    },
+    {
+      key: "photos",
+      label: "2. Photos",
+      detail:
+        photos.length > 0
+          ? `${photos.length} photo(s) retrouvees pour ${activeProject.name}.`
+          : "Ajoutez une photo pour documenter une zone ou une tache.",
+      helper: canAddPhoto
+        ? "Associer une photo a un lot, une zone et une tache."
+        : "Consultation seule du journal photo.",
+      onClick: () => selectTab("photos"),
+      tone: activeTab === "photos" ? "primary" : ("neutral" as Tone),
+    },
+    {
+      key: "ncr",
+      label: "3. NC",
+      detail:
+        openNcrCount > 0
+          ? `${openNcrCount} fiche(s) encore ouvertes sur le chantier.`
+          : "Aucune NC ouverte actuellement.",
+      helper: canCreateNcr
+        ? "Creer ou suivre les ecarts terrain."
+        : "Consultation seule des non-conformites.",
       onClick: () => selectTab("ncr"),
       tone: activeTab === "ncr" ? "primary" : ("neutral" as Tone),
     },
@@ -1067,9 +1175,77 @@ function SiteModuleContent({
         </div>
       ) : null}
 
+      <div className="hidden md:block">
+        <Panel
+          title="Parcours terrain du jour"
+          description="Reperez l'action a faire maintenant, puis avancez du RJC vers les photos et les NC."
+        >
+          <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-[24px] bg-black px-5 py-5 text-white">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm font-semibold">A faire maintenant</p>
+                <StatusBadge tone={desktopLeadAction.tone}>{desktopLeadAction.badge}</StatusBadge>
+              </div>
+              <p className="mt-3 text-base font-semibold">{desktopLeadAction.label}</p>
+              <p className="mt-2 text-sm leading-6 text-white/75">{desktopLeadAction.detail}</p>
+              <button
+                type="button"
+                onClick={desktopLeadAction.onClick}
+                disabled={pendingAction === "create-report" || pendingAction === "update-report"}
+                className={cx(
+                  "mt-4 rounded-2xl px-4 py-3 text-sm font-semibold",
+                  pendingAction === "create-report" || pendingAction === "update-report"
+                    ? "cursor-not-allowed bg-white/10 text-white/45"
+                    : "bg-white text-slate-950 hover:bg-stone-200",
+                )}
+              >
+                {desktopLeadAction.label}
+              </button>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              {fieldFlowCards.map((card) => (
+                <button
+                  key={card.key}
+                  type="button"
+                  onClick={card.onClick}
+                  className={cx(
+                    "rounded-[24px] border px-4 py-4 text-left transition-colors",
+                    card.tone === "primary"
+                      ? "border-sky-400/25 bg-sky-400/12 text-white"
+                      : "border-stone-200 bg-stone-50 text-stone-950 hover:bg-stone-100",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold">{card.label}</p>
+                    <StatusBadge tone={card.tone}>{card.key.toUpperCase()}</StatusBadge>
+                  </div>
+                  <p
+                    className={cx(
+                      "mt-3 text-sm leading-6",
+                      card.tone === "primary" ? "text-white/80" : "text-stone-600",
+                    )}
+                  >
+                    {card.detail}
+                  </p>
+                  <p
+                    className={cx(
+                      "mt-3 text-xs leading-5",
+                      card.tone === "primary" ? "text-white/60" : "text-stone-500",
+                    )}
+                  >
+                    {card.helper}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </Panel>
+      </div>
+
       <div className="md:hidden">
         <Panel
-          title="Point terrain mobile"
+          title="Action terrain"
           description="Une seule lecture: prochaine action, acces rapides et etat du chantier."
         >
           <div className="space-y-3">
@@ -1780,6 +1956,10 @@ function RjcTab({
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-4">
+          <StepHeading
+            title="1. Conditions du jour"
+            description="Renseignez d'abord la date, la meteo et l'effectif pour poser la base du RJC."
+          />
           <div className="grid gap-4 md:grid-cols-2">
             <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
               <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
@@ -1872,6 +2052,10 @@ function RjcTab({
             ))}
           </div>
 
+          <StepHeading
+            title="2. Travaux et blocages"
+            description="Decrivez ce qui a ete realise, puis notez les incidents ou blocages a remonter."
+          />
           <label className="block rounded-[24px] border border-white/8 bg-white/4 p-4">
             <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
               Activites realisees
@@ -1943,6 +2127,10 @@ function RjcTab({
         </div>
 
         <div className="space-y-4">
+          <StepHeading
+            title="3. Avancement et envoi"
+            description="Ajustez la progression par lot, verifiez la completude, puis envoyez le RJC."
+          />
           <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-white">Completude du RJC</p>
@@ -2114,6 +2302,32 @@ function PhotosTab({
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-4">
+          <StepHeading
+            title="1. Prendre ou choisir la photo"
+            description="Commencez par ajouter la prise de vue, puis rattachez-la au bon contexte chantier."
+          />
+          <label className="block rounded-[22px] border border-white/8 bg-white/4 p-4">
+            <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              Photo terrain
+            </span>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)}
+              className="mt-3 block w-full text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-950"
+            />
+            <p className="mt-3 text-sm text-slate-400">
+              {photoFile
+                ? `${photoFile.name} - ${(photoFile.size / (1024 * 1024)).toFixed(2)} Mo`
+                : "Choisissez une image pour alimenter le journal photo geolocalise."}
+            </p>
+          </label>
+
+          <StepHeading
+            title="2. Ajouter le contexte"
+            description="Renseignez le lot, la zone, la tache et la position pour retrouver la photo facilement."
+          />
           <div className="grid gap-4 md:grid-cols-2">
             <Field
               label="Titre photo"
@@ -2153,23 +2367,6 @@ function PhotosTab({
               setDraftPhoto((current) => ({ ...current, geo: value }))
             }
           />
-          <label className="block rounded-[22px] border border-white/8 bg-white/4 p-4">
-            <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
-              Photo terrain
-            </span>
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)}
-              className="mt-3 block w-full text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-950"
-            />
-            <p className="mt-3 text-sm text-slate-400">
-              {photoFile
-                ? `${photoFile.name} - ${(photoFile.size / (1024 * 1024)).toFixed(2)} Mo`
-                : "Choisissez une image pour alimenter le journal photo geolocalise."}
-            </p>
-          </label>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <ActionButton
@@ -2202,6 +2399,10 @@ function PhotosTab({
         </div>
 
         <div className="space-y-4">
+          <StepHeading
+            title="3. Retrouver les prises de vue"
+            description="Filtrez le journal photo pour verifier rapidement une zone, un lot ou une tache."
+          />
           <label className="flex items-center gap-3 rounded-[22px] border border-white/8 bg-white/4 px-4 py-3 text-sm text-slate-300">
             <Search className="size-4 text-slate-400" />
             <input
@@ -2323,6 +2524,10 @@ function NcrTab({
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-4">
+          <StepHeading
+            title="1. Decrire l'ecart"
+            description="Nommez clairement la non-conformite et documentez ce qui bloque ou doit etre corrige."
+          />
           <Field
             label="Titre de la non-conformite"
             value={draftNcr.title}
@@ -2397,6 +2602,10 @@ function NcrTab({
             {draftNcr.photoAttached ? "Photo jointe" : "Ajouter photo"}
           </button>
 
+          <StepHeading
+            title="2. Affecter la levee"
+            description="Choisissez le responsable, fixez l'echeance, puis creez la fiche pour suivi."
+          />
           <button
             onClick={() => (canSubmitNcr ? createNcr() : null)}
             disabled={!canSubmitNcr}
@@ -2419,6 +2628,10 @@ function NcrTab({
         </div>
 
         <div className="space-y-3">
+          <StepHeading
+            title="3. Suivre les fiches ouvertes"
+            description="Retrouvez les NC encore ouvertes, puis cloturez-les une fois la preuve de levee disponible."
+          />
           {ncrs.map((item) => (
             <div
               key={item.ref}
@@ -2529,6 +2742,21 @@ function SelectField({
         ))}
       </select>
     </label>
+  );
+}
+
+function StepHeading({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-[22px] border border-white/8 bg-white/4 px-4 py-3">
+      <p className="text-sm font-semibold text-white">{title}</p>
+      <p className="mt-1 text-sm leading-6 text-slate-300">{description}</p>
+    </div>
   );
 }
 
