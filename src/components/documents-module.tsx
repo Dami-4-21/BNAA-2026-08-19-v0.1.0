@@ -63,22 +63,22 @@ const tabs: Array<{ key: DocumentsTab; label: string; helper: string }> = [
   {
     key: "library",
     label: "Bibliotheque",
-    helper: "Retrouver la bonne reference, filtrer et consulter",
+    helper: "Chercher et choisir la bonne reference",
   },
   {
     key: "versions",
     label: "Publier",
-    helper: "Nouvelle revision, historique et comparaison",
+    helper: "Publier la revision en vigueur",
   },
   {
     key: "distribution",
     label: "Diffuser",
-    helper: "Envoyer le plan et suivre qui l'a lu",
+    helper: "Diffuser puis suivre les lectures",
   },
   {
     key: "offline",
     label: "Mobile chantier",
-    helper: "Preparer l'acces hors connexion pour le terrain",
+    helper: "Preparer les plans pour le terrain",
   },
 ];
 
@@ -1196,6 +1196,10 @@ function LibraryTab({
 }) {
   return (
     <div className="space-y-4">
+      <StepHeading
+        title="1. Trouver la bonne reference"
+        description="Cherchez un plan, filtrez par lot ou phase, puis gardez une seule reference active pour la suite."
+      />
       <label className="glass-panel-soft flex items-center gap-3 rounded-[24px] px-4 py-4 text-sm text-slate-300">
         <Search className="size-4 text-slate-400" />
         <input
@@ -1223,6 +1227,10 @@ function LibraryTab({
         ))}
       </div>
 
+      <StepHeading
+        title="2. Ouvrir le document de travail"
+        description="Selectionnez la revision a traiter pour synchroniser la publication, la diffusion et le suivi."
+      />
       <div className="space-y-3">
         {documents.map((document) => (
           <button
@@ -1310,6 +1318,10 @@ function VersionsTab({
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-4">
+          <StepHeading
+            title="1. Preparer la revision"
+            description="Renseignez le numero de revision, le format, puis ajoutez le fichier qui deviendra la version en vigueur."
+          />
           <Field
             label="Revision a publier"
             value={draftVersion.revision}
@@ -1341,6 +1353,10 @@ function VersionsTab({
             </p>
           </label>
 
+          <StepHeading
+            title="2. Publier ou retirer"
+            description="Publiez la nouvelle revision quand elle est prete, ou retirez la version courante de la diffusion si elle ne doit plus circuler."
+          />
           <div className="grid gap-3 sm:grid-cols-2">
             <button
               onClick={() => (canPublishSelectedVersion ? publishNewVersion() : null)}
@@ -1382,6 +1398,10 @@ function VersionsTab({
         </div>
 
         <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+          <StepHeading
+            title="3. Verifier l'historique"
+            description="Controlez rapidement les revisions precedentes pour garder une trace claire avant comparaison ou audit."
+          />
           <div className="flex items-center gap-2">
             <FileStack className="size-4 text-slate-400" />
               <p className="text-sm font-semibold text-white">
@@ -1464,6 +1484,10 @@ function DistributionTab({
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-4">
+          <StepHeading
+            title="1. Choisir la liste de diffusion"
+            description="Selectionnez d'abord le bon groupe pour envoyer seulement la revision valide aux bons destinataires."
+          />
           <SelectField
             label="Destinataires"
             value={draftVersion.audience}
@@ -1521,6 +1545,10 @@ function DistributionTab({
             </div>
           </div>
 
+          <StepHeading
+            title="2. Lancer la diffusion"
+            description="Envoyez la revision selectionnee, puis laissez le suivi de lecture confirmer sa bonne circulation."
+          />
           <button
             onClick={() => (canDistributeSelected ? distributeSelected() : null)}
             disabled={!canDistributeSelected}
@@ -1543,6 +1571,10 @@ function DistributionTab({
         </div>
 
         <div className="space-y-3">
+          <StepHeading
+            title="3. Suivre les lectures"
+            description="Reperez qui a deja accuse reception et relancez seulement les lectures encore attendues."
+          />
           {recipients.map((recipient) => (
             <div
               key={recipient.id}
@@ -1615,6 +1647,10 @@ function OfflineTab({
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-4">
+          <StepHeading
+            title="1. Preparer le mobile chantier"
+            description="Mettez en cache les plans utiles avant le terrain pour garantir l'acces meme sans 4G."
+          />
           <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
             <div className="flex items-center gap-2">
               <Smartphone className="size-4 text-slate-400" />
@@ -1650,6 +1686,10 @@ function OfflineTab({
         </div>
 
         <div className="space-y-3">
+          <StepHeading
+            title="2. Choisir les plans a garder"
+            description="Activez seulement les references necessaires pour garder un cache mobile simple et a jour."
+          />
           {documents.map((document) => {
             const isCached =
               document.offlineReady ||
@@ -1758,6 +1798,21 @@ function SelectField({
         ))}
       </select>
     </label>
+  );
+}
+
+function StepHeading({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-[22px] border border-white/8 bg-white/4 px-4 py-3">
+      <p className="text-sm font-semibold text-white">{title}</p>
+      <p className="mt-1 text-sm leading-6 text-slate-300">{description}</p>
+    </div>
   );
 }
 
