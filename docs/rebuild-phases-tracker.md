@@ -80,7 +80,7 @@ Goal: build the new backend foundation in parallel and start cutting over access
 - [ ] React Hook Form
 - [ ] Zod
 - [ ] Prepare the repo split so the current root Next app can become `frontend/`.
-- [ ] Define and implement the shared compat bridge pattern for the next route families so future cutovers stay consistent.
+- [x] Define and implement the shared compat bridge pattern for the next route families so future cutovers stay consistent.
 
 ### Phase 1 Exit Criteria
 

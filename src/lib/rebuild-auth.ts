@@ -98,6 +98,17 @@ type BridgedWorkspaceProjects = {
   rebuildProjects: RebuildProject[];
 };
 
+export type RebuildProjectScope = BridgedWorkspaceProjects & {
+  allowedProjectCodes: Set<string>;
+  allowedProjectIds: Set<string>;
+  hasCompatibilityGap: boolean;
+};
+
+export type RebuildBridgeContext = {
+  projectScope: RebuildProjectScope;
+  session: RebuildAppSession;
+};
+
 export function shouldUseRebuildAuthBridge() {
   return process.env.BNAASAAS_REBUILD_AUTH_ENABLED === "true";
 }
@@ -108,6 +119,14 @@ export function shouldUseRebuildProjectsBridge() {
 
 export function getRebuildApiUrl() {
   return process.env.BNAASAAS_REBUILD_API_URL?.replace(/\/+$/, "") ?? "";
+}
+
+export function getRebuildAccessTokenFromRequest(request: {
+  cookies: {
+    get(name: string): { value: string } | undefined;
+  };
+}) {
+  return request.cookies.get(rebuildAccessCookieName)?.value ?? "";
 }
 
 export function applyRebuildSessionCookies(
@@ -254,18 +273,58 @@ export async function fetchBridgedWorkspaceProjects(
   accessToken: string,
   projectCatalog: WorkspaceProject[],
 ): Promise<BridgedWorkspaceProjects | null> {
+  const scope = await fetchRebuildProjectScope(accessToken, projectCatalog);
+
+  if (!scope) {
+    return null;
+  }
+
+  return {
+    rebuildProjects: scope.rebuildProjects,
+    legacyProjects: scope.legacyProjects,
+  };
+}
+
+export async function fetchRebuildProjectScope(
+  accessToken: string,
+  projectCatalog: WorkspaceProject[],
+): Promise<RebuildProjectScope | null> {
   const rebuildProjects = await fetchRebuildProjects(accessToken);
 
   if (!rebuildProjects) {
     return null;
   }
 
-  return {
+  const legacyProjects = mapRebuildProjectsToLegacyWorkspaceProjects(
     rebuildProjects,
-    legacyProjects: mapRebuildProjectsToLegacyWorkspaceProjects(
-      rebuildProjects,
-      projectCatalog,
-    ),
+    projectCatalog,
+  );
+
+  return {
+    allowedProjectCodes: new Set(legacyProjects.map((project) => project.code)),
+    allowedProjectIds: new Set(legacyProjects.map((project) => project.id)),
+    hasCompatibilityGap: rebuildProjects.length > 0 && legacyProjects.length === 0,
+    rebuildProjects,
+    legacyProjects,
+  };
+}
+
+export async function fetchRebuildBridgeContext(
+  accessToken: string,
+  projectCatalog: WorkspaceProject[],
+): Promise<RebuildBridgeContext | null> {
+  const [session, projectScope] = await Promise.all([
+    fetchRebuildSession(accessToken),
+    fetchRebuildProjectScope(accessToken, projectCatalog),
+  ]);
+
+  if (!session || !projectScope) {
+    return null;
+  }
+
+  return {
+    session,
+    projectScope,
   };
 }
 
@@ -273,13 +332,13 @@ export async function fetchBridgedWorkspaceProjectIds(
   accessToken: string,
   projectCatalog: WorkspaceProject[],
 ) {
-  const bridgedProjects = await fetchBridgedWorkspaceProjects(accessToken, projectCatalog);
+  const projectScope = await fetchRebuildProjectScope(accessToken, projectCatalog);
 
-  if (!bridgedProjects) {
+  if (!projectScope) {
     return null;
   }
 
-  return new Set(bridgedProjects.legacyProjects.map((project) => project.id));
+  return projectScope.allowedProjectIds;
 }
 
 export function mapRebuildProjectsToLegacyWorkspaceProjects(

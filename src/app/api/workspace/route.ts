@@ -4,9 +4,8 @@ import { sessionCookieName } from "@/lib/backend/session";
 import type { WorkspacePayload } from "@/lib/backend/types";
 import { getWorkspacePayload, isApiError } from "@/lib/backend/service";
 import {
-  fetchBridgedWorkspaceProjects,
-  fetchRebuildSession,
-  rebuildAccessCookieName,
+  fetchRebuildBridgeContext,
+  getRebuildAccessTokenFromRequest,
   shouldUseRebuildProjectsBridge,
 } from "@/lib/rebuild-auth";
 import { tenant as legacyTenant, workspaceProjects } from "@/lib/mock-data";
@@ -14,8 +13,7 @@ import { tenant as legacyTenant, workspaceProjects } from "@/lib/mock-data";
 export async function GET(request: NextRequest) {
   try {
     if (shouldUseRebuildProjectsBridge()) {
-      const rebuildAccessToken =
-        request.cookies.get(rebuildAccessCookieName)?.value ?? "";
+      const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
       const rebuildPayload = await buildWorkspaceBridgePayload(rebuildAccessToken);
 
       if (rebuildPayload) {
@@ -38,21 +36,21 @@ export async function GET(request: NextRequest) {
 async function buildWorkspaceBridgePayload(
   rebuildAccessToken: string,
 ): Promise<WorkspacePayload | null> {
-  const [rebuildSession, bridgedProjects] = await Promise.all([
-    fetchRebuildSession(rebuildAccessToken),
-    fetchBridgedWorkspaceProjects(rebuildAccessToken, workspaceProjects),
-  ]);
+  const rebuildBridgeContext = await fetchRebuildBridgeContext(
+    rebuildAccessToken,
+    workspaceProjects,
+  );
 
-  if (!rebuildSession || !bridgedProjects) {
+  if (!rebuildBridgeContext) {
     return null;
   }
 
-  const availableProjects = bridgedProjects.legacyProjects;
+  const {
+    session: rebuildSession,
+    projectScope: { hasCompatibilityGap, legacyProjects: availableProjects },
+  } = rebuildBridgeContext;
 
-  if (
-    bridgedProjects.rebuildProjects.length > 0 &&
-    availableProjects.length === 0
-  ) {
+  if (hasCompatibilityGap) {
     return null;
   }
 

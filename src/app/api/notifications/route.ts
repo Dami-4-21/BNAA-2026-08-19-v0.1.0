@@ -11,8 +11,8 @@ import {
   buildAlertsFromNotifications,
 } from "@/lib/backend/notification-utils";
 import {
-  fetchBridgedWorkspaceProjects,
-  rebuildAccessCookieName,
+  fetchRebuildProjectScope,
+  getRebuildAccessTokenFromRequest,
   shouldUseRebuildProjectsBridge,
 } from "@/lib/rebuild-auth";
 import { workspaceProjects } from "@/lib/mock-data";
@@ -23,8 +23,7 @@ export async function GET(request: NextRequest) {
     const legacyPayload = await getNotificationsPayload(token);
 
     if (shouldUseRebuildProjectsBridge()) {
-      const rebuildAccessToken =
-        request.cookies.get(rebuildAccessCookieName)?.value ?? "";
+      const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
       const bridgedPayload = await buildNotificationsBridgePayload(
         rebuildAccessToken,
         legacyPayload,
@@ -57,8 +56,7 @@ export async function POST(request: NextRequest) {
     };
 
     if (shouldUseRebuildProjectsBridge() && body.payload?.notificationId) {
-      const rebuildAccessToken =
-        request.cookies.get(rebuildAccessCookieName)?.value ?? "";
+      const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
       const currentPayload = await getNotificationsPayload(token);
       const bridgedPayload = await buildNotificationsBridgePayload(
         rebuildAccessToken,
@@ -82,8 +80,7 @@ export async function POST(request: NextRequest) {
     );
 
     if (shouldUseRebuildProjectsBridge()) {
-      const rebuildAccessToken =
-        request.cookies.get(rebuildAccessCookieName)?.value ?? "";
+      const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
       const bridgedPayload = await buildNotificationsBridgePayload(
         rebuildAccessToken,
         legacyPayload,
@@ -109,27 +106,25 @@ async function buildNotificationsBridgePayload(
   rebuildAccessToken: string,
   legacyPayload: NotificationsPageData,
 ): Promise<NotificationsPageData | null> {
-  const bridgedProjects = await fetchBridgedWorkspaceProjects(
+  const projectScope = await fetchRebuildProjectScope(
     rebuildAccessToken,
     workspaceProjects,
   );
 
-  if (!bridgedProjects) {
+  if (!projectScope) {
     return null;
   }
 
-  const allowedProjectIds = new Set(
-    bridgedProjects.legacyProjects.map((project) => project.id),
-  );
-  const allowedProjectCodes = new Set(
-    bridgedProjects.legacyProjects.map((project) => project.code),
-  );
+  if (projectScope.hasCompatibilityGap) {
+    return null;
+  }
+
   const notifications = legacyPayload.notifications.filter(
     (notification) =>
-      !notification.projectId || allowedProjectIds.has(notification.projectId),
+      !notification.projectId || projectScope.allowedProjectIds.has(notification.projectId),
   );
   const activity = legacyPayload.activity.filter(
-    (entry) => !entry.projectCode || allowedProjectCodes.has(entry.projectCode),
+    (entry) => !entry.projectCode || projectScope.allowedProjectCodes.has(entry.projectCode),
   );
 
   return {

@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { sessionCookieName } from "@/lib/backend/session";
 import { getDashboardPayload, isApiError } from "@/lib/backend/service";
 import {
-  fetchBridgedWorkspaceProjectIds,
-  rebuildAccessCookieName,
+  fetchRebuildProjectScope,
+  getRebuildAccessTokenFromRequest,
   shouldUseRebuildProjectsBridge,
 } from "@/lib/rebuild-auth";
 import { workspaceProjects } from "@/lib/mock-data";
@@ -17,14 +17,17 @@ export async function GET(
     const { projectId } = await params;
 
     if (shouldUseRebuildProjectsBridge()) {
-      const rebuildAccessToken =
-        request.cookies.get(rebuildAccessCookieName)?.value ?? "";
-      const allowedProjectIds = await fetchBridgedWorkspaceProjectIds(
+      const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+      const projectScope = await fetchRebuildProjectScope(
         rebuildAccessToken,
         workspaceProjects,
       );
 
-      if (allowedProjectIds && !allowedProjectIds.has(projectId)) {
+      if (
+        projectScope &&
+        !projectScope.hasCompatibilityGap &&
+        !projectScope.allowedProjectIds.has(projectId)
+      ) {
         return NextResponse.json({ error: "Acces projet refuse." }, { status: 403 });
       }
     }

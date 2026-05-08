@@ -13,9 +13,8 @@ import {
   updateAdminUser,
 } from "@/lib/backend/service";
 import {
-  fetchBridgedWorkspaceProjects,
-  fetchRebuildSession,
-  rebuildAccessCookieName,
+  fetchRebuildBridgeContext,
+  getRebuildAccessTokenFromRequest,
   shouldUseRebuildProjectsBridge,
 } from "@/lib/rebuild-auth";
 import { workspaceProjects } from "@/lib/mock-data";
@@ -26,8 +25,7 @@ export async function GET(request: NextRequest) {
     const legacyPayload = await getAdminPayload(token);
 
     if (shouldUseRebuildProjectsBridge()) {
-      const rebuildAccessToken =
-        request.cookies.get(rebuildAccessCookieName)?.value ?? "";
+      const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
       const bridgedPayload = await buildAdminBridgePayload(
         rebuildAccessToken,
         legacyPayload,
@@ -172,28 +170,23 @@ async function buildAdminBridgePayload(
   rebuildAccessToken: string,
   legacyPayload: AdminPageData,
 ): Promise<AdminPageData | null> {
-  const [rebuildSession, bridgedProjects] = await Promise.all([
-    fetchRebuildSession(rebuildAccessToken),
-    fetchBridgedWorkspaceProjects(rebuildAccessToken, workspaceProjects),
-  ]);
+  const rebuildBridgeContext = await fetchRebuildBridgeContext(
+    rebuildAccessToken,
+    workspaceProjects,
+  );
 
-  if (!rebuildSession || !bridgedProjects) {
+  if (!rebuildBridgeContext) {
     return null;
   }
 
-  if (
-    bridgedProjects.rebuildProjects.length > 0 &&
-    bridgedProjects.legacyProjects.length === 0
-  ) {
+  const {
+    session: rebuildSession,
+    projectScope: { allowedProjectCodes, allowedProjectIds, hasCompatibilityGap },
+  } = rebuildBridgeContext;
+
+  if (hasCompatibilityGap) {
     return null;
   }
-
-  const allowedProjectIds = new Set(
-    bridgedProjects.legacyProjects.map((project) => project.id),
-  );
-  const allowedProjectCodes = new Set(
-    bridgedProjects.legacyProjects.map((project) => project.code),
-  );
   const availableProjects = legacyPayload.availableProjects.filter((project) =>
     allowedProjectIds.has(project.id),
   );

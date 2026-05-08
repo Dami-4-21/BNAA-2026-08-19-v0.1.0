@@ -4,8 +4,8 @@ import { sessionCookieName } from "@/lib/backend/session";
 import type { GlobalSearchPayload } from "@/lib/backend/types";
 import { getGlobalSearchPayload, isApiError } from "@/lib/backend/service";
 import {
-  fetchBridgedWorkspaceProjectIds,
-  rebuildAccessCookieName,
+  fetchRebuildProjectScope,
+  getRebuildAccessTokenFromRequest,
   shouldUseRebuildProjectsBridge,
 } from "@/lib/rebuild-auth";
 import { workspaceProjects } from "@/lib/mock-data";
@@ -17,8 +17,7 @@ export async function GET(request: NextRequest) {
     const legacyPayload = await getGlobalSearchPayload(token, query);
 
     if (shouldUseRebuildProjectsBridge()) {
-      const rebuildAccessToken =
-        request.cookies.get(rebuildAccessCookieName)?.value ?? "";
+      const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
       const bridgedPayload = await buildSearchBridgePayload(
         rebuildAccessToken,
         legacyPayload,
@@ -44,19 +43,23 @@ async function buildSearchBridgePayload(
   rebuildAccessToken: string,
   legacyPayload: GlobalSearchPayload,
 ): Promise<GlobalSearchPayload | null> {
-  const allowedProjectIds = await fetchBridgedWorkspaceProjectIds(
+  const projectScope = await fetchRebuildProjectScope(
     rebuildAccessToken,
     workspaceProjects,
   );
 
-  if (!allowedProjectIds) {
+  if (!projectScope) {
+    return null;
+  }
+
+  if (projectScope.hasCompatibilityGap) {
     return null;
   }
 
   return {
     ...legacyPayload,
     results: legacyPayload.results.filter(
-      (result) => !result.projectId || allowedProjectIds.has(result.projectId),
+      (result) => !result.projectId || projectScope.allowedProjectIds.has(result.projectId),
     ),
   };
 }
