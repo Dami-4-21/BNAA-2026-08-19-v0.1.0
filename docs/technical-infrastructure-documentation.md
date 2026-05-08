@@ -1,661 +1,860 @@
 # BnaaSaaS Technical Infrastructure Documentation
 
-## Purpose
+## Document Purpose
 
-This document defines the technical infrastructure documentation standard for BnaaSaaS.
+This file is the BNAA-specific technical infrastructure reference for the BnaaSaaS MVP rebuild.
 
-It combines two documentation layers:
+It is based on:
 
-1. `Software Architecture Document (SAD)`
-2. `Internal Documentation Repository`
+- `BnaaSaaS_Codex_Spec.md.pdf`
+- version `2.0`
+- date `May 2025`
 
-The goal is to give developers, DevOps, technical leads, and internal teams a reliable technical blueprint for how the SaaS is built, deployed, secured, and operated without requiring them to reverse-engineer the source code.
+This document replaces a generic SaaS template and describes the technical blueprint that applies to **BnaaSaaS specifically**:
 
-This file should be maintained close to the codebase so architecture, infrastructure, and operating procedures stay synchronized with implementation reality.
-
----
-
-## Objectives
-
-The technical infrastructure documentation must:
-
-- explain the overall system structure clearly
-- document data models and service boundaries
-- describe internal and external integrations
-- document deployment topology and runtime environments
-- document security posture and operational safeguards
-- support onboarding of developers and internal teams
-- reduce tribal knowledge and hidden infrastructure assumptions
-- help audits, incident response, and production troubleshooting
-
----
-
-## Documentation Set
-
-### 1. Software Architecture Document (SAD)
-
-The `SAD` is the technical blueprint of the product.
-
-It should describe:
-
-- system context
-- modules and services
-- backend and frontend responsibilities
-- data storage strategy
-- multi-tenant approach
-- integrations
+- system structure
+- module boundaries
+- data architecture
+- API and integration rules
 - deployment topology
-- observability and security posture
+- security posture
+- internal documentation structure
 
-### 2. Internal Documentation Repository
-
-The internal documentation repository complements the `SAD`.
-
-It should contain:
-
-- operating procedures
-- deployment runbooks
-- environment specifications
-- infrastructure conventions
-- incident-response notes
-- onboarding workflows
-- support and troubleshooting guides
-
-Together, these two layers ensure both:
-
-- `how the system is designed`
-- `how the team operates and supports it`
+Its purpose is to let a developer or internal team understand **how BnaaSaaS is designed and operated** without having to read the entire source code first.
 
 ---
 
-## Recommended Documentation Structure
+## Scope
 
-```text
-docs/
-  technical-infrastructure-documentation.md
-  software-architecture/
-    system-context.md
-    container-architecture.md
-    component-architecture.md
-    data-model.md
-    integrations.md
-    deployment-topology.md
-    security-posture.md
-  internal/
-    onboarding.md
-    environments.md
-    deployment-runbook.md
-    backup-and-restore.md
-    incident-response.md
-    support-workflows.md
-    operational-checklists.md
-```
+This document covers the **MVP only**.
 
-This main file acts as the entry point and reference standard for the detailed documents that follow.
+In scope:
 
----
+- `Auth / Admin / Settings`
+- `Module 5 - Site Monitoring`
+- `Module 6 - Document Management`
+- `Module 9 - Billing & Finance`
+- shared services required by those modules
 
-## Software Architecture Document (SAD)
+Out of scope for MVP:
 
-## SAD Scope
+- Study & Design
+- Tenders
+- Contracts
+- Gantt planning
+- Procurement & stock
+- HR / payroll
+- QSE / reception
+- BI reporting
+- public ERP/API integrations
+- native mobile app
 
-The `SAD` must explain:
-
-- what the system consists of
-- how major parts interact
-- where data lives
-- how requests flow
-- how access is controlled
-- how the platform is deployed and operated
-
-It must be understandable by:
-
-- backend engineers
-- frontend engineers
-- DevOps / infrastructure engineers
-- technical leads
-- auditors or security reviewers
+This scope matches the BNAA specification and must not be expanded in this document.
 
 ---
 
-## SAD Core Sections
+## Product Context
 
-### 1. System Context
+BnaaSaaS is a multi-tenant SaaS product for the Tunisian civil engineering market.
 
-Describe the system at a business-technical level:
+Its role in the MVP is to replace:
 
-- what BnaaSaaS is
-- who uses it
-- what external systems it depends on
-- what internal services it contains
+- WhatsApp coordination
+- Excel-based tracking
+- paper document circulation
 
-Minimum content:
+The MVP focuses on three operational flows:
 
-- business purpose
-- user roles
-- main bounded domains
-- external providers
+1. `RJC / chantier execution`
+2. `plan and document control`
+3. `monthly statements, invoices, and payments`
 
-### 2. Container / Service Architecture
+Primary roles:
 
-Describe the runtime building blocks:
-
-- frontend application
-- backend API
-- database
-- cache / queue
-- object storage
-- notification/email providers
-- reverse proxy / ingress
-
-Document:
-
-- ownership of each container/service
-- exposed ports
-- internal-only services
-- data persistence responsibilities
-
-### 3. Component Architecture
-
-Describe how the application is broken into modules.
-
-For BnaaSaaS, this should include:
-
-- auth
-- tenants
-- users
-- projects
-- site
-- documents
-- finance
-- notifications
-- storage
-- PDF generation
-- queue / jobs
-
-Each component entry should explain:
-
-- responsibility
-- inputs / outputs
-- dependencies
-- owned data
-- key APIs or events
-
-### 4. Data Architecture
-
-Describe:
-
-- database technology
-- multi-tenant strategy
-- schema structure
-- main entities
-- indexing strategy
-- file storage strategy
-- backup and recovery expectations
-
-This section should answer:
-
-- where relational data lives
-- where binary files live
-- how tenants are isolated
-- how data moves between modules
-
-### 5. Integration Architecture
-
-Document all internal and external integrations:
-
-- auth/session flows
-- email provider
-- PDF generation
-- object storage
-- weather source
-- queues/background jobs
-- any future internal services
-
-For each integration, specify:
-
-- purpose
-- protocol
-- authentication method
-- failure handling
-- retry strategy
-- SLA / operational expectations when relevant
-
-### 6. Deployment Topology
-
-Describe:
-
-- local development topology
-- staging topology if introduced later
-- production topology
-- Docker / Compose layout
-- reverse proxy behavior
-- environment variables
-- volumes and persistent data
-- scaling direction
-
-### 7. Security Posture
-
-Describe the current and intended security baseline:
-
-- authentication model
-- authorization model
-- tenant isolation
-- secret handling
-- password handling
-- cookie/token strategy
-- rate limiting direction
-- audit expectations
-- incident response expectations
-
-This section is especially important for:
-
-- audits
-- production readiness
-- customer trust
-- incident investigation
+| Code | Role | Primary responsibility |
+|---|---|---|
+| `ADMIN` | Super Admin | Tenant and platform administration |
+| `MO` | Maître d'ouvrage | Validation and project oversight |
+| `BE` | Bureau d'études | Document and revision control |
+| `CP` | Chef de projet | Project supervision and validation |
+| `CT` | Conducteur de travaux | Field reporting and site input |
+| `CO` | Comptable | Statements, invoices, payments |
 
 ---
 
-## Architecture and Diagram Standards
+## Architecture Principles
 
-Visual documentation should live close to the code and be updated when architecture changes.
+The BNAA specification defines these architecture principles:
 
-Recommended diagram types:
+- strict separation of `frontend` and `backend`
+- `REST/JSON` API with `Socket.io` for real-time notifications only
+- schema-per-tenant multi-tenancy in PostgreSQL
+- direct file upload through presigned URLs, never streamed through the API
+- Docker-based deployment
+- dark-only industrial design system
+- French-first interface and formatting rules
+- MVP limited to `M5 + M6 + M9 + Auth`
 
-- `C4 Level 1`: System context
-- `C4 Level 2`: Container diagram
-- `C4 Level 3`: Component diagram for key domains
-- sequence diagrams for critical flows
-- deployment diagrams for environments
+### Current Migration Note
 
-### Example System Context Diagram
+Because the live SaaS is being rebuilt safely, the current operational rule is:
+
+- the root `Next.js` app remains the live product during migration
+- the new `backend/` service is the rebuild lane
+- compatibility bridges are used to move live routes safely without breaking working features
+
+This migration rule is an implementation safeguard.  
+The target architecture described below remains the source-of-truth direction from the BNAA spec.
+
+---
+
+## Target Technical Stack
+
+### Backend
+
+| Area | BNAA Spec |
+|---|---|
+| Runtime | `Node.js 20 LTS` |
+| Framework | `NestJS` with strict TypeScript |
+| API | `REST/JSON` + `Socket.io` notifications |
+| Auth | `JWT access token (15 min)` + `refresh token (30 days, httpOnly cookie)` |
+| 2FA | `otplib` with TOTP |
+| ORM | `Prisma` |
+| Database | `PostgreSQL 15` |
+| Multi-tenancy | `schema-per-tenant` with `SET search_path` per request |
+| File storage | `MinIO` S3-compatible |
+| Upload strategy | `Presigned URLs only` |
+| Queue | `BullMQ + Redis 7` |
+| PDF | `Puppeteer / Chromium` |
+| Email | `Resend SDK` |
+| Validation | `class-validator + class-transformer` |
+
+### Frontend
+
+| Area | BNAA Spec |
+|---|---|
+| Framework | `Next.js 14` App Router |
+| Styling | `Tailwind CSS 3` |
+| Global state | `Zustand` |
+| Server state | `TanStack Query v5` |
+| Forms | `React Hook Form + Zod` |
+| Charts | `Chart.js 4` + `react-chartjs-2` |
+| PDF preview | `react-pdf` |
+| Offline | `next-pwa` + `idb-keyval` |
+| HTTP | `Axios` with refresh interceptor |
+| Icons | `Lucide React` |
+| Motion | `Framer Motion` |
+
+### Infrastructure
+
+| Area | BNAA Spec |
+|---|---|
+| Containers | `Docker Compose` |
+| Reverse proxy | `Nginx` |
+| SSL | `Let's Encrypt` |
+| Hosting target | `OVH VPS` or `Hetzner` |
+
+---
+
+## System Context
 
 ```mermaid
 flowchart LR
-  Users["Users (Admin, CT, BE, CO, MO, CP)"] --> Web["BnaaSaaS Web App"]
-  Web --> Api["BnaaSaaS API"]
-  Api --> Db["PostgreSQL"]
-  Api --> Cache["Redis / BullMQ"]
-  Api --> Storage["Object Storage / MinIO-compatible"]
-  Api --> Mail["Email Provider"]
-  Api --> Pdf["PDF Generation Service"]
+  Users["Users<br/>ADMIN / MO / BE / CP / CT / CO"] --> Frontend["BnaaSaaS Frontend"]
+  Frontend --> Api["BnaaSaaS API"]
+  Api --> Db["PostgreSQL 15"]
+  Api --> Redis["Redis 7 / BullMQ"]
+  Api --> Storage["MinIO Object Storage"]
+  Api --> Email["Resend"]
+  Api --> Pdf["Puppeteer / Chromium"]
   Api --> Weather["Weather Provider"]
 ```
 
-### Example Container Diagram
+### External Systems
+
+The MVP depends on these external or infrastructure services:
+
+- PostgreSQL
+- Redis
+- MinIO
+- Resend
+- Chromium / Puppeteer runtime
+- weather provider
+- Nginx and TLS termination
+
+---
+
+## Container / Deployment Architecture
 
 ```mermaid
 flowchart TB
-  Browser["Browser / Mobile PWA"] --> Frontend["Next.js Frontend"]
-  Frontend --> Api["NestJS API"]
+  Browser["Browser / PWA Client"] --> Nginx["Nginx"]
+  Nginx --> Frontend["Next.js Frontend"]
+  Nginx --> Api["NestJS API"]
   Api --> Postgres["PostgreSQL"]
   Api --> Redis["Redis / BullMQ"]
-  Api --> Minio["MinIO / File Storage"]
-  Api --> Resend["Email Service"]
-  Api --> Chromium["Puppeteer / PDF"]
-  Nginx["Nginx / Reverse Proxy"] --> Frontend
-  Nginx --> Api
+  Api --> Minio["MinIO"]
+  Api --> Mail["Resend"]
+  Api --> Chromium["Puppeteer"]
 ```
 
-### Example Sequence Diagram
+### Expected Container Set
 
-`Publish -> Distribute -> Acknowledge`
+According to the BNAA spec, the target Docker Compose stack includes:
+
+| Service | Responsibility |
+|---|---|
+| `postgres` | relational data store |
+| `redis` | queue and deferred jobs |
+| `minio` | file/object storage |
+| `api` | NestJS backend |
+| `frontend` | Next.js frontend |
+| `nginx` | public entrypoint, SSL, reverse proxy |
+
+### Persistent Volumes
+
+Required volumes in target topology:
+
+- `postgres_data`
+- `redis_data`
+- `minio_data`
+- `certbot_certs`
+
+---
+
+## Frontend Architecture
+
+The BNAA specification defines a dedicated frontend structure under `frontend/`.
+
+### Frontend Route Model
+
+```text
+frontend/app/
+  (auth)/
+    login/
+    2fa/
+    forgot-password/
+    reset-password/[token]/
+    accept-invite/
+  (app)/
+    dashboard/
+    projects/new/
+    projects/[projectId]/
+      site/
+      site/new/
+      site/[reportId]/
+      site/photos/
+      site/ncr/
+      documents/
+      documents/upload/
+      documents/[docId]/
+      finance/
+      finance/statements/new/
+      finance/statements/[id]/
+      finance/invoices/[id]/
+    settings/
+```
+
+### Frontend Component Domains
+
+The spec expects component grouping by business domain:
+
+- `ui/`
+- `layout/`
+- `site/`
+- `documents/`
+- `finance/`
+
+### Frontend Shared Libraries
+
+Required shared frontend infrastructure:
+
+- `lib/api.ts`
+- `lib/auth.ts`
+- `lib/format.ts`
+- `lib/offline.ts`
+- `lib/queries/*`
+- `store/app.store.ts`
+- `types/index.ts`
+
+---
+
+## Backend Architecture
+
+The BNAA specification defines a dedicated backend structure under `backend/`.
+
+### Backend Module Tree
+
+```text
+backend/src/
+  common/
+    decorators/
+    guards/
+    interceptors/
+    filters/
+    utils/
+  auth/
+  tenants/
+  users/
+  projects/
+  site-reports/
+  documents/
+  finance/
+  storage/
+  pdf/
+  notifications/
+  queue/
+```
+
+### Module Responsibilities
+
+| Module | Responsibility |
+|---|---|
+| `auth` | login, refresh, 2FA, invite, reset password |
+| `tenants` | tenant provisioning and schema management |
+| `users` | user lifecycle and role administration |
+| `projects` | project registry and memberships |
+| `site-reports` | daily reports, photos, NCR |
+| `documents` | records, versions, upload, distribution |
+| `finance` | statements, invoices, payments, summaries |
+| `storage` | MinIO integration and presigned URLs |
+| `pdf` | report and invoice PDFs |
+| `notifications` | in-app notification events |
+| `queue` | background workers for PDF/email jobs |
+
+---
+
+## Multi-Tenancy and Data Architecture
+
+### Tenant Isolation Model
+
+The BNAA spec defines a strict schema-per-tenant model:
+
+- `public` schema stores only shared tenant and user tables
+- each tenant gets `tenant_{tenantId}`
+- tenant project data lives only inside that tenant schema
+- each request must run `SET search_path = tenant_{tenantId}`
+- tenant isolation must come from the database schema, not from `WHERE tenant_id = ...` filters
+
+### Core Schema Split
+
+| Schema | Contents |
+|---|---|
+| `public` | `tenants`, `users` |
+| `tenant_{tenantId}` | `projects`, memberships, site data, document data, finance data, notifications |
+
+### Core Domain Entities
+
+#### Shared
+
+- `tenants`
+- `users`
+- `projects`
+- `project_members`
+- `notifications`
+
+#### Site
+
+- `daily_reports`
+- `photos`
+- `ncr`
+- `ncr_photos`
+
+#### Documents
+
+- `documents`
+- `document_versions`
+- `document_distributions`
+
+#### Finance
+
+- `statements`
+- `invoices`
+- `payments`
+
+### Data Rules From Spec
+
+- one report per `(project, date)` enforced by DB
+- signed reports are immutable
+- document current version must switch transactionally
+- invoice numbers are unique
+- amounts always use three-decimal precision
+- notifications are per-user and project-aware
+
+---
+
+## File Storage Architecture
+
+The BNAA specification is explicit:
+
+- large files must **not** pass through the API
+- uploads use `presigned URLs`
+- MinIO is the storage backend
+
+### Upload Flow
 
 ```mermaid
 sequenceDiagram
-  participant BE as Bureau d'etudes
   participant FE as Frontend
   participant API as Backend API
-  participant DB as Database
-  participant Mail as Email Service
+  participant DB as PostgreSQL
+  participant S3 as MinIO
 
-  BE->>FE: Publish new revision
-  FE->>API: POST document version
-  API->>DB: Store version and set current revision
-  API-->>FE: Return updated document
-  BE->>FE: Start distribution
-  FE->>API: POST distribution
-  API->>DB: Create distribution + recipients
-  API->>Mail: Send recipient notifications
-  API-->>FE: Distribution created
+  FE->>API: POST upload request metadata
+  API->>DB: create pending version record
+  API-->>FE: versionId + presigned PUT URL
+  FE->>S3: PUT file binary
+  FE->>API: confirm upload complete
+  API->>DB: set version current / finalize record
 ```
+
+### Storage Rules
+
+- object storage stores binary files
+- PostgreSQL stores metadata and version state
+- photo thumbnails are generated server-side
+- soft delete is preferred where required by the spec
 
 ---
 
-## Data and Integration Specifications
+## Authentication and Session Architecture
 
-## Data Flow Documentation Standard
+### Auth Flow
 
-Every major workflow should have a documented data flow.
+According to the BNAA spec:
 
-At minimum, document:
+1. `POST /api/v1/auth/login`
+2. if `totp_enabled`, return `requires2fa + tempToken`
+3. otherwise return `accessToken` and set refresh cookie
+4. `POST /api/v1/auth/2fa/verify` finalizes login
+5. `POST /api/v1/auth/refresh` issues a new access token from the refresh cookie
+6. `POST /api/v1/auth/logout` clears server-side refresh state and cookie
 
-- entry point
-- service interaction
-- stored records
-- triggered side effects
-- user-visible result
+### Token Storage Rules
 
-Recommended critical flows:
+- access token: frontend memory only
+- refresh token: `httpOnly` cookie only
+- never use `localStorage`
+- never use `sessionStorage`
 
-- login / refresh / logout
-- project access resolution
-- `RJC` create -> prepare PDF -> validate
-- document publish -> distribute -> acknowledge
-- statement / invoice -> validation -> payment
+### JWT Payload
 
-### Example Data Flow Template
+The BNAA spec defines:
 
-```text
-Flow Name:
-Purpose:
-Actors:
-Input:
-Validation Rules:
-Primary Write Path:
-Background Jobs:
-Notifications:
-Failure Modes:
-Audit Events:
+```ts
+interface JwtPayload {
+  sub: string;
+  tenantId: string;
+  role: "MO" | "BE" | "CP" | "CT" | "CO" | "ADMIN";
+  email: string;
+  iat: number;
+  exp: number;
+}
 ```
+
+### Security-Critical Auth Rules
+
+- password verification with `bcrypt`
+- refresh token hash stored in DB
+- TOTP verification via `otplib`
+- role guards enforced on backend routes
+- frontend boot must refresh session before rendering app state
 
 ---
 
-## Interface Contract Standard
+## API Architecture
 
-For each API or integration, document:
+### Global Rules
 
-- endpoint or interface name
-- request method
-- authentication requirement
-- request shape
-- response shape
-- business rules
-- rate limits if applicable
-- error behavior
+- all public routes are prefixed with `/api/v1`
+- all routes require `Authorization: Bearer <token>` except `/auth/*`
+- request DTOs are validated server-side
+- route authorization is role-based
 
-### Minimum API Contract Table
+### Route Families
 
-| Field | Description |
+| Family | Purpose |
 |---|---|
-| `Route` | Public route path |
-| `Method` | HTTP verb |
-| `Auth` | Required auth/session/role |
-| `Request` | Input DTO or body/query shape |
-| `Response` | Returned payload shape |
-| `Errors` | Main error states |
-| `Rate limit` | If defined |
-| `Side effects` | Notifications, jobs, file writes, audit records |
+| `/auth/*` | register, login, refresh, logout, 2FA, invite, reset |
+| `/users/*` | tenant user lifecycle |
+| `/projects/*` | project registry and memberships |
+| `/reports`, `/photos`, `/ncr` | site operations |
+| `/documents`, `/document-versions` | document lifecycle |
+| `/statements`, `/invoices`, `/payments` | finance lifecycle |
+| `/notifications` | in-app notifications |
 
-### Authentication and Rate Limit Notes
+### Route-Level Notes From Spec
 
-For each public API family, explicitly document:
+- document file upload must return a presigned URL
+- document download returns a presigned URL
+- report PDF streams from backend
+- invoice PDF streams from backend
+- cashflow and finance summary are dedicated read endpoints
 
-- whether it uses cookie auth, bearer auth, or both
-- token lifetime and refresh behavior
-- required roles / scopes
-- rate-limiting rules
-- behavior when tenant/project access is missing
+### Rate Limits
 
----
+The BNAA MVP specification does **not** define endpoint-level rate limits yet.
 
-## SLA and Reliability Documentation
+This means:
 
-Where applicable, document service expectations such as:
-
-- expected uptime
-- acceptable response time ranges
-- queue retry behavior
-- mail delivery fallback behavior
-- PDF generation timeout expectations
-- object storage availability expectations
-
-This does not need to be overly formal at MVP stage, but the team should still define baseline expectations.
+- route contracts should document auth and role requirements now
+- explicit rate-limit policy should be added later in deployment and API reference docs when implemented
 
 ---
 
-## Deployment and Security Documentation
+## Business Workflow Infrastructure
 
-## Deployment Environments
+The technical documentation must support these three core BNAA workflows.
 
-Document each environment separately.
+### 1. Site Monitoring
 
-Recommended sections:
+Flow:
 
-- purpose
-- hostnames / domains
-- exposed ports
-- Docker services
-- secrets location
-- persistent volumes
-- backup strategy
-- monitoring approach
+- create daily report
+- update report
+- submit for signature
+- notify `CP + MO`
+- sign report
+- generate queued PDF
+- notify `CT`
 
-### Environment Template
+Supporting infrastructure:
 
-```text
-Environment:
-Purpose:
-Services:
-Public Entry Points:
-Persistent Data:
-Secrets:
-Scaling Notes:
-Rollback Method:
-Owner:
+- PostgreSQL lifecycle state
+- photo upload and metadata capture
+- PDF worker
+- email + in-app notifications
+
+### 2. Document Management
+
+Flow:
+
+- create document record
+- upload version via presigned URL
+- confirm upload
+- switch current version
+- distribute to recipients
+- track read acknowledgment
+
+Supporting infrastructure:
+
+- MinIO
+- document metadata tables
+- version records
+- distribution tables
+- full-text search trigger
+
+### 3. Finance
+
+Flow:
+
+- create monthly statement
+- submit for validation
+- validate or reject
+- generate invoice
+- record payment
+- compute summaries and cashflow
+
+Supporting infrastructure:
+
+- statement tables
+- invoice numbering utility
+- payment reconciliation
+- PDF generation
+- overdue notifications
+
+---
+
+## Notification and Email Architecture
+
+### In-App Notifications
+
+BNAA MVP requires a `notifications` table with:
+
+- `user_id`
+- `project_id`
+- `type`
+- `title`
+- `body`
+- `link`
+- `is_read`
+- `created_at`
+
+### Email Triggers Required By Spec
+
+| Trigger | Recipients |
+|---|---|
+| user invited | invitee |
+| RJC submitted | all `CP + MO` on project |
+| RJC signed | report creator `CT` |
+| NCR created | assigned user |
+| NCR closed | NCR creator |
+| document distributed | each recipient |
+| statement submitted | all `CP + MO` on project |
+| statement validated | creator `CO` |
+| statement rejected | creator `CO` |
+| invoice generated | `MO` on project |
+| invoice overdue | `CO + CP` |
+| password reset | user |
+
+### Email Template Rules
+
+Per BNAA spec:
+
+- text wordmark header
+- one-line action statement
+- context block with project / amount / details
+- one CTA button using the BNAA accent color
+- footer with no-reply note
+
+---
+
+## Deployment Topology
+
+### Target Production Environment
+
+The specification targets:
+
+- `Docker Compose`
+- `Nginx`
+- `Let's Encrypt`
+- VPS hosting on `OVH` or `Hetzner`
+
+### Required Environment Variables
+
+From the BNAA spec:
+
+```bash
+DATABASE_URL=postgresql://user:pass@postgres:5432/bnaasaas
+REDIS_URL=redis://redis:6379
+JWT_SECRET=<64-char random string>
+JWT_REFRESH_SECRET=<different 64-char random string>
+JWT_ACCESS_EXPIRES=15m
+JWT_REFRESH_EXPIRES=30d
+MINIO_ENDPOINT=minio
+MINIO_PORT=9000
+MINIO_USE_SSL=false
+MINIO_ACCESS_KEY=<key>
+MINIO_SECRET_KEY=<secret>
+MINIO_BUCKET=bnaasaas
+RESEND_API_KEY=<key>
+EMAIL_FROM=noreply@bnaasaas.tn
+APP_URL=https://app.bnaasaas.tn
+NODE_ENV=production
+PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ```
 
----
-
-## Deployment Topology Content
-
-Each deployment document should explain:
-
-- how traffic enters the system
-- where TLS terminates
-- how frontend and backend are routed
-- where the database is hosted
-- where files are stored
-- where job workers run
-- how the app is restarted or redeployed
-- how rollback is performed
-
-### Example Deployment Topology Diagram
+### Compose Topology From Spec
 
 ```mermaid
 flowchart LR
-  Internet["Internet / Client Network"] --> Proxy["Nginx / Reverse Proxy"]
-  Proxy --> Web["Frontend Container"]
-  Proxy --> Api["Backend API Container"]
-  Api --> Pg["PostgreSQL Volume"]
-  Api --> Queue["Redis / BullMQ"]
-  Api --> Files["Object Storage"]
+  Internet["Client traffic"] --> Nginx["nginx"]
+  Nginx --> Frontend["frontend"]
+  Nginx --> Api["api"]
+  Api --> Postgres["postgres"]
+  Api --> Redis["redis"]
+  Api --> Minio["minio"]
 ```
+
+### Deployment Requirements
+
+- public ports exposed only through `nginx`
+- backend and database remain internal services
+- TLS certificates mounted into `nginx`
+- persistent data kept in named volumes
+- all services restart `unless-stopped`
+
+### Scaling and Failover
+
+The MVP spec does not define advanced HA/failover infrastructure.
+
+This means the documentation should state clearly:
+
+- deployment is single-stack containerized VPS topology
+- stateful services require backup and recovery plans
+- horizontal scaling is not the initial MVP operating mode
 
 ---
 
-## Security Posture Documentation Standard
+## Security Posture
 
-Security documentation should clearly cover:
+### Core Security Model
 
-- identity and session model
-- authorization model
-- tenant isolation
-- secret storage and rotation
-- logging and audit traces
-- data protection
-- dependency and image hygiene
-- incident response expectations
+The BNAA MVP security posture is based on:
 
-### Required Security Topics
+- JWT access tokens
+- refresh token cookies
+- TOTP 2FA
+- backend role guards
+- tenant isolation via PostgreSQL schema separation
+- presigned object-storage uploads
 
-#### Authentication
+### Security Requirements To Document
 
-- login flow
-- refresh flow
-- logout flow
-- password reset flow
-- 2FA behavior
+#### Identity
 
-#### Authorization
+- login
+- refresh
+- logout
+- password reset
+- invite acceptance
+- 2FA enrollment and verification
 
-- role model
-- project-level access rules
-- admin vs non-admin boundaries
-- backend enforcement points
+#### Access Control
 
-#### Secrets and Credentials
+- role enforcement on backend routes
+- project membership enforcement
+- tenant schema enforcement
+- admin-only user lifecycle actions
 
-- where secrets are stored
-- how they are injected into runtime
-- who has access
-- rotation procedure
+#### Data Protection
 
-#### Auditability
+- refresh token hashes stored in DB
+- no access token persistence in browser storage
+- object storage access mediated by presigned URLs
+- immutable signed report state
+- irreversible obsolete document state
 
-- which actions are audited
-- where audit logs live
-- retention expectations
-- how to inspect logs during an incident
+#### Audit and Incident Support
 
-#### Incident Response Support
+Infrastructure docs should also include:
 
-Document the technical information needed during incidents:
-
-- service ownership
-- restart procedures
-- rollback steps
+- service restart commands
+- container health check commands
 - log locations
-- health-check commands
-- communication path for escalation
+- queue inspection steps
+- mail and PDF troubleshooting path
+- backup / restore procedures
+
+### Security Gaps To Track Separately
+
+If hardening items are not yet implemented in code, document them as operational backlog rather than silently assuming they exist.
+
+This document should describe:
+
+- target posture from the BNAA spec
+- current implementation posture
+- any gaps that still remain before full production hardening
 
 ---
 
 ## Internal Documentation Repository
 
-The internal documentation repository is the operational companion to the `SAD`.
+The BNAA technical documentation should live beside the code in `docs/` and be split into two families.
 
-It should centralize process knowledge for engineering, operations, and support.
+### Software Architecture Documents
 
-## Required Internal Documentation Areas
+```text
+docs/software-architecture/
+  system-context.md
+  container-architecture.md
+  frontend-architecture.md
+  backend-architecture.md
+  data-model.md
+  integrations.md
+  deployment-topology.md
+  security-posture.md
+```
 
-### 1. Onboarding
+### Internal / Operating Documentation
 
-Document:
+```text
+docs/internal/
+  onboarding.md
+  environments.md
+  deployment-runbook.md
+  backup-and-restore.md
+  incident-response.md
+  support-workflows.md
+  release-checklist.md
+```
 
-- repo structure
+### Minimum Internal Knowledge Base Topics
+
 - local setup
-- required tools
-- development workflow
-- branch/release conventions
-- where to find architecture documents
-
-### 2. Environment and Infrastructure Specs
-
-Document:
-
-- local environment requirements
-- Docker service map
-- environment variables
-- service dependencies
-- port usage
-- volume usage
-- server topology
-
-### 3. Standard Operating Procedures
-
-Document operational playbooks for:
-
-- deploy
-- rollback
-- restart services
-- view logs
-- rotate secrets
-- restore backups
-- handle failed jobs
-- inspect queue backlog
-
-### 4. Incident and Support Workflows
-
-Document:
-
-- incident severity levels
-- first-response checklist
-- owner escalation flow
-- customer-facing communication preparation
-- postmortem template
-
-### 5. Knowledge Base / FAQs
-
-Document common questions like:
-
-- how to seed pilot data
-- how to add a tenant
-- how to verify emails are sending
-- how to inspect PDF generation
-- how to diagnose project access issues
+- Docker stack startup
+- seed/bootstrap behavior
+- tenant provisioning
+- deployment procedure
+- rollback procedure
+- log inspection
+- PDF worker troubleshooting
+- email troubleshooting
+- object storage troubleshooting
+- project access debugging
 
 ---
 
 ## Documentation Governance
 
-To keep documentation useful, define ownership.
+To keep BNAA documentation synchronized with the codebase:
 
-Recommended rules:
+- architecture docs must be updated in the same change set as architecture changes
+- API docs must be updated when endpoint contracts change
+- deployment docs must be updated when Docker, Nginx, env, or topology changes
+- security docs must be updated when auth/session/role or storage behavior changes
+- diagrams must stay version-controlled in the repo
 
-- architecture documents are updated in the same pull request as the architectural change
-- deployment docs are updated in the same pull request as deployment/infrastructure changes
-- API contract docs are updated with backend route or DTO changes
-- operational runbooks are updated after incident learnings
-- diagrams should stay close to code and be version-controlled
+This is especially important because the BNAA rebuild is being migrated safely in phases, so documentation must distinguish between:
 
-### Documentation Quality Rules
-
-- write for someone who does not know the implementation yet
-- prefer clear tables and diagrams over long prose
-- keep diagrams source-controlled
-- keep examples realistic
-- date significant updates
-- link related docs together
+- `target architecture from the specification`
+- `current migration state in the live SaaS`
 
 ---
 
-## BnaaSaaS Minimum Documentation Pack
+## Do Not Build / Explicit Constraints
 
-For BnaaSaaS, the minimum technical infrastructure documentation pack should include:
+The infrastructure documentation must also preserve BNAA MVP constraints.
 
-1. this master document
-2. system context diagram
-3. container architecture document
-4. data model overview
-5. integration reference
-6. deployment topology and runbook
-7. security posture document
-8. onboarding guide
-9. backup / restore runbook
-10. incident-response checklist
+Do not document or imply support for:
 
----
+- non-MVP modules
+- WhatsApp or SMS integration
+- DWG-to-PDF conversion
+- IFC 3D viewer
+- ERP or public API integrations
+- Excel import
+- TVA declaration export file
+- native mobile app
+- advanced analytics exports
+- light mode or Arabic support
 
-## Immediate Next Documentation Files To Create
-
-To operationalize this documentation standard, the next recommended files are:
-
-- `docs/software-architecture/system-context.md`
-- `docs/software-architecture/container-architecture.md`
-- `docs/software-architecture/data-model.md`
-- `docs/software-architecture/integrations.md`
-- `docs/software-architecture/deployment-topology.md`
-- `docs/software-architecture/security-posture.md`
-- `docs/internal/onboarding.md`
-- `docs/internal/deployment-runbook.md`
-- `docs/internal/incident-response.md`
+These items are explicitly excluded by the BNAA specification and should not appear as active architecture commitments.
 
 ---
 
-## Maintenance Note
+## Immediate Documentation Follow-Up Files
 
-This file defines the standard and structure for technical infrastructure documentation.
+This master BNAA document should be followed by:
 
-When BnaaSaaS changes in architecture, deployment, data flow, or security posture, the corresponding detailed documentation must be updated in the same implementation cycle.
+1. `docs/software-architecture/system-context.md`
+2. `docs/software-architecture/container-architecture.md`
+3. `docs/software-architecture/frontend-architecture.md`
+4. `docs/software-architecture/backend-architecture.md`
+5. `docs/software-architecture/data-model.md`
+6. `docs/software-architecture/integrations.md`
+7. `docs/software-architecture/deployment-topology.md`
+8. `docs/software-architecture/security-posture.md`
+9. `docs/internal/deployment-runbook.md`
+10. `docs/internal/incident-response.md`
+
+---
+
+## Summary
+
+This document is the BNAA-specific infrastructure reference for the MVP rebuild.
+
+It defines:
+
+- the target stack
+- the module architecture
+- the data and tenant model
+- the integration and API rules
+- the deployment topology
+- the security posture
+- the internal documentation repository expected around the SaaS
+
+It should be maintained as a live technical blueprint during the rebuild so the team can understand both:
+
+- where the BNAA MVP is going
+- how the live system is being migrated safely toward that target
