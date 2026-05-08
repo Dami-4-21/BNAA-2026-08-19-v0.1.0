@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/components/auth-context";
 import { PwaProvider } from "@/components/pwa-provider";
+import { QueryProvider } from "@/components/query-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,7 +20,9 @@ export default function RootLayout({
     <html lang="fr" className="h-full antialiased">
       <body className="min-h-full flex flex-col soft-scrollbar">
         <PwaProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <QueryProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </QueryProvider>
         </PwaProvider>
       </body>
     </html>

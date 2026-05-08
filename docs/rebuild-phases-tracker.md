@@ -74,9 +74,9 @@ Goal: build the new backend foundation in parallel and start cutting over access
 - [x] Harden tenant provisioning with a real migration-driven schema contract instead of relying on template cloning only.
 - [x] Bridge the `admin` read path to the rebuild tenant/project scope.
 - [x] Complete the first full live domain cutover so one area is served by rebuild data, not only rebuild access rules.
-- [ ] Start the frontend data-layer migration to the spec stack:
-- [ ] Zustand
-- [ ] TanStack Query
+- [x] Start the frontend data-layer migration to the spec stack:
+- [x] Zustand
+- [x] TanStack Query
 - [ ] React Hook Form
 - [ ] Zod
 - [ ] Prepare the repo split so the current root Next app can become `frontend/`.

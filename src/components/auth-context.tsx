@@ -1,13 +1,14 @@
 "use client";
 
 import {
+  type PropsWithChildren,
   createContext,
   useCallback,
   useContext,
   useEffect,
   useMemo,
-  useState,
 } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   getHomePathForRole,
@@ -16,12 +17,14 @@ import {
   type AppPermission,
   type SafeUser,
 } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
-
-type SignInInput = {
-  email: string;
-  password: string;
-};
+import {
+  authSessionQueryKey,
+  fetchAuthSession,
+  signInRequest,
+  signOutRequest,
+  type SignInInput,
+} from "@/lib/queries/auth";
+import { useAppStore } from "@/store/app-store";
 
 type SignInResult =
   | { ok: true; user: SafeUser }
@@ -40,56 +43,53 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [currentUser, setCurrentUser] = useState<SafeUser | null>(null);
-  const [isReady, setIsReady] = useState(false);
+export function AuthProvider({ children }: PropsWithChildren) {
+  const queryClient = useQueryClient();
+  const currentUser = useAppStore((state) => state.currentUser);
+  const isReady = useAppStore((state) => state.isAuthReady);
+  const setCurrentUser = useAppStore((state) => state.setCurrentUser);
+  const setAuthReady = useAppStore((state) => state.setAuthReady);
+  const resetAuthState = useAppStore((state) => state.resetAuthState);
+
+  const sessionQuery = useQuery({
+    queryKey: authSessionQueryKey,
+    queryFn: fetchAuthSession,
+    staleTime: 60_000,
+  });
+
+  const signInMutation = useMutation({
+    mutationFn: signInRequest,
+    onSuccess: (payload) => {
+      queryClient.setQueryData(authSessionQueryKey, { user: payload.user });
+      setCurrentUser(payload.user);
+      setAuthReady(true);
+    },
+  });
+
+  const signOutMutation = useMutation({
+    mutationFn: signOutRequest,
+    onSuccess: () => {
+      queryClient.setQueryData(authSessionQueryKey, { user: null });
+      queryClient.removeQueries({
+        queryKey: ["workspace"],
+      });
+      setCurrentUser(null);
+      setAuthReady(true);
+    },
+  });
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadSession() {
-      try {
-        const session = await apiFetch<{
-          user: SafeUser | null;
-        }>("/api/auth/session", {
-          method: "GET",
-        });
-
-        if (!cancelled) {
-          setCurrentUser(session.user);
-        }
-      } catch {
-        if (!cancelled) {
-          setCurrentUser(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsReady(true);
-        }
-      }
+    if (sessionQuery.status === "pending") {
+      return;
     }
 
-    void loadSession();
+    setCurrentUser(sessionQuery.data?.user ?? null);
+    setAuthReady(true);
+  }, [sessionQuery.data, sessionQuery.status, setAuthReady, setCurrentUser]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const signIn = useCallback(async ({ email, password }: SignInInput): Promise<SignInResult> => {
+  const signIn = useCallback(async (input: SignInInput): Promise<SignInResult> => {
     try {
-      const payload = await apiFetch<{
-        user: SafeUser;
-      }>("/api/auth/login", {
-        method: "POST",
-        body: { email, password },
-      });
-
-      setCurrentUser(payload.user);
+      const payload = await signInMutation.mutateAsync(input);
 
       return {
         ok: true,
@@ -104,14 +104,19 @@ export function AuthProvider({
             : "Identifiants invalides. Verifiez votre email et votre mot de passe.",
       };
     }
-  }, []);
+  }, [signInMutation]);
 
   const signOut = useCallback(async () => {
-    await apiFetch<{ ok: true }>("/api/auth/session", {
-      method: "DELETE",
-    });
-    setCurrentUser(null);
-  }, []);
+    try {
+      await signOutMutation.mutateAsync();
+    } catch {
+      queryClient.setQueryData(authSessionQueryKey, { user: null });
+      queryClient.removeQueries({
+        queryKey: ["workspace"],
+      });
+      resetAuthState();
+    }
+  }, [queryClient, resetAuthState, signOutMutation]);
 
   const permissions = useMemo(
     () => (currentUser ? getPermissionsForRole(currentUser.role) : []),

@@ -1,18 +1,24 @@
 "use client";
 
 import {
-  useEffect,
   useCallback,
   createContext,
   useContext,
+  useEffect,
   useMemo,
-  useState,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { useAuth } from "@/components/auth-context";
 import { type AppPermission } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
-import type { TenantRecord, WorkspacePayload, WorkspaceProject } from "@/lib/backend/types";
+import {
+  fetchWorkspace,
+  readStoredActiveProjectId,
+  workspaceQueryKey,
+  writeStoredActiveProjectId,
+} from "@/lib/queries/workspace";
+import type { TenantRecord, WorkspaceProject } from "@/lib/backend/types";
+import { useAppStore } from "@/store/app-store";
 
 type WorkspaceContextValue = {
   isReady: boolean;
@@ -62,82 +68,40 @@ export function WorkspaceProvider({
     throw new Error("WorkspaceProvider requires an authenticated user");
   }
   const currentUserId = currentUser.id;
-
-  const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [error, setError] = useState("");
-
-  const refreshWorkspace = useCallback(async () => {
-    try {
-      setError("");
-      const payload = await apiFetch<WorkspacePayload>("/api/workspace", {
-        method: "GET",
-      });
-
-      const storedProjectId = window.localStorage.getItem(
-        `bnaasaas-active-project:${currentUserId}`,
-      );
-
-      setWorkspace(payload);
-      setSelectedProjectId(
-        payload.availableProjects.some((project) => project.id === storedProjectId)
-          ? (storedProjectId ?? "")
-          : (payload.availableProjects[0]?.id ?? ""),
-      );
-    } catch (nextError) {
-      setWorkspace(null);
-      setSelectedProjectId("");
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "Impossible de charger les projets accessibles.",
-      );
-    }
-  }, [currentUserId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadWorkspace() {
-      await refreshWorkspace();
-      if (cancelled) {
-        return;
-      }
-    }
-
-    void loadWorkspace();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [currentUserId, refreshWorkspace]);
-
-  useEffect(() => {
-    function syncOnForeground() {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-        return;
-      }
-
-      void refreshWorkspace();
-    }
-
-    window.addEventListener("focus", syncOnForeground);
-    document.addEventListener("visibilitychange", syncOnForeground);
-
-    return () => {
-      window.removeEventListener("focus", syncOnForeground);
-      document.removeEventListener("visibilitychange", syncOnForeground);
-    };
-  }, [refreshWorkspace]);
-
-  const availableProjects = useMemo(
-    () => workspace?.availableProjects ?? [],
-    [workspace],
+  const selectedProjectId = useAppStore(
+    (state) => state.selectedProjectIds[currentUserId] ?? "",
   );
+  const setSelectedProjectId = useAppStore((state) => state.setSelectedProjectId);
+  const clearSelectedProjectId = useAppStore((state) => state.clearSelectedProjectId);
+
+  const workspaceQuery = useQuery({
+    queryKey: workspaceQueryKey(currentUserId),
+    queryFn: fetchWorkspace,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const workspace = workspaceQuery.data ?? null;
+  const error = workspaceQuery.error instanceof Error
+    ? workspaceQuery.error.message
+    : workspaceQuery.isError
+      ? "Impossible de charger les projets accessibles."
+      : "";
+
+  const availableProjects = useMemo(() => workspace?.availableProjects ?? [], [workspace]);
   const fallbackProject = availableProjects[0] ?? null;
-  const activeProjectId = availableProjects.some((project) => project.id === selectedProjectId)
-    ? selectedProjectId
-    : fallbackProject?.id ?? "";
+  const activeProjectId = useMemo(() => {
+    if (availableProjects.some((project) => project.id === selectedProjectId)) {
+      return selectedProjectId;
+    }
+
+    const storedProjectId = readStoredActiveProjectId(currentUserId);
+    if (availableProjects.some((project) => project.id === storedProjectId)) {
+      return storedProjectId;
+    }
+
+    return fallbackProject?.id ?? "";
+  }, [availableProjects, currentUserId, fallbackProject?.id, selectedProjectId]);
   const activeProject =
     availableProjects.find((project) => project.id === activeProjectId) ?? fallbackProject;
 
@@ -148,15 +112,41 @@ export function WorkspaceProvider({
 
   const setActiveProjectId = useCallback(
     (projectId: string) => {
-      setSelectedProjectId(projectId);
-      window.localStorage.setItem(`bnaasaas-active-project:${currentUserId}`, projectId);
+      setSelectedProjectId(currentUserId, projectId);
+      writeStoredActiveProjectId(currentUserId, projectId);
     },
-    [currentUserId],
+    [currentUserId, setSelectedProjectId],
   );
+
+  const refreshWorkspace = useCallback(async () => {
+    await workspaceQuery.refetch();
+  }, [workspaceQuery]);
+
+  useEffect(() => {
+    if (workspaceQuery.isPending) {
+      return;
+    }
+
+    if (activeProjectId && activeProjectId !== selectedProjectId) {
+      setSelectedProjectId(currentUserId, activeProjectId);
+      return;
+    }
+
+    if (!activeProjectId && selectedProjectId) {
+      clearSelectedProjectId(currentUserId);
+    }
+  }, [
+    activeProjectId,
+    clearSelectedProjectId,
+    currentUserId,
+    selectedProjectId,
+    setSelectedProjectId,
+    workspaceQuery.isPending,
+  ]);
 
   const value = useMemo(
     () => ({
-      isReady: Boolean(workspace),
+      isReady: workspaceQuery.isSuccess,
       hasProjects: availableProjects.length > 0,
       error,
       tenant: workspace?.tenant ?? placeholderTenant,
@@ -178,6 +168,7 @@ export function WorkspaceProvider({
       refreshWorkspace,
       setActiveProjectId,
       workspace,
+      workspaceQuery.isSuccess,
     ],
   );
 
