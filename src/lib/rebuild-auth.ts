@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 
 import {
-  appUsers,
   getHomePathForRole,
   getPermissionsForRole,
-  sanitizeUser,
   type SafeUser,
   type UserRole,
 } from "@/lib/auth";
 import type { WorkspaceProject } from "@/lib/backend/types";
+import {
+  findPilotProjectCompatibilityByBackendId,
+  findPilotProjectCompatibilityByName,
+  findPilotUserCompatibilityByBackendId,
+  findPilotUserCompatibilityByEmail,
+} from "@/lib/server/pilot-seed";
 
 export const rebuildAccessCookieName = "bnaasaas_api_access";
 export const rebuildRefreshCookieName = "bnaasaas_api_refresh";
@@ -303,7 +307,7 @@ export async function fetchRebuildProjectScope(
   return {
     allowedProjectCodes: new Set(legacyProjects.map((project) => project.code)),
     allowedProjectIds: new Set(legacyProjects.map((project) => project.id)),
-    hasCompatibilityGap: rebuildProjects.length > 0 && legacyProjects.length === 0,
+    hasCompatibilityGap: legacyProjects.length !== rebuildProjects.length,
     rebuildProjects,
     legacyProjects,
   };
@@ -345,12 +349,20 @@ export function mapRebuildProjectsToLegacyWorkspaceProjects(
   rebuildProjects: RebuildProject[],
   projectCatalog: WorkspaceProject[],
 ) {
-  const catalogByName = new Map(
-    projectCatalog.map((project) => [buildProjectCompatibilityKey(project.name), project]),
-  );
+  const catalogByLegacyId = new Map(projectCatalog.map((project) => [project.id, project]));
 
   return rebuildProjects
-    .map((project) => catalogByName.get(buildProjectCompatibilityKey(project.name)) ?? null)
+    .map((project) => {
+      const compatibilityRecord =
+        findPilotProjectCompatibilityByBackendId(project.id) ??
+        findPilotProjectCompatibilityByName(project.name);
+
+      if (!compatibilityRecord) {
+        return null;
+      }
+
+      return catalogByLegacyId.get(compatibilityRecord.legacyId) ?? null;
+    })
     .filter((project): project is WorkspaceProject => project !== null);
 }
 
@@ -375,16 +387,17 @@ function mapSessionPayload(payload: RebuildAuthMeResponse): RebuildAppSession {
 }
 
 function mapRebuildUserToSafeUser(user: RebuildUser): SafeUser {
-  const legacyUser =
-    appUsers.find((entry) => entry.email.toLowerCase() === user.email.toLowerCase()) ?? null;
+  const compatibilityRecord =
+    findPilotUserCompatibilityByBackendId(user.id) ??
+    findPilotUserCompatibilityByEmail(user.email);
 
-  if (legacyUser) {
+  if (compatibilityRecord) {
     return {
-      ...sanitizeUser(legacyUser),
       email: user.email,
-      id: legacyUser.id,
-      initials: legacyUser.initials,
+      id: compatibilityRecord.legacyId,
+      initials: compatibilityRecord.initials,
       name: user.fullName,
+      projectIds: compatibilityRecord.projectIds,
       role: mapBackendRoleToLegacyRole(user.role),
     };
   }
@@ -424,10 +437,6 @@ function buildInitials(name: string) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
-}
-
-function buildProjectCompatibilityKey(value: string) {
-  return value.trim().toLowerCase();
 }
 
 async function fetchRebuildJson<T>(

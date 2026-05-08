@@ -41,8 +41,6 @@ export type AppUser = {
 
 export type SafeUser = Omit<AppUser, "password">;
 
-export const sessionStorageKey = "bnaasaas-session-user-id";
-
 const allPermissions: AppPermission[] = [
   "dashboard.view",
   "documentation.view",
@@ -72,72 +70,6 @@ const basePermissions: AppPermission[] = [
   "documentation.view",
   "projects.view",
   "notifications.view",
-];
-
-export const appUsers: AppUser[] = [
-  {
-    id: "USR-000",
-    name: "Admin BNAA",
-    email: "admin@bnaa.com",
-    password: "admin123",
-    role: "Super Admin",
-    initials: "AD",
-    projectIds: ["*"],
-  },
-  {
-    id: "USR-001",
-    name: "Sara Ben Salah",
-    email: "sara@bnaasaas.tn",
-    password: "bnaasaas2026",
-    role: "Comptable",
-    initials: "SB",
-    projectIds: ["BN-042", "BN-039", "BN-031"],
-  },
-  {
-    id: "USR-002",
-    name: "Amine Gharbi",
-    email: "amine@bnaasaas.tn",
-    password: "bnaasaas2026",
-    role: "Chef de projet",
-    initials: "AG",
-    projectIds: ["BN-042", "BN-039", "BN-031"],
-  },
-  {
-    id: "USR-003",
-    name: "Nour Baccar",
-    email: "nour@bnaasaas.tn",
-    password: "bnaasaas2026",
-    role: "Conductrice travaux",
-    initials: "NB",
-    projectIds: ["BN-042"],
-  },
-  {
-    id: "USR-004",
-    name: "Hichem Trabelsi",
-    email: "hichem@bnaasaas.tn",
-    password: "bnaasaas2026",
-    role: "Bureau d'etudes",
-    initials: "HT",
-    projectIds: ["BN-042", "BN-039"],
-  },
-  {
-    id: "USR-005",
-    name: "Salma Ben Salem",
-    email: "salma@bnaasaas.tn",
-    password: "bnaasaas2026",
-    role: "Maitre d'ouvrage",
-    initials: "SS",
-    projectIds: ["BN-042", "BN-039", "BN-031"],
-  },
-  {
-    id: "USR-006",
-    name: "Adel Mansouri",
-    email: "adel@bnaasaas.tn",
-    password: "bnaasaas2026",
-    role: "Super Admin",
-    initials: "AM",
-    projectIds: ["*"],
-  },
 ];
 
 const rolePermissions: Record<UserRole, AppPermission[]> = {
@@ -196,33 +128,14 @@ const rolePermissions: Record<UserRole, AppPermission[]> = {
 
 const routePermissions: Array<{ prefix: string; permission: AppPermission }> = [
   { prefix: "/admin", permission: "admin.view" },
+  { prefix: "/dashboard", permission: "dashboard.view" },
   { prefix: "/finance", permission: "finance.view" },
   { prefix: "/documents", permission: "documents.view" },
   { prefix: "/documentation", permission: "documentation.view" },
   { prefix: "/site", permission: "site.view" },
   { prefix: "/projects", permission: "projects.view" },
   { prefix: "/notifications", permission: "notifications.view" },
-  { prefix: "/", permission: "dashboard.view" },
 ];
-
-export function findUserByCredentials(email: string, password: string) {
-  const normalizedEmail = email.trim().toLowerCase();
-
-  return (
-    appUsers.find(
-      (user) =>
-        user.email.toLowerCase() === normalizedEmail && user.password === password,
-    ) ?? null
-  );
-}
-
-export function getUserById(userId: string | null | undefined) {
-  if (!userId) {
-    return null;
-  }
-
-  return appUsers.find((user) => user.id === userId) ?? null;
-}
 
 export function sanitizeUser(user: AppUser): SafeUser {
   const { password, ...safeUser } = user;
@@ -267,16 +180,14 @@ export function getHomePathForRole(role: UserRole) {
     case "Bureau d'etudes":
       return "/documents";
     default:
-      return "/";
+      return "/dashboard";
   }
 }
 
 export function getRequiredPermissionForPath(pathname: string) {
   return (
-    routePermissions.find((route) =>
-      route.prefix === "/"
-        ? pathname === "/"
-        : pathname === route.prefix || pathname.startsWith(`${route.prefix}/`),
+    routePermissions.find(
+      (route) => pathname === route.prefix || pathname.startsWith(`${route.prefix}/`),
     )?.permission ?? "dashboard.view"
   );
 }

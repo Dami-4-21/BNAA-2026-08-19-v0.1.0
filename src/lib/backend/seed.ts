@@ -1,4 +1,3 @@
-import { appUsers } from "@/lib/auth";
 import {
   alerts,
   auditTrail,
@@ -9,17 +8,20 @@ import {
   projects,
   roleMatrix,
   teamMembers,
-  tenant,
-  workspaceProjects,
 } from "@/lib/mock-data";
 import type { DatabaseState, NotificationRecord } from "@/lib/backend/types";
+import {
+  legacySeedUsers,
+  legacyTenantSummary,
+  legacyWorkspaceProjects,
+} from "@/lib/server/pilot-seed";
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
 export function createSeedDatabase(): DatabaseState {
-  const users = clone(appUsers);
+  const users = clone(legacySeedUsers);
   const notificationRecipients = users
     .filter((user) => user.projectIds.includes("*") || user.projectIds.includes("BN-042"))
     .map((user) => user.id);
@@ -63,13 +65,13 @@ export function createSeedDatabase(): DatabaseState {
 
   return {
     tenant: {
-      ...clone(tenant),
+      ...clone(legacyTenantSummary),
       users: users.length,
-      activeProjects: workspaceProjects.length,
+      activeProjects: legacyWorkspaceProjects.length,
     },
     users,
     projects: Object.fromEntries(
-      workspaceProjects.map((project) => [
+      legacyWorkspaceProjects.map((project) => [
         project.id,
         (() => {
           const site = getSiteModuleData(project.id);

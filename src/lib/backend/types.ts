@@ -1,20 +1,50 @@
 import type { AppUser, SafeUser } from "@/lib/auth";
-import type {
-  projects,
-  roleMatrix,
-  teamMembers,
-  tenant,
-  workspaceProjects,
-  getDocumentsModuleData,
-  getFinanceModuleData,
-  getSiteModuleData,
-} from "@/lib/mock-data";
 
-export type TenantRecord = typeof tenant;
-export type WorkspaceProject = (typeof workspaceProjects)[number];
-export type TeamMember = (typeof teamMembers)[number];
-export type PortfolioProject = (typeof projects)[number];
-export type RoleMatrixItem = (typeof roleMatrix)[number];
+export type TenantRecord = {
+  name: string;
+  sector: string;
+  users: number;
+  activeProjects: number;
+};
+
+export type WorkspaceProject = {
+  id: string;
+  name: string;
+  code: string;
+  client: string;
+  location: string;
+  status: string;
+  progress: number;
+  budgetTnd: number;
+  spentTnd: number;
+  invoicesDue: number;
+  nextMilestone: string;
+  allowedRoles: string[];
+};
+
+export type TeamMember = {
+  name: string;
+  role: string;
+  initials: string;
+  state: string;
+};
+
+export type PortfolioProject = {
+  name: string;
+  code: string;
+  location: string;
+  progress: number;
+  budget: number;
+  health: string;
+  tone: Tone;
+  nextMilestone: string;
+};
+
+export type RoleMatrixItem = {
+  role: string;
+  access: string;
+};
+
 export type Tone = "neutral" | "primary" | "success" | "warning" | "danger";
 
 export type DashboardAlert = {
@@ -84,9 +114,271 @@ export type ProjectMemberOption = {
   role: string;
 };
 
-export type SiteModuleBaseData = ReturnType<typeof getSiteModuleData>;
-export type DocumentsModuleBaseData = ReturnType<typeof getDocumentsModuleData>;
-export type FinanceModuleBaseData = ReturnType<typeof getFinanceModuleData>;
+export type MetricCard = {
+  label: string;
+  value: string;
+  helper: string;
+  tone: Tone;
+};
+
+export type SiteWeatherCard = {
+  label: string;
+  temperature: string;
+  wind: string;
+  rainRisk: string;
+  source: string;
+};
+
+export type SiteLotProgressRecord = {
+  lot: string;
+  task: string;
+  progress: number;
+  planned: number;
+  owner: string;
+  tone: "primary" | "success" | "warning" | "danger";
+};
+
+export type SiteSignatureQueueRecord = {
+  role: string;
+  state: string;
+  note: string;
+  tone: Tone;
+};
+
+export type SiteReportRecord = {
+  id: string;
+  date: string;
+  weather: string;
+  workforce: number;
+  progress: number;
+  author: string;
+  status: string;
+  tone: "primary" | "success" | "warning" | "danger";
+  summary: string;
+  completeness: number;
+  pdfReady: boolean;
+  signedByCt: boolean;
+  signedByMoe: boolean;
+  ctSignatureAt?: string;
+  moeSignatureAt?: string;
+  completedLots?: string[];
+  blockers?: string;
+  note?: string;
+  incidents?: string;
+  activities?: string;
+  ctSignatureBy?: string;
+  moeSignatureBy?: string;
+  progressByLot?: Array<{
+    lot: string;
+    progress: number;
+    task: string;
+    tone: "primary" | "success" | "warning" | "danger";
+  }>;
+  pdfUrl?: string;
+};
+
+export type SitePhotoBaseRecord = {
+  id: string;
+  title: string;
+  zone: string;
+  lot: string;
+  task: string;
+  time: string;
+  timestamp: string;
+  geo: string;
+  author: string;
+  accent: string;
+};
+
+export type SiteNcrBaseRecord = {
+  ref: string;
+  title: string;
+  owner: string;
+  dueDate: string;
+  severity: string;
+  status: string;
+  tone: "primary" | "success" | "warning" | "danger";
+  photoAttached: boolean;
+  description: string;
+  closedAt?: string;
+  closedBy?: string;
+};
+
+export type SiteReportDraft = {
+  reportDate: string;
+  weather: string;
+  workforce: number;
+  completedLots: string[];
+  blockers: string;
+  note: string;
+};
+
+export type SitePhotoDraft = {
+  title: string;
+  zone: string;
+  lot: string;
+  task: string;
+  geo: string;
+};
+
+export type SiteNcrDraft = {
+  title: string;
+  owner: string;
+  dueDate: string;
+  severity: string;
+  description: string;
+  photoAttached: boolean;
+};
+
+export type SiteModuleBaseData = {
+  overview: {
+    weather: SiteWeatherCard;
+    kpis: MetricCard[];
+  };
+  lotProgress: SiteLotProgressRecord[];
+  signatureQueue: SiteSignatureQueueRecord[];
+  incidentTemplates: string[];
+  photoLibrary: SitePhotoBaseRecord[];
+  ncrs: SiteNcrBaseRecord[];
+  reports: SiteReportRecord[];
+  reportDraft: SiteReportDraft;
+  draftPhoto: SitePhotoDraft;
+  draftNcr: SiteNcrDraft;
+};
+
+export type DocumentVersionBaseRecord = {
+  version: string;
+  publishedAt: string;
+  status: string;
+};
+
+export type DocumentFileBaseRecord = {
+  id: string;
+  code: string;
+  title: string;
+  discipline: string;
+  lot: string;
+  phase: string;
+  format: string;
+  revision: string;
+  fileSizeMb: number;
+  uploadedBy: string;
+  publishedAt: string;
+  status: string;
+  tone: "primary" | "success" | "warning" | "danger";
+  isCurrent: boolean;
+  offlineReady: boolean;
+  lastDistributedAt: string;
+  readCount: number;
+  recipients: number;
+  storage: string;
+  versions: DocumentVersionBaseRecord[];
+  compareWith: string;
+};
+
+export type DocumentRecipientBaseRecord = {
+  id: string;
+  documentId: string;
+  name: string;
+  role: string;
+  status: string;
+  acknowledgedAt: string;
+};
+
+export type DocumentsModuleBaseData = {
+  overview: {
+    kpis: MetricCard[];
+    offline: {
+      syncedAt: string;
+      cachedFiles: number;
+      coverage: string;
+    };
+  };
+  tree: Array<{
+    title: string;
+    nodes: Array<{
+      label: string;
+      phases: string[];
+    }>;
+  }>;
+  files: DocumentFileBaseRecord[];
+  recipients: DocumentRecipientBaseRecord[];
+  draftVersion: {
+    revision: string;
+    format: string;
+    audience: string;
+  };
+};
+
+export type FinanceInvoiceRecord = {
+  id: string;
+  projectId: string;
+  invoiceNumber: string;
+  project: string;
+  periodMonth: string;
+  amountHt: number;
+  tvaRate: number;
+  tvaAmount: number;
+  amountTtc: number;
+  dueDate: string;
+  paidAt: string;
+  status: string;
+  tone: "primary" | "success" | "warning" | "danger";
+  retentionAmount: number;
+  advanceDeduction: number;
+  sourceProgress: number;
+  validatedByMoe: boolean;
+  validatedByMo: boolean;
+  moeValidatedBy?: string;
+  moeValidatedAt?: string;
+  moValidatedBy?: string;
+  moValidatedAt?: string;
+};
+
+export type FinancePaymentRecord = {
+  id: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  amount: number;
+  method: string;
+  reference: string;
+  paidAt: string;
+};
+
+export type FinanceModuleBaseData = {
+  overview: {
+    kpis: MetricCard[];
+    treasuryAlert: string;
+  };
+  invoices: FinanceInvoiceRecord[];
+  payments: FinancePaymentRecord[];
+  cashflow: Array<{
+    label: string;
+    plannedReceipts: number;
+    actualReceipts: number;
+    actualCosts: number;
+  }>;
+  declaration: {
+    month: string;
+    collectedTva: number;
+    declaredTva: number;
+    variance: number;
+    status: string;
+  };
+  defaultVatRegimeId: string;
+  dmDraft: {
+    periodMonth: string;
+    progressPct: number;
+    baseAmountHt: number;
+    retentionPct: number;
+    advanceDeduction: number;
+  };
+  paymentDraft: {
+    amount: string;
+    method: string;
+    reference: string;
+  };
+};
 
 export type SiteModuleData = SiteModuleBaseData & {
   projectMembers: ProjectMemberOption[];

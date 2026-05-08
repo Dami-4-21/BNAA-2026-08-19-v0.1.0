@@ -5,12 +5,6 @@ export const tenant = {
   activeProjects: 4,
 };
 
-export const currentUser = {
-  name: "Sara Ben Salah",
-  role: "Comptable",
-  initials: "SB",
-};
-
 export const workspaceProjects = [
   {
     id: "BN-042",
@@ -75,37 +69,6 @@ export const workspaceProjects = [
 ];
 
 export const currentProject = workspaceProjects[0];
-
-export const dashboardMetrics = [
-  {
-    label: "Avancement physique",
-    value: "68%",
-    delta: "+6 pts cette semaine",
-    helper: "Suivi terrain synchronise avec finance",
-    tone: "primary" as const,
-  },
-  {
-    label: "Plans en vigueur",
-    value: "24",
-    delta: "3 revisions diffusees",
-    helper: "97% lus sous 48h",
-    tone: "success" as const,
-  },
-  {
-    label: "Factures ouvertes",
-    value: "2",
-    delta: "412 k TND a encaisser",
-    helper: "1 validation maitre d'ouvrage en attente",
-    tone: "warning" as const,
-  },
-  {
-    label: "Non-conformites",
-    value: "5",
-    delta: "2 critiques a lever",
-    helper: "Delai moyen de cloture 3,4 jours",
-    tone: "danger" as const,
-  },
-];
 
 export const teamMembers = [
   {

@@ -57,7 +57,7 @@ export class BootstrapService implements OnModuleInit {
         });
 
         for (const entry of pilotUsers) {
-          const userId = uuidv4();
+          const userId = entry.backendId ?? uuidv4();
           createdUserIds.push(userId);
           await tx.user.create({
             data: {
@@ -107,7 +107,7 @@ export class BootstrapService implements OnModuleInit {
 
       await this.prisma.user.create({
         data: {
-          id: uuidv4(),
+          id: entry.backendId ?? uuidv4(),
           tenantId,
           email: entry.email,
           fullName: entry.fullName,
@@ -142,7 +142,7 @@ export class BootstrapService implements OnModuleInit {
           [project.name],
         );
 
-        const projectId = existingProject.rows[0]?.id ?? uuidv4();
+        const projectId = existingProject.rows[0]?.id ?? project.backendId ?? uuidv4();
 
         if (!existingProject.rowCount) {
           await client.query(

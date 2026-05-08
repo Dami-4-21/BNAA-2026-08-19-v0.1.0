@@ -79,6 +79,11 @@ Goal: build the new backend foundation in parallel and start cutting over access
 - [x] TanStack Query
 - [x] React Hook Form
 - [x] Zod
+- [x] Remove frontend dependence on static seeded credentials and demo login shortcuts.
+- [x] Replace name-only rebuild compatibility matching with canonical pilot compatibility records and stable backend-ID-first fallback mapping.
+- [x] Replace the fixed legacy service clock with runtime date helpers.
+- [x] Decouple shared live payload types from `mock-data` runtime inference.
+- [x] Choose one canonical pilot seed source and make both the legacy web seed and the rebuild bootstrap consume it.
 - [ ] Prepare the repo split so the current root Next app can become `frontend/`.
 - [x] Define and implement the shared compat bridge pattern for the next route families so future cutovers stay consistent.
 

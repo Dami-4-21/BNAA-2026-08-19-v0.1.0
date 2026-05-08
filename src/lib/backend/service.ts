@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  appUsers,
   canAccessProject,
   getHomePathForRole,
   getPermissionsForRole,
@@ -16,10 +15,15 @@ import { saveUploadedFile } from "@/lib/backend/files";
 import { dispatchNotificationEmail as sendNotificationEmail } from "@/lib/backend/mail";
 import { buildAlertsFromNotifications } from "@/lib/backend/notification-utils";
 import { buildDailyReportPdf, buildInvoicePdf } from "@/lib/backend/pdf";
+import {
+  getCurrentDateIso,
+  getCurrentTimestamp,
+} from "@/lib/backend/runtime-clock";
 import { resolveProjectWeather } from "@/lib/backend/weather";
 import { financeVatRegimes } from "@/lib/mock-data";
 import { createSessionExpiry, createSessionToken } from "@/lib/backend/session";
 import { readDatabase, updateDatabase } from "@/lib/backend/store";
+import { legacySeedUsers } from "@/lib/server/pilot-seed";
 import type {
   AdminPageData,
   DashboardAlert,
@@ -46,9 +50,7 @@ import type {
   WorkspacePayload,
 } from "@/lib/backend/types";
 
-const todayIso = "2026-04-30";
-const nowTimestamp = "2026-04-30T18:00:00.000Z";
-const defaultProjectRoles = Array.from(new Set(appUsers.map((user) => user.role))) as AppUser["role"][];
+const defaultProjectRoles = Array.from(new Set(legacySeedUsers.map((user) => user.role))) as AppUser["role"][];
 const workflowOwnerRoleMap: Record<ProjectWorkflowOwnerKey, UserRole> = {
   clientApproverId: "Maitre d'ouvrage",
   designLeadId: "Bureau d'etudes",
@@ -78,6 +80,14 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function getTodayIso() {
+  return getCurrentDateIso();
+}
+
+function getNowTimestamp() {
+  return getCurrentTimestamp();
+}
+
 function assert(condition: unknown, status: number, message: string): asserts condition {
   if (!condition) {
     throw new ApiError(status, message);
@@ -101,7 +111,7 @@ function toDateTimeLabel(timestamp: string) {
 }
 
 function formatRelativeTime(timestamp: string) {
-  const deltaMs = new Date(nowTimestamp).getTime() - new Date(timestamp).getTime();
+  const deltaMs = new Date(getCurrentTimestamp()).getTime() - new Date(timestamp).getTime();
   const deltaMinutes = Math.max(0, Math.round(deltaMs / (1000 * 60)));
 
   if (deltaMinutes < 1) {
@@ -367,7 +377,7 @@ function createEmptySiteModule(setup: {
     ncrs: [],
     reports: [],
     reportDraft: {
-      reportDate: toDayMonth(todayIso),
+      reportDate: toDayMonth(getTodayIso()),
       weather: "Ensoleille",
       workforce: 0,
       completedLots: [],
@@ -384,7 +394,7 @@ function createEmptySiteModule(setup: {
     draftNcr: {
       title: "",
       owner: setup.lots[0] ?? "General",
-      dueDate: todayIso,
+      dueDate: getTodayIso(),
       severity: "Mineure",
       description: "",
       photoAttached: false,
@@ -427,7 +437,7 @@ function createEmptyDocumentsModule(setup: {
         },
       ],
       offline: {
-        syncedAt: toDateTimeLabel(nowTimestamp),
+        syncedAt: toDateTimeLabel(getNowTimestamp()),
         cachedFiles: 0,
         coverage: "Cache mobile en attente des premieres revisions",
       },
@@ -751,7 +761,7 @@ function ensureProjectSetupState(database: DatabaseState) {
 function ensureAuditTrailState(database: DatabaseState) {
   database.auditTrail = database.auditTrail.map((entry, index) => ({
     ...entry,
-    createdAt: entry.createdAt ?? nowTimestamp,
+    createdAt: entry.createdAt ?? getNowTimestamp(),
     id: entry.id ?? `AUD-${String(index + 1).padStart(4, "0")}`,
     projectCode:
       entry.projectCode ??
@@ -804,7 +814,7 @@ function ensureNotificationsState(database: DatabaseState) {
           : legacy.channel === "In-app + email"
             ? "In-app + email"
             : "In-app",
-      createdAt: nowTimestamp,
+      createdAt: getNowTimestamp(),
       href:
         legacy.detail.toLowerCase().includes("facture")
           ? "/finance"
@@ -850,7 +860,7 @@ function ensureNotificationsState(database: DatabaseState) {
 }
 
 function ensureSystemUsers(database: DatabaseState) {
-  for (const seededUser of appUsers) {
+  for (const seededUser of legacySeedUsers) {
     const existingUser = database.users.find(
       (user) => user.email.toLowerCase() === seededUser.email.toLowerCase(),
     );
@@ -942,10 +952,10 @@ function appendAudit(
     actor,
     action,
     context,
-    createdAt: nowTimestamp,
+    createdAt: getNowTimestamp(),
     id: `AUD-${randomUUID().slice(0, 8)}`,
     projectCode: Object.keys(database.projects).find((code) => context.includes(code)),
-    at: toDateTimeLabel(nowTimestamp),
+    at: toDateTimeLabel(getNowTimestamp()),
   });
 }
 
@@ -1023,7 +1033,7 @@ function appendNotification(
     title: options.title,
     detail: options.detail,
     channel: options.channel ?? "In-app",
-    createdAt: nowTimestamp,
+    createdAt: getNowTimestamp(),
     href: options.href,
     tone: options.tone ?? "primary",
     type: options.type,
@@ -1135,8 +1145,8 @@ function buildUserActivityFeed(
         : hasPermission(user, "admin.view"),
     )
     .sort((left, right) => {
-      const rightTime = new Date(right.createdAt ?? nowTimestamp).getTime();
-      const leftTime = new Date(left.createdAt ?? nowTimestamp).getTime();
+      const rightTime = new Date(right.createdAt ?? getNowTimestamp()).getTime();
+      const leftTime = new Date(left.createdAt ?? getNowTimestamp()).getTime();
       return rightTime - leftTime;
     })
     .slice(0, 10);
@@ -1257,7 +1267,7 @@ async function deriveSiteData(
   const avgLiftDelay = openNcrs.length
     ? (
         openNcrs.reduce(
-          (total, item) => total + diffInDays(todayIso, item.dueDate),
+          (total, item) => total + diffInDays(getTodayIso(), item.dueDate),
           0,
         ) / openNcrs.length
       ).toFixed(1)
@@ -1393,7 +1403,7 @@ function deriveDocumentsData(database: DatabaseState, project: ProjectRecord): D
   const totalReads = documents.files.reduce((total, file) => total + file.readCount, 0);
   const activeVersions = documents.files.filter((file) => file.isCurrent).length;
   const staleUndistributed = documents.files.filter(
-    (file) => diffInDays(file.lastDistributedAt, todayIso) > 5,
+    (file) => diffInDays(file.lastDistributedAt, getTodayIso()) > 5,
   ).length;
   const cachedFiles = documents.files.filter((file) => file.offlineReady).length;
   const readRate = Math.round((totalReads / Math.max(totalRecipients, 1)) * 100);
@@ -1427,7 +1437,7 @@ function deriveDocumentsData(database: DatabaseState, project: ProjectRecord): D
 
   documents.overview.offline = {
     ...documents.overview.offline,
-    syncedAt: toDateTimeLabel(nowTimestamp),
+    syncedAt: toDateTimeLabel(getNowTimestamp()),
     cachedFiles,
   };
 
@@ -1456,7 +1466,7 @@ function deriveFinanceData(database: DatabaseState, project: ProjectRecord): Fin
   }
   const paidInvoices = finance.invoices.filter((invoice) => invoice.paidAt);
   const overdueInvoices = finance.invoices.filter(
-    (invoice) => !invoice.paidAt && invoice.dueDate < todayIso,
+    (invoice) => !invoice.paidAt && invoice.dueDate < getTodayIso(),
   );
   const averageDelay = paidInvoices.length
     ? Math.round(
@@ -1467,7 +1477,7 @@ function deriveFinanceData(database: DatabaseState, project: ProjectRecord): Fin
       )
     : 0;
   const onTimeRate = Math.round(
-    (finance.invoices.filter((invoice) => invoice.dueDate >= todayIso || invoice.paidAt).length /
+    (finance.invoices.filter((invoice) => invoice.dueDate >= getTodayIso() || invoice.paidAt).length /
       Math.max(finance.invoices.length, 1)) *
       100,
   );
@@ -1531,8 +1541,8 @@ function deriveProjectTeamMembers(database: DatabaseState, projectId: string) {
 
   clone(database.auditTrail)
     .sort((left, right) => {
-      const rightTime = new Date(right.createdAt ?? nowTimestamp).getTime();
-      const leftTime = new Date(left.createdAt ?? nowTimestamp).getTime();
+      const rightTime = new Date(right.createdAt ?? getNowTimestamp()).getTime();
+      const leftTime = new Date(left.createdAt ?? getNowTimestamp()).getTime();
       return rightTime - leftTime;
     })
     .forEach((entry) => {
@@ -1565,7 +1575,7 @@ function deriveNextCheckpoint(project: ProjectRecord) {
       candidates.push({
         date: invoice.dueDate,
         detail: `${invoice.invoiceNumber} - ${invoice.status}`,
-        tone: invoice.dueDate < todayIso ? "danger" : "warning",
+        tone: invoice.dueDate < getTodayIso() ? "danger" : "warning",
       });
     });
 
@@ -1575,7 +1585,7 @@ function deriveNextCheckpoint(project: ProjectRecord) {
       candidates.push({
         date: ncr.dueDate,
         detail: `${ncr.ref} - ${ncr.title}`,
-        tone: ncr.dueDate < todayIso ? "danger" : "warning",
+        tone: ncr.dueDate < getTodayIso() ? "danger" : "warning",
       });
     });
 
@@ -1584,7 +1594,7 @@ function deriveNextCheckpoint(project: ProjectRecord) {
     candidates.push({
       date: pendingSignature.date,
       detail: `Validation ${pendingSignature.id}`,
-      tone: pendingSignature.date < todayIso ? "warning" : "primary",
+      tone: pendingSignature.date < getTodayIso() ? "warning" : "primary",
     });
   }
 
@@ -1614,7 +1624,7 @@ function deriveProjectFocusSummary(
   finance: FinanceModuleData,
 ) {
   const overdueInvoices = finance.invoices.filter(
-    (invoice) => invoice.status !== "Payee" && invoice.dueDate < todayIso,
+    (invoice) => invoice.status !== "Payee" && invoice.dueDate < getTodayIso(),
   );
   const openNcrs = site.ncrs.filter((item) => item.status !== "Levee");
   const unreadDocumentCount = documents.files.filter(
@@ -1807,7 +1817,7 @@ async function buildDashboardData(
       {
         label: "Retard critique",
         value: finance.invoices
-          .filter((invoice) => !invoice.paidAt && invoice.dueDate < todayIso)
+          .filter((invoice) => !invoice.paidAt && invoice.dueDate < getTodayIso())
           .reduce((total, invoice) => total + invoice.amountTtc, 0),
         helper: "Factures depassees",
         tone: "danger" as const,
@@ -1866,7 +1876,7 @@ export async function authenticateUser(email: string, password: string) {
     const session: SessionRecord = {
       token: createSessionToken(),
       userId: user.id,
-      createdAt: nowTimestamp,
+      createdAt: getNowTimestamp(),
       expiresAt: createSessionExpiry(),
     };
 
@@ -2673,7 +2683,7 @@ export async function downloadSiteReportPdf(token: string, projectId: string, re
   assert(report, 404, "Rapport chantier introuvable.");
 
   const bytes = await buildDailyReportPdf({
-    generatedAt: nowTimestamp,
+    generatedAt: getNowTimestamp(),
     generatedBy: user.name,
     project: {
       client: project.summary.client,
@@ -2778,7 +2788,7 @@ export async function uploadSitePhoto(
       lot,
       task,
       time: "18:00",
-      timestamp: nowTimestamp,
+      timestamp: getNowTimestamp(),
       geo,
       author: user.name,
       accent: getPhotoAccent(project.site.photoLibrary.length),
@@ -2865,7 +2875,7 @@ export async function mutateSitePayload(
           signedByCt: true,
           signedByMoe: false,
           ctSignatureBy: user.name,
-          ctSignatureAt: toDateTimeLabel(nowTimestamp),
+          ctSignatureAt: toDateTimeLabel(getNowTimestamp()),
           moeSignatureBy: "",
           moeSignatureAt: "",
           activities: formState.activities,
@@ -2876,7 +2886,7 @@ export async function mutateSitePayload(
 
         project.site.lotProgress = formState.progressByLot;
         project.site.reportDraft = {
-          reportDate: toDayMonth(todayIso),
+          reportDate: toDayMonth(getTodayIso()),
           weather: formState.weather,
           workforce: formState.workforceCount,
           completedLots: formState.activities
@@ -2957,7 +2967,7 @@ export async function mutateSitePayload(
         report.signedByCt = true;
         report.signedByMoe = false;
         report.ctSignatureBy = user.name;
-        report.ctSignatureAt = toDateTimeLabel(nowTimestamp);
+        report.ctSignatureAt = toDateTimeLabel(getNowTimestamp());
         report.moeSignatureBy = "";
         report.moeSignatureAt = "";
         report.activities = formState.activities;
@@ -3049,7 +3059,7 @@ export async function mutateSitePayload(
         report.status = "Valide";
         report.tone = "success";
         report.moeSignatureBy = user.name;
-        report.moeSignatureAt = toDateTimeLabel(nowTimestamp);
+        report.moeSignatureAt = toDateTimeLabel(getNowTimestamp());
         appendAudit(database, user.name, "a valide un RJC", reportId);
         appendNotification(database, {
           actor: user.name,
@@ -3075,7 +3085,7 @@ export async function mutateSitePayload(
           lot: draftPhoto.lot,
           task: draftPhoto.task,
           time: "18:00",
-          timestamp: nowTimestamp,
+          timestamp: getNowTimestamp(),
           geo: draftPhoto.geo,
           author: user.name,
           accent: "from-sky-500/55 to-violet-300/18",
@@ -3317,7 +3327,7 @@ export async function uploadDocumentVersion(
     archiveCurrentDocumentVersion(document);
     document.versions.push({
       version: revision,
-      publishedAt: todayIso,
+      publishedAt: getTodayIso(),
       status: "Courante",
       fileName: storedFile.fileName,
       filePath: storedFile.relativePath,
@@ -3325,7 +3335,7 @@ export async function uploadDocumentVersion(
     } as DocumentVersionRecord);
     document.revision = revision;
     document.format = format;
-    document.publishedAt = todayIso;
+    document.publishedAt = getTodayIso();
     document.status = "Diffusion";
     document.tone = "primary";
     document.isCurrent = true;
@@ -3393,12 +3403,12 @@ export async function mutateDocumentsPayload(
         archiveCurrentDocumentVersion(document as DocumentFileRecord);
         document.versions.push({
           version: revision,
-          publishedAt: todayIso,
+          publishedAt: getTodayIso(),
           status: "Courante",
         } as DocumentVersionRecord);
         document.revision = revision;
         document.format = format;
-        document.publishedAt = todayIso;
+        document.publishedAt = getTodayIso();
         document.status = "Diffusion";
         document.tone = "primary";
         document.isCurrent = true;
@@ -3478,7 +3488,7 @@ export async function mutateDocumentsPayload(
         assert(distributionRecipients.length > 0, 400, "Aucun destinataire n'est associe a cette diffusion.");
         document.status = "Diffusion";
         document.tone = "primary";
-        document.lastDistributedAt = todayIso;
+        document.lastDistributedAt = getTodayIso();
         document.readCount = 0;
         document.recipients = distributionRecipients.length;
         project.documents.recipients = project.documents.recipients.filter(
@@ -3489,7 +3499,7 @@ export async function mutateDocumentsPayload(
             (recipient): DocumentRecipientRecord => ({
               acknowledgedAt: "",
               audience,
-              distributedAt: toDateTimeLabel(nowTimestamp),
+              distributedAt: toDateTimeLabel(getNowTimestamp()),
               documentId,
               id: `REC-${randomUUID().slice(0, 8)}`,
               name: recipient.name,
@@ -3542,7 +3552,7 @@ export async function mutateDocumentsPayload(
           break;
         }
         recipient.status = "Lu";
-        recipient.acknowledgedAt = toDateTimeLabel(nowTimestamp);
+        recipient.acknowledgedAt = toDateTimeLabel(getNowTimestamp());
         document.readCount = Math.min(document.readCount + 1, document.recipients);
         appendAudit(database, user.name, "a accuse reception d'un plan", document.code);
         break;
@@ -3593,7 +3603,7 @@ export async function downloadInvoicePdf(token: string, projectId: string, invoi
 
   const bytes = await buildInvoicePdf({
     declarationStatus: project.finance.declaration.status,
-    generatedAt: nowTimestamp,
+    generatedAt: getNowTimestamp(),
     generatedBy: user.name,
     invoice: {
       advanceDeduction: invoice.advanceDeduction,
@@ -3768,7 +3778,7 @@ export async function mutateFinancePayload(
           ensureAssignedWorkflowOwner(user, project, "projectManagerId");
           invoice.validatedByMoe = true;
           invoice.moeValidatedBy = user.name;
-          invoice.moeValidatedAt = toDateTimeLabel(nowTimestamp);
+          invoice.moeValidatedAt = toDateTimeLabel(getNowTimestamp());
           invoice.status = "Validation MO";
           invoice.tone = "primary";
           appendAudit(database, user.name, "a valide une facture cote projet", invoiceId);
@@ -3797,7 +3807,7 @@ export async function mutateFinancePayload(
 
         invoice.validatedByMo = true;
         invoice.moValidatedBy = user.name;
-        invoice.moValidatedAt = toDateTimeLabel(nowTimestamp);
+        invoice.moValidatedAt = toDateTimeLabel(getNowTimestamp());
         invoice.status = "Validee";
         invoice.tone = "primary";
         appendAudit(database, user.name, "a valide une facture cote client", invoiceId);
@@ -3840,7 +3850,7 @@ export async function mutateFinancePayload(
                 tone: toInvoiceTone(nextStatus),
                 paidAt:
                   nextStatus === "Payee"
-                    ? invoice.paidAt || nowTimestamp
+                    ? invoice.paidAt || getNowTimestamp()
                     : nextStatus === "Brouillon" || nextStatus === "Envoyee" || nextStatus === "Validation MO" || nextStatus === "Litigieuse"
                       ? ""
                       : invoice.paidAt,
@@ -3864,7 +3874,7 @@ export async function mutateFinancePayload(
                     : "",
                 moeValidatedAt:
                   nextStatus === "Validation MO" || nextStatus === "Validee" || nextStatus === "Payee"
-                    ? (invoice as { moeValidatedAt?: string }).moeValidatedAt || toDateTimeLabel(nowTimestamp)
+                    ? (invoice as { moeValidatedAt?: string }).moeValidatedAt || toDateTimeLabel(getNowTimestamp())
                     : "",
                 moValidatedBy:
                   nextStatus === "Validee" || nextStatus === "Payee"
@@ -3872,7 +3882,7 @@ export async function mutateFinancePayload(
                     : "",
                 moValidatedAt:
                   nextStatus === "Validee" || nextStatus === "Payee"
-                    ? (invoice as { moValidatedAt?: string }).moValidatedAt || toDateTimeLabel(nowTimestamp)
+                    ? (invoice as { moValidatedAt?: string }).moValidatedAt || toDateTimeLabel(getNowTimestamp())
                     : "",
               }
             : invoice,
@@ -3932,7 +3942,7 @@ export async function mutateFinancePayload(
           amount,
           method: paymentDraft.method,
           reference: paymentDraft.reference,
-          paidAt: nowTimestamp,
+          paidAt: getNowTimestamp(),
         });
         const paidAmount = project.finance.payments
           .filter((payment) => payment.invoiceId === invoiceId)
@@ -3941,7 +3951,7 @@ export async function mutateFinancePayload(
           item.id === invoiceId
             ? {
                 ...item,
-                paidAt: paidAmount >= item.amountTtc ? nowTimestamp : item.paidAt,
+                paidAt: paidAmount >= item.amountTtc ? getNowTimestamp() : item.paidAt,
                 status: paidAmount >= item.amountTtc ? "Payee" : "Validee",
                 tone: paidAmount >= item.amountTtc ? "success" : "primary",
               }
@@ -3980,3 +3990,4 @@ export async function mutateFinancePayload(
     return deriveFinanceData(database, project);
   });
 }
+

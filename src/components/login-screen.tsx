@@ -8,7 +8,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 
 import { useAuth } from "@/components/auth-context";
 import { Panel, StatusBadge } from "@/components/ui";
-import { appUsers } from "@/lib/auth";
 import { tenant } from "@/lib/mock-data";
 import {
   loginFormSchema,
@@ -25,12 +24,11 @@ export function LoginScreen() {
     handleSubmit,
     register,
     reset,
-    setValue,
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginFormSchema),
     defaultValues: {
-      email: appUsers[0]?.email ?? "",
-      password: appUsers[0]?.password ?? "",
+      email: "",
+      password: "",
     },
   });
 
@@ -113,10 +111,11 @@ export function LoginScreen() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-stone-950">
-                    Comptes disponibles sur cet environnement
+                    Acces a l&apos;environnement pilote
                   </p>
                   <p className="text-sm text-stone-600">
-                    Inclut un acces administrateur complet pour piloter tous les utilisateurs.
+                    Les acces sont geres par l&apos;administration de la plateforme et filtrent les
+                    projets automatiquement selon chaque role.
                   </p>
                 </div>
               </div>
@@ -124,56 +123,38 @@ export function LoginScreen() {
               <div className="mt-4 rounded-[20px] border border-black/10 bg-black px-4 py-4 text-white">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold">Acces administrateur</p>
+                    <p className="text-sm font-semibold">Connexion securisee</p>
                     <p className="mt-1 text-sm text-white/70">
-                      Compte dedie pour la gestion globale du SaaS.
+                      Utilisez les identifiants fournis par votre administrateur pour acceder aux
+                      projets, aux validations et aux actions de votre role.
                     </p>
                   </div>
-                  <StatusBadge tone="neutral">Super Admin</StatusBadge>
+                  <StatusBadge tone="neutral">Role filtre</StatusBadge>
                 </div>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-white/50">Email</p>
-                    <p className="mt-1 text-sm font-semibold">admin@bnaa.com</p>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-white/50">
+                      Acces
+                    </p>
+                    <p className="mt-1 text-sm font-semibold">Administration, chantier et finance</p>
                   </div>
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-white/50">Mot de passe</p>
-                    <p className="mt-1 text-sm font-semibold">admin123</p>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-white/50">
+                      Support
+                    </p>
+                    <p className="mt-1 text-sm font-semibold">
+                      Contactez votre referent BNAA en cas d&apos;acces bloque
+                    </p>
                   </div>
                 </div>
               </div>
 
-              <div className="mt-4 space-y-3">
-                {appUsers.map((user) => (
-                  <button
-                    key={user.id}
-                    type="button"
-                    onClick={() => {
-                      setValue("email", user.email, {
-                        shouldDirty: true,
-                        shouldTouch: true,
-                        shouldValidate: true,
-                      });
-                      setValue("password", user.password, {
-                        shouldDirty: true,
-                        shouldTouch: true,
-                        shouldValidate: true,
-                      });
-                      setSubmitError("");
-                    }}
-                    className="flex w-full items-center justify-between rounded-[20px] border border-stone-200 bg-stone-50 px-4 py-3 text-left hover:bg-stone-100"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-stone-950">{user.name}</p>
-                      <p className="mt-1 text-sm text-stone-600">
-                        {user.role} - {user.email}
-                      </p>
-                    </div>
-                    <StatusBadge tone="neutral">
-                      {user.projectIds.includes("*") ? "Tous projets" : `${user.projectIds.length} projets`}
-                    </StatusBadge>
-                  </button>
-                ))}
+              <div className="mt-4 rounded-[20px] border border-stone-200 bg-stone-50 px-4 py-4">
+                <p className="text-sm font-semibold text-stone-950">Rappel de connexion</p>
+                <p className="mt-2 text-sm leading-6 text-stone-600">
+                  Le systeme applique automatiquement les droits par role, les projets
+                  accessibles et les ecrans utiles a votre profil apres authentification.
+                </p>
               </div>
             </div>
           </div>

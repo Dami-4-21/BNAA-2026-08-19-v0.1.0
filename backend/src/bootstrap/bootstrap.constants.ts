@@ -1,107 +1,58 @@
 import { UserRole } from "@prisma/client";
 
+import {
+  pilotProjects as pilotProjectCatalog,
+  pilotTenant as pilotTenantCatalog,
+  pilotUsers as pilotUserCatalog,
+  type PilotBackendRole,
+} from "@/bootstrap/pilot-catalog";
+
+const backendRoleMap: Record<PilotBackendRole, UserRole> = {
+  ADMIN: UserRole.ADMIN,
+  BE: UserRole.BE,
+  CO: UserRole.CO,
+  CP: UserRole.CP,
+  CT: UserRole.CT,
+  MO: UserRole.MO,
+};
+
+const userEmailByLegacyId = new Map(
+  pilotUserCatalog.map((user) => [user.legacyId, user.email]),
+);
+
 export const pilotTenant = {
-  name: "BnaaSaaS Pilot",
-  slug: "bnaasaas-pilot",
+  name: pilotTenantCatalog.name,
+  slug: pilotTenantCatalog.slug,
 };
 
 export const pilotUsers: Array<{
+  backendId: string;
   email: string;
   fullName: string;
   password: string;
   role: UserRole;
-}> = [
-  {
-    email: "admin@bnaa.com",
-    fullName: "Admin BNAA",
-    password: "admin123",
-    role: UserRole.ADMIN,
-  },
-  {
-    email: "sara@bnaasaas.tn",
-    fullName: "Sara Ben Salah",
-    password: "bnaasaas2026",
-    role: UserRole.CO,
-  },
-  {
-    email: "amine@bnaasaas.tn",
-    fullName: "Amine Gharbi",
-    password: "bnaasaas2026",
-    role: UserRole.CP,
-  },
-  {
-    email: "nour@bnaasaas.tn",
-    fullName: "Nour Baccar",
-    password: "bnaasaas2026",
-    role: UserRole.CT,
-  },
-  {
-    email: "hichem@bnaasaas.tn",
-    fullName: "Hichem Trabelsi",
-    password: "bnaasaas2026",
-    role: UserRole.BE,
-  },
-  {
-    email: "salma@bnaasaas.tn",
-    fullName: "Salma Ben Salem",
-    password: "bnaasaas2026",
-    role: UserRole.MO,
-  },
-  {
-    email: "adel@bnaasaas.tn",
-    fullName: "Adel Mansouri",
-    password: "bnaasaas2026",
-    role: UserRole.ADMIN,
-  },
-];
+}> = pilotUserCatalog.map((user) => ({
+  backendId: user.backendId,
+  email: user.email,
+  fullName: user.fullName,
+  password: user.password,
+  role: backendRoleMap[user.role],
+}));
 
 export const pilotProjects: Array<{
+  backendId: string;
   city: string;
   governorate: string;
   memberEmails: string[];
   name: string;
   type: string;
-}> = [
-  {
-    city: "Ariana",
-    governorate: "Tunis",
-    memberEmails: [
-      "admin@bnaa.com",
-      "adel@bnaasaas.tn",
-      "sara@bnaasaas.tn",
-      "amine@bnaasaas.tn",
-      "nour@bnaasaas.tn",
-      "hichem@bnaasaas.tn",
-      "salma@bnaasaas.tn",
-    ],
-    name: "Residence El Wifak",
-    type: "residential",
-  },
-  {
-    city: "Lac 2",
-    governorate: "Tunis",
-    memberEmails: [
-      "admin@bnaa.com",
-      "adel@bnaasaas.tn",
-      "sara@bnaasaas.tn",
-      "amine@bnaasaas.tn",
-      "hichem@bnaasaas.tn",
-      "salma@bnaasaas.tn",
-    ],
-    name: "Pole Sante Lac 2",
-    type: "healthcare",
-  },
-  {
-    city: "Mornag",
-    governorate: "Ben Arous",
-    memberEmails: [
-      "admin@bnaa.com",
-      "adel@bnaasaas.tn",
-      "sara@bnaasaas.tn",
-      "amine@bnaasaas.tn",
-      "salma@bnaasaas.tn",
-    ],
-    name: "Pont Mornag",
-    type: "infrastructure",
-  },
-];
+}> = pilotProjectCatalog.map((project) => ({
+  backendId: project.backendId,
+  city: project.city,
+  governorate: project.governorate,
+  memberEmails: project.memberLegacyIds
+    .map((legacyId) => userEmailByLegacyId.get(legacyId) ?? null)
+    .filter((email): email is string => email !== null),
+  name: project.name,
+  type: project.type,
+}));
