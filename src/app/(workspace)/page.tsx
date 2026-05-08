@@ -50,6 +50,13 @@ type DashboardListItem = {
 };
 
 type DashboardModel = {
+  cadenceDescription: string;
+  cadenceSteps: Array<{
+    detail: string;
+    step: string;
+    tone: Tone;
+  }>;
+  cadenceTitle: string;
   checklist: DashboardAction[];
   checklistDescription: string;
   detailDescription: string;
@@ -57,6 +64,7 @@ type DashboardModel = {
   detailTitle: string;
   eyebrow: string;
   intro: string;
+  primaryDescription: string;
   quickActions: DashboardAction[];
   sideDescription: string;
   sideItems: DashboardListItem[];
@@ -150,6 +158,8 @@ export default function DashboardPage() {
     tenantActiveProjects: tenant.activeProjects,
     tenantUsers: tenant.users,
   });
+  const primaryAction = model.quickActions[0];
+  const secondaryActions = model.quickActions.slice(1);
 
   return (
     <div className="space-y-6">
@@ -163,20 +173,58 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <Panel
-          title="Mes actions prioritaires"
-          description="Trois entrees claires pour avancer tout de suite sans chercher dans plusieurs ecrans."
+          title="A faire maintenant"
+          description={model.primaryDescription}
         >
-          <div className="grid gap-3 md:grid-cols-3">
-            {model.quickActions.map((action) => (
-              <ActionCard key={`${action.href}-${action.label}`} action={action} />
-            ))}
-          </div>
+          {primaryAction ? <PrimaryActionCard action={primaryAction} /> : null}
+          {secondaryActions.length > 0 ? (
+            <div className="mt-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">
+                Ensuite
+              </p>
+              <div className="grid gap-3 md:grid-cols-2">
+                {secondaryActions.map((action) => (
+                  <ActionCard key={`${action.href}-${action.label}`} action={action} />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </Panel>
 
         <Panel
-          title="Lecture rapide"
-          description="Les reperes utiles pour savoir si le projet est en rythme ou s'il faut intervenir."
+          title="Cadence du projet"
+          description={model.cadenceDescription}
         >
+          <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">
+                  Cycle en cours
+                </p>
+                <p className="mt-2 text-sm font-semibold text-stone-950">{model.cadenceTitle}</p>
+              </div>
+              <StatusBadge tone={model.statusTone}>{model.statusLabel}</StatusBadge>
+            </div>
+            <div className="mt-4 space-y-3">
+              {model.cadenceSteps.map((step) => (
+                <div
+                  key={`${step.step}-${step.detail}`}
+                  className="rounded-2xl border border-stone-200 bg-white p-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-stone-950">{step.step}</p>
+                    <StatusBadge tone={step.tone}>{spotlightToneLabel(step.tone)}</StatusBadge>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-stone-600">{step.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Panel>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[0.94fr_1.06fr]">
+        <Panel title="Cap a surveiller" description="Les reperes les plus utiles pour savoir si le projet avance, se bloque ou demande une relance.">
           <div className="grid gap-3 sm:grid-cols-3">
             {model.spotlight.map((item) => (
               <div key={item.label} className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
@@ -190,9 +238,7 @@ export default function DashboardPage() {
             ))}
           </div>
         </Panel>
-      </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
         <Panel title="File d'action" description={model.checklistDescription}>
           <div className="space-y-3">
             {model.checklist.map((item) => (
@@ -218,6 +264,35 @@ export default function DashboardPage() {
         </div>
       </Panel>
     </div>
+  );
+}
+
+function PrimaryActionCard({ action }: { action: DashboardAction }) {
+  return (
+    <Link
+      href={action.href}
+      className="block rounded-[24px] border border-stone-200 bg-stone-50 p-5 transition-colors hover:bg-white"
+    >
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl border border-stone-200 bg-white p-3 text-stone-700">
+              <action.icon className="size-5" />
+            </div>
+            <StatusBadge tone={action.tone}>{action.badge}</StatusBadge>
+          </div>
+          <h3 className="mt-4 font-display text-2xl font-semibold text-stone-950">
+            {action.label}
+          </h3>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-stone-600">
+            {action.detail}
+          </p>
+        </div>
+        <div className="shrink-0 rounded-full border border-stone-200 bg-white px-4 py-2 text-sm font-semibold text-stone-950">
+          Ouvrir
+        </div>
+      </div>
+    </Link>
   );
 }
 
@@ -339,6 +414,16 @@ function buildDashboardModel({
     (invoice) => invoice.tone === "warning" || invoice.tone === "danger",
   ).length;
   const draftReports = data.siteReports.filter((report) => !report.pdfReady).length;
+  const cadenceDescription =
+    role === "Conductrice travaux"
+      ? "Le cycle du jour montre si le rapport, la diffusion et la facture avancent dans le bon ordre."
+      : role === "Bureau d'etudes"
+        ? "Gardez en vue la chaine terrain -> revision -> diffusion pour savoir ou la coordination ralentit."
+        : role === "Comptable"
+          ? "La cadence aide a verifier si le chantier, les documents et la facture restent alignes avant encaissement."
+          : role === "Super Admin"
+            ? "Ce resume montre le rythme reel du projet selectionne pour identifier vite le point qui bloque."
+            : "L'essentiel du cycle projet apparait ici pour valider, relancer et debloquer sans ouvrir tous les modules.";
 
   const photosAction: DashboardAction = {
     badge: "Photos",
@@ -430,9 +515,12 @@ function buildDashboardModel({
   switch (role) {
     case "Conductrice travaux":
       return {
+        cadenceDescription,
+        cadenceSteps: data.hero.cadenceSteps,
+        cadenceTitle: data.hero.cadenceTitle,
         checklist: [siteAction, photosAction, ncrAction],
         checklistDescription:
-          "Le plus utile pour une conductrice: finaliser le rapport, garder le journal photo complet et lever les ecarts chantier.",
+          "La file du jour doit guider le terrain dans l'ordre: rapport, preuves photo, puis ecarts a lever.",
         detailDescription:
           "Les derniers rapports restent visibles ici pour reprendre vite le bon jour, le bon lot et le bon niveau d'avancement.",
         detailItems: buildSiteReportItems(data),
@@ -440,6 +528,8 @@ function buildDashboardModel({
         eyebrow: "Vue terrain",
         intro:
           "Cette page doit rester simple: un rapport a finaliser, des photos a ajouter, des ecarts a traiter. Tout le reste passe au second plan.",
+        primaryDescription:
+          "Une seule action doit sortir du lot pour permettre a la conductrice d'avancer tout de suite sur le terrain.",
         quickActions: [siteAction, photosAction, ncrAction],
         sideDescription:
           "Les alertes chantier meritent une lecture rapide avant de repartir sur le terrain ou de cloturer la journee.",
@@ -481,9 +571,12 @@ function buildDashboardModel({
 
     case "Bureau d'etudes":
       return {
+        cadenceDescription,
+        cadenceSteps: data.hero.cadenceSteps,
+        cadenceTitle: data.hero.cadenceTitle,
         checklist: [versionsAction, docsAction, distributionAction],
         checklistDescription:
-          "Le bureau d'etudes doit surtout garder la bonne revision en circulation et confirmer que les bons destinataires l'ont bien recue.",
+          "La file du jour doit aider le bureau d'etudes a publier, diffuser puis confirmer les lectures sans ambiguite.",
         detailDescription:
           "Les plans suivis et les revisions recentes restent regroupes ici pour limiter les allers-retours inutiles dans la GED.",
         detailItems: buildDocumentVersionItems(data),
@@ -491,6 +584,8 @@ function buildDashboardModel({
         eyebrow: "Controle documentaire",
         intro:
           "Votre priorite est simple: publier la bonne revision, diffuser vite et ne laisser aucun doute sur la version en vigueur.",
+        primaryDescription:
+          "La prochaine action doit indiquer clairement s'il faut publier, relancer une lecture ou confirmer une diffusion.",
         quickActions: [versionsAction, docsAction, distributionAction],
         sideDescription:
           "La diffusion controlee doit permettre de savoir tout de suite qui a lu, qui manque encore et quel plan doit etre relance.",
@@ -529,9 +624,12 @@ function buildDashboardModel({
 
     case "Comptable":
       return {
+        cadenceDescription,
+        cadenceSteps: data.hero.cadenceSteps,
+        cadenceTitle: data.hero.cadenceTitle,
         checklist: [newInvoiceAction, billingAction, paymentsAction],
         checklistDescription:
-          "Le parcours comptable doit rester lineaire: preparer, envoyer, faire valider puis enregistrer le reglement sans ambiguite.",
+          "La file du jour doit suivre le vrai ordre comptable: preparer, envoyer, valider puis encaisser.",
         detailDescription:
           "Les factures ouvertes restent ici avec leur statut et leur echeance pour reprendre rapidement le bon dossier.",
         detailItems: buildInvoiceItems(data),
@@ -539,6 +637,8 @@ function buildDashboardModel({
         eyebrow: "Pilotage finance",
         intro:
           "Cette vue doit aider la comptabilite a travailler en sequence: decompte, facture, validation, encaissement. Pas besoin de parcourir toute l'application.",
+        primaryDescription:
+          "La priorite du moment doit etre evidente: preparer un decompte, debloquer une validation ou enregistrer un paiement recu.",
         quickActions: [newInvoiceAction, billingAction, paymentsAction],
         sideDescription:
           "Trois repers simples pour savoir si la facturation du projet avance, se bloque ou commence a peser sur la tresorerie.",
@@ -581,9 +681,12 @@ function buildDashboardModel({
     case "Chef de projet":
     case "Maitre d'ouvrage":
       return {
+        cadenceDescription,
+        cadenceSteps: data.hero.cadenceSteps,
+        cadenceTitle: data.hero.cadenceTitle,
         checklist: [validationsAction, siteAction, docsAction, billingAction].slice(0, 3),
         checklistDescription:
-          "Vous devez surtout savoir quoi valider, quoi relancer et ce qui peut ralentir le projet aujourd'hui.",
+          "La file du jour doit montrer d'abord ce qui bloque le projet: validations, relances documentaires et debits de cadence.",
         detailDescription:
           "Les alertes et les validations ouvertes restent visibles ici pour piloter sans entrer dans tous les modules un par un.",
         detailItems: buildAlertItems(data),
@@ -591,6 +694,8 @@ function buildDashboardModel({
         eyebrow: "Pilotage projet",
         intro:
           "Le tableau de bord devient une file d'action: validations a traiter, documents a relancer, factures a debloquer et alertes a contenir.",
+        primaryDescription:
+          "La premiere carte doit indiquer ce qu'il faut valider ou relancer maintenant pour que le projet continue d'avancer.",
         quickActions: [validationsAction, siteAction, docsAction],
         sideDescription:
           "La mobilisaton projet reste lisible en un coup d'oeil, avec les principaux roles et leur situation actuelle.",
@@ -636,6 +741,9 @@ function buildDashboardModel({
     case "Super Admin":
     default:
       return {
+        cadenceDescription,
+        cadenceSteps: data.hero.cadenceSteps,
+        cadenceTitle: data.hero.cadenceTitle,
         checklist: [
           {
             badge: `${availableProjectsCount} projet(s)`,
@@ -656,7 +764,7 @@ function buildDashboardModel({
           alertsAction,
         ],
         checklistDescription:
-          "Le super admin a surtout besoin d'un point d'entree rapide vers le portefeuille, les acces et les alertes globales.",
+          "La file du jour doit aider le super admin a reprendre portefeuille, acces et alertes sans bruit inutile.",
         detailDescription:
           "Les membres les plus exposes restent visibles pour verifier rapidement l'organisation active du projet selectionne.",
         detailItems: buildTeamItems(data),
@@ -664,6 +772,8 @@ function buildDashboardModel({
         eyebrow: "Pilotage admin",
         intro:
           "Cette vue sert a reprendre vite l'organisation: acces, projets, equipe et alertes. Le detail operationnel reste dans chaque module specialise.",
+        primaryDescription:
+          "La premiere carte doit conduire vers le prochain geste d'administration utile: projets, acces ou alerte transversale.",
         quickActions: [
           {
             badge: `${tenantActiveProjects} projet(s)`,
