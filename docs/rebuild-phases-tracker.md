@@ -189,17 +189,53 @@ Goal: rebuild the `Site` domain on the new backend and frontend stack while pres
 
 ## Phase 4 - Documents / GED Rebuild
 
-Goal: rebuild the `Documents` domain on the new backend and frontend stack while preserving the current working GED experience.
+Goal: rebuild the `Documents` domain as the **central BNAA project document hub** on the new backend and frontend stack.
+
+Execution rule for this phase:
+
+- keep the current BNAA visual design language from Phase 2
+- preserve existing document workflows, role-based permissions, actions, loading states, and route contracts
+- treat Module 6 as a **desktop-first document-control workspace**, not only a plans page
+- keep the top KPI strip, but redesign the rest of the page into a 3-column document workspace
+- if backend support is incomplete for some document categories, unblock the UX with derived adapters instead of blocking the rebuild
+
+Reference: `docs/phase-4-document-hub-strategy.md`
 
 ### Backend Tasks
 
-- [ ] Create or finalize rebuild schema/models for:
+- [ ] Finalize rebuild schema/models for the unified document hub:
 - [ ] documents
 - [ ] document versions
 - [ ] document distributions
 - [ ] document read acknowledgements
+- [ ] document attachments / parent-child links
+- [ ] document visibility scope
+- [ ] document priority
+- [ ] source module / source record references
+- [ ] zone-aware metadata where relevant
 - [ ] document search vector / indexes
-- [ ] Implement rebuild endpoints for:
+- [ ] Extend or adapt rebuild payloads to support a frontend-friendly document shape with:
+- [ ] `documentType`
+- [ ] `sourceModule`
+- [ ] `sourceRecordId`
+- [ ] `parentDocumentId`
+- [ ] `visibilityScope`
+- [ ] `attachments`
+- [ ] `relatedPhotos`
+- [ ] `distributionState`
+- [ ] `readState`
+- [ ] `offlineState`
+- [ ] Implement or adapt rebuild document ingestion rules for:
+- [ ] plan revisions as new versions under the same parent document
+- [ ] daily reports as report documents
+- [ ] report photos as attachments / photo evidence linked to the parent report
+- [ ] signed/generated report PDFs as attachments or generated-export versions
+- [ ] standalone field photos as standalone photo-evidence documents when no parent exists
+- [ ] NCR records as quality / NCR evidence documents
+- [ ] NCR proof photos/files as linked evidence attachments
+- [ ] finance statements / invoices / payment proofs as finance documents
+- [ ] generated exports / signed PDFs under the relevant parent document
+- [ ] Implement rebuild endpoints or adapters for:
 - [ ] list documents
 - [ ] document detail
 - [ ] publish version
@@ -207,26 +243,90 @@ Goal: rebuild the `Documents` domain on the new backend and frontend stack while
 - [ ] distribute
 - [ ] acknowledge read
 - [ ] full-text search
+- [ ] compare versions
+- [ ] offline preparation state
 - [ ] Implement controlled distribution and per-recipient read traceability.
 - [ ] Implement current-version switching and obsolete-version rules.
+- [ ] Implement role-aware visibility filtering by role, project context, document type, workflow relevance, and explicit sharing.
+- [ ] Implement priority derivation so the rebuild payload can surface high/medium/low relevance per role.
 - [ ] Implement presigned/object-storage-ready file flow.
 - [ ] Implement PDF comparison support against rebuild version records.
 
 ### Frontend Tasks
 
-- [ ] Rebuild the document library on rebuild APIs.
-- [ ] Rebuild publish / version history / diffusion / read follow-up screens.
-- [ ] Rebuild version comparison against rebuild file/version records.
-- [ ] Rebuild offline plan preparation against rebuild storage flow.
+- [ ] Refactor Module 6 information architecture from a plans page into a unified document hub.
+- [ ] Keep the KPI strip at the top and make each KPI clickable as a filter/view switch.
+- [ ] Add a desktop action bar under the KPIs with:
+- [ ] global search
+- [ ] filter chips
+- [ ] sort dropdown
+- [ ] primary actions for revision publish, distribution, compare, and offline prep
+- [ ] Rebuild the page into a stable desktop 3-column workspace:
+- [ ] left navigation / smart views
+- [ ] center document library table
+- [ ] right contextual document panel
+- [ ] Add the new left navigation model:
+- [ ] workflow views (`Tous les documents`, `Plans en vigueur`, `A diffuser`, `Diffusion en attente`, `Obsoletes`, `Offline chantier`, `Audit documentaire`)
+- [ ] content views (`Plans & revisions`, `Rapports chantier`, `Photos & preuves`, `Finance & justificatifs`, `Qualite / NCR`, `Exports & PDF signes`)
+- [ ] tree navigation by project / lot / phase / discipline
+- [ ] Rebuild the center library as a dense document table with scan-friendly columns for:
+- [ ] document type
+- [ ] code
+- [ ] title
+- [ ] type
+- [ ] source
+- [ ] lot
+- [ ] phase
+- [ ] discipline
+- [ ] revision
+- [ ] status
+- [ ] distribution
+- [ ] reading progress
+- [ ] offline state
+- [ ] last update
+- [ ] Rebuild the right document panel so the selected record surfaces:
+- [ ] document header and quick badges
+- [ ] quick actions
+- [ ] metadata
+- [ ] attachments & photos
+- [ ] versions timeline
+- [ ] distribution state
+- [ ] offline state
+- [ ] audit trail
+- [ ] Replace full-page action jumps with drawers/modals for:
+- [ ] publish revision
+- [ ] distribute
+- [ ] compare versions
+- [ ] prepare offline
+- [ ] Build a frontend adapter layer so reports, photos, finance proofs, quality evidence, and generated PDFs can be represented in the hub without waiting for every backend-native type to exist.
+- [ ] Preserve current search, filters, permissions, and mutations while improving their layout and readability.
+- [ ] Surface the 4 critical document answers instantly for each selected item:
+- [ ] is this the right/current version
+- [ ] has it been distributed
+- [ ] who has read it
+- [ ] is it available offline
+- [ ] Add the bottom bulk action bar for multi-select document actions.
 
 ### Cutover Tasks
 
 - [ ] Add a feature-flagged compat bridge for `/api/projects/[projectId]/documents`.
+- [ ] Keep the current `/api/projects/[projectId]/documents` route path and response contract stable while introducing the unified document hub model behind adapters.
+- [ ] Validate parity for plans, reports, photos/evidence, generated PDFs, and finance-linked documents inside the unified workspace.
 - [ ] Replace the legacy documents route with rebuild-backed data once parity is validated.
 
 ### Phase 4 Exit Criteria
 
-- The full `publish -> distribute -> acknowledge -> compare` flow runs from rebuild APIs.
+- [ ] Module 6 uses a stable desktop 3-column document workspace.
+- [ ] The KPI strip remains at the top and is actionable.
+- [ ] The center area is a proper document library table, not a dashboard block layout.
+- [ ] The UI supports a broader document hub model beyond plan files.
+- [ ] Versions, distribution, offline state, attachments, and audit are surfaced through the selected-document panel.
+- [ ] Role-aware relevance and visibility are reflected in the workspace.
+- [ ] Finance-related roles surface only finance-relevant files/photos in the hub.
+- [ ] Reports and related photos can conceptually live inside the same document system.
+- [ ] Existing actions, permissions, and current workflows remain functional.
+- [ ] Document status, revision status, read progress, offline status, and source context are materially easier to scan.
+- [ ] The full `publish -> distribute -> acknowledge -> compare` flow runs from rebuild APIs.
 
 ## Phase 5 - Finance Rebuild
 
@@ -238,6 +338,7 @@ Goal: rebuild the `Finance` domain on the new backend and frontend stack while p
 - [ ] statements
 - [ ] invoices
 - [ ] payments
+- [ ] finance-document links so statements, invoices, payment proofs, and generated PDFs can surface cleanly inside Module 6.
 - [ ] Implement rebuild endpoints for:
 - [ ] create monthly statement
 - [ ] statement detail
@@ -256,6 +357,7 @@ Goal: rebuild the `Finance` domain on the new backend and frontend stack while p
 ### Frontend Tasks
 
 - [ ] Rebuild finance overview, statement, invoice, and payment screens on rebuild APIs.
+- [ ] Keep finance documents discoverable and traceable from the unified document hub without exposing unrelated technical/site files to finance roles.
 - [ ] Rebuild the finance step flow:
 - [ ] Preparer le decompte
 - [ ] Envoyer
@@ -284,6 +386,7 @@ Goal: finish the MVP rebuild and retire the legacy internal backend path safely.
 - [ ] Expand rebuild notifications to cover all module events from the spec.
 - [ ] Expand rebuild search aggregation across the migrated domains.
 - [ ] Expand rebuild audit/activity feeds across the migrated domains.
+- [ ] Finalize the cross-module document-hub ingestion layer so Site, Documents, and Finance outputs all resolve into one searchable project document system.
 
 ### QA and Cutover
 
