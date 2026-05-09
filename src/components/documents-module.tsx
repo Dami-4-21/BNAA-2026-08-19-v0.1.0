@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import {
+  ArrowUpDown,
   CheckCheck,
   CloudDownload,
   FileStack,
@@ -20,9 +21,11 @@ import {
   ShieldCheck,
   Smartphone,
   Upload,
+  X,
 } from "lucide-react";
 
 import {
+  EmptyStateCard,
   InlineNotice,
   LoadingStateCard,
   MetricCard,
@@ -33,7 +36,7 @@ import {
   cx,
 } from "@/components/ui";
 import { PdfOverlayCompare } from "@/components/pdf-overlay-compare";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatVersion, timeAgo } from "@/lib/format";
 import { apiFetch, apiUpload } from "@/lib/api";
 import type { DocumentsModuleData as DocumentsPayload } from "@/lib/backend/types";
 import {
@@ -59,6 +62,85 @@ type Recipient = DocumentsPayload["recipients"][number];
 type DocumentTreeRoot = {
   title: string;
   nodes: Array<{ label: string; phases: string[] }>;
+};
+
+type DocumentWorkspaceView =
+  | "all"
+  | "current"
+  | "to-distribute"
+  | "distribution-pending"
+  | "obsolete"
+  | "offline"
+  | "audit"
+  | "plans"
+  | "reports"
+  | "photos"
+  | "finance"
+  | "quality"
+  | "exports";
+
+type DocumentHubType =
+  | "plan"
+  | "report"
+  | "photo"
+  | "finance"
+  | "quality"
+  | "export"
+  | "audit";
+
+type DocumentSortKey = "updated" | "priority" | "title" | "read" | "distribution";
+
+type WorkspaceTreeFilter =
+  | {
+      kind: "lot" | "phase" | "discipline";
+      value: string;
+    }
+  | null;
+
+type DocumentQuickBadge = {
+  label: string;
+  tone: ActiveTone;
+};
+
+type HubAttachment = {
+  id: string;
+  label: string;
+  kind: string;
+  status: string;
+  meta: string;
+  href?: string;
+};
+
+type HubDocument = {
+  id: string;
+  code: string;
+  title: string;
+  documentType: DocumentHubType;
+  documentTypeLabel: string;
+  sourceModule: string;
+  lot: string;
+  phase: string;
+  discipline: string;
+  zone: string | null;
+  revision: string;
+  status: string;
+  tone: DocumentFile["tone"];
+  distributionLabel: string;
+  distributionTone: ActiveTone;
+  readLabel: string;
+  readTone: ActiveTone;
+  offlineLabel: string;
+  offlineTone: ActiveTone;
+  priority: "high" | "medium" | "low";
+  visibilityScope: string;
+  updatedAt: string;
+  updatedBy: string;
+  recipients: Recipient[];
+  unreadCount: number;
+  quickBadges: DocumentQuickBadge[];
+  attachments: HubAttachment[];
+  relatedPhotos: HubAttachment[];
+  file: DocumentFile;
 };
 
 const tabs: Array<{ key: DocumentsTab; label: string; helper: string }> = [
@@ -189,6 +271,379 @@ function buildDocumentWorkflowSteps({
   ];
 }
 
+const roleViewProfiles: Record<
+  string,
+  {
+    defaultView: DocumentWorkspaceView;
+    workflowViews: DocumentWorkspaceView[];
+    contentViews: DocumentWorkspaceView[];
+  }
+> = {
+  "Super Admin": {
+    defaultView: "all",
+    workflowViews: ["all", "current", "to-distribute", "distribution-pending", "obsolete", "offline", "audit"],
+    contentViews: ["plans", "reports", "photos", "finance", "quality", "exports"],
+  },
+  Admin: {
+    defaultView: "all",
+    workflowViews: ["all", "current", "to-distribute", "distribution-pending", "obsolete", "offline", "audit"],
+    contentViews: ["plans", "reports", "photos", "finance", "quality", "exports"],
+  },
+  "Bureau d'etudes": {
+    defaultView: "current",
+    workflowViews: ["current", "to-distribute", "distribution-pending", "obsolete", "audit"],
+    contentViews: ["plans", "quality", "exports", "reports"],
+  },
+  "Chef de projet": {
+    defaultView: "all",
+    workflowViews: ["all", "current", "to-distribute", "distribution-pending", "obsolete", "offline", "audit"],
+    contentViews: ["plans", "reports", "photos", "quality", "finance", "exports"],
+  },
+  "Conducteur de travaux": {
+    defaultView: "current",
+    workflowViews: ["current", "offline", "distribution-pending", "obsolete"],
+    contentViews: ["plans", "reports", "photos", "quality", "exports"],
+  },
+  Comptable: {
+    defaultView: "finance",
+    workflowViews: ["distribution-pending", "audit", "offline"],
+    contentViews: ["finance", "exports", "reports"],
+  },
+  "Maitre d'ouvrage": {
+    defaultView: "audit",
+    workflowViews: ["distribution-pending", "audit", "current"],
+    contentViews: ["exports", "finance", "reports", "plans"],
+  },
+};
+
+const workspaceViewLabels: Record<DocumentWorkspaceView, string> = {
+  all: "Tous les documents",
+  current: "Plans en vigueur",
+  "to-distribute": "A diffuser",
+  "distribution-pending": "Diffusion en attente",
+  obsolete: "Obsoletes",
+  offline: "Offline chantier",
+  audit: "Audit documentaire",
+  plans: "Plans & revisions",
+  reports: "Rapports chantier",
+  photos: "Photos & preuves",
+  finance: "Finance & justificatifs",
+  quality: "Qualite / NCR",
+  exports: "Exports & PDF signes",
+};
+
+const sortLabels: Record<DocumentSortKey, string> = {
+  updated: "Derniere mise a jour",
+  priority: "Priorite",
+  title: "Titre",
+  read: "Lecture",
+  distribution: "Diffusion",
+};
+
+function getDocumentType(document: DocumentFile): DocumentHubType {
+  const haystack = `${document.code} ${document.title} ${document.discipline} ${document.format}`.toLowerCase();
+
+  if (["jpg", "jpeg", "png", "webp", "heic", "mp4"].includes(document.format.toLowerCase())) {
+    return "photo";
+  }
+  if (/facture|decompte|paiement|reglement|tva|finance|encaissement/.test(haystack)) {
+    return "finance";
+  }
+  if (/ncr|non.?conform|qualite|reserve|preuve/.test(haystack)) {
+    return "quality";
+  }
+  if (/rapport|rjc|journal/.test(haystack)) {
+    return "report";
+  }
+  if (/export|signe|signee|signature|diffusion|accuse|audit/.test(haystack)) {
+    return "export";
+  }
+  return "plan";
+}
+
+function getDocumentTypeLabel(documentType: DocumentHubType) {
+  switch (documentType) {
+    case "plan":
+      return "Plan / technique";
+    case "report":
+      return "Rapport chantier";
+    case "photo":
+      return "Preuve photo";
+    case "finance":
+      return "Justificatif finance";
+    case "quality":
+      return "Qualite / NCR";
+    case "export":
+      return "PDF / export";
+    case "audit":
+      return "Audit";
+    default:
+      return "Document";
+  }
+}
+
+function getDocumentSourceLabel(documentType: DocumentHubType) {
+  switch (documentType) {
+    case "report":
+    case "photo":
+    case "quality":
+      return "Chantier";
+    case "finance":
+      return "Finance";
+    case "export":
+      return "Systeme";
+    case "audit":
+      return "Audit";
+    default:
+      return "Plans";
+  }
+}
+
+function getDocumentPriority(document: DocumentFile, unreadCount: number, documentType: DocumentHubType) {
+  if (document.status === "Obsolete") {
+    return "low" as const;
+  }
+  if (document.isCurrent || unreadCount > 0 || document.recipients === 0) {
+    return "high" as const;
+  }
+  if (documentType === "report" || documentType === "photo" || documentType === "export") {
+    return "medium" as const;
+  }
+  return "medium" as const;
+}
+
+function getVisibilityScopeLabel(documentType: DocumentHubType, role: string) {
+  if (role === "Super Admin" || role === "Admin") {
+    return "Toutes les equipes";
+  }
+  if (role === "Comptable" || documentType === "finance") {
+    return "Finance / validation";
+  }
+  if (role === "Bureau d'etudes") {
+    return "Technique / diffusion";
+  }
+  if (role === "Maitre d'ouvrage") {
+    return "Partage / audit";
+  }
+  return "Projet / chantier";
+}
+
+function buildHubDocument({
+  document,
+  recipients,
+  cachedDocumentUrls,
+  currentUserRole,
+}: {
+  document: DocumentFile;
+  recipients: Recipient[];
+  cachedDocumentUrls: string[];
+  currentUserRole: string;
+}): HubDocument {
+  const documentType = getDocumentType(document);
+  const unreadCount = Math.max(document.recipients - document.readCount, 0);
+  const isCached =
+    document.offlineReady ||
+    (document.downloadUrl ? cachedDocumentUrls.includes(document.downloadUrl) : false);
+
+  const distributionLabel =
+    document.recipients === 0
+      ? "A diffuser"
+      : unreadCount > 0
+        ? "Diffusion en attente"
+        : "Diffuse";
+  const distributionTone: ActiveTone =
+    document.recipients === 0 ? "warning" : unreadCount > 0 ? "primary" : "success";
+
+  const attachments: HubAttachment[] = document.fileName || document.downloadUrl
+    ? [
+        {
+          id: `${document.id}-main`,
+          label: document.fileName ?? `${document.code}.${document.format.toLowerCase()}`,
+          kind: "Document principal",
+          status: document.status,
+          meta: `${document.format} · ${document.fileSizeMb} Mo`,
+          href: document.downloadUrl,
+        },
+      ]
+    : [];
+
+  const relatedPhotos: HubAttachment[] = documentType === "photo"
+    ? [
+        {
+          id: `${document.id}-photo`,
+          label: document.title,
+          kind: "Preuve liee",
+          status: "Liee",
+          meta: `Source ${getDocumentSourceLabel(documentType)}`,
+          href: document.downloadUrl,
+        },
+      ]
+    : [];
+
+  const quickBadges: DocumentQuickBadge[] = [
+    {
+      label: document.isCurrent ? "Version en vigueur" : "Version archivee",
+      tone: document.isCurrent ? "success" : "warning",
+    },
+    {
+      label:
+        document.recipients > 0
+          ? `${document.readCount}/${document.recipients} lus`
+          : "Diffusion non lancee",
+      tone: document.recipients > 0 ? (unreadCount > 0 ? "primary" : "success") : "warning",
+    },
+    {
+      label: isCached ? "Disponible hors connexion" : "Non synchronise",
+      tone: isCached ? "success" : "warning",
+    },
+  ];
+
+  if (document.status === "Obsolete") {
+    quickBadges.push({ label: "Plan obsolete - ne plus utiliser sur chantier", tone: "danger" });
+  }
+  if (documentType === "finance") {
+    quickBadges.push({ label: "Finance lie", tone: "primary" });
+  }
+  if (documentType === "report") {
+    quickBadges.push({ label: "Rapport du jour", tone: "primary" });
+  }
+
+  return {
+    id: document.id,
+    code: document.code,
+    title: document.title,
+    documentType,
+    documentTypeLabel: getDocumentTypeLabel(documentType),
+    sourceModule: getDocumentSourceLabel(documentType),
+    lot: document.lot,
+    phase: document.phase,
+    discipline: document.discipline,
+    zone: null,
+    revision: document.revision,
+    status: document.status,
+    tone: document.tone,
+    distributionLabel,
+    distributionTone,
+    readLabel:
+      document.recipients > 0 ? `${document.readCount}/${document.recipients} lus` : "Lecture non requise",
+    readTone: document.recipients > 0 ? (unreadCount > 0 ? "warning" : "success") : "primary",
+    offlineLabel: isCached ? "Disponible hors connexion" : "Non synchronise",
+    offlineTone: isCached ? "success" : "warning",
+    priority: getDocumentPriority(document, unreadCount, documentType),
+    visibilityScope: getVisibilityScopeLabel(documentType, currentUserRole),
+    updatedAt: document.publishedAt,
+    updatedBy: document.uploadedBy,
+    recipients,
+    unreadCount,
+    quickBadges,
+    attachments,
+    relatedPhotos,
+    file: document,
+  };
+}
+
+function documentMatchesRole(document: HubDocument, role: string) {
+  if (role === "Super Admin" || role === "Admin" || role === "Chef de projet") {
+    return true;
+  }
+  if (role === "Bureau d'etudes") {
+    return document.documentType !== "finance";
+  }
+  if (role === "Conducteur de travaux") {
+    return document.documentType !== "finance";
+  }
+  if (role === "Comptable") {
+    return document.documentType === "finance" || document.documentType === "export" || document.documentType === "report";
+  }
+  if (role === "Maitre d'ouvrage") {
+    return (
+      document.documentType === "finance" ||
+      document.documentType === "export" ||
+      document.documentType === "report" ||
+      document.file.recipients > 0
+    );
+  }
+  return true;
+}
+
+function documentMatchesWorkspaceView(document: HubDocument, view: DocumentWorkspaceView) {
+  switch (view) {
+    case "all":
+      return true;
+    case "current":
+      return document.file.isCurrent && document.documentType === "plan";
+    case "to-distribute":
+      return document.file.recipients === 0 && document.status !== "Obsolete";
+    case "distribution-pending":
+      return document.unreadCount > 0;
+    case "obsolete":
+      return document.status === "Obsolete";
+    case "offline":
+      return document.file.offlineReady;
+    case "audit":
+      return document.documentType === "export" || document.documentType === "finance" || document.file.recipients > 0;
+    case "plans":
+      return document.documentType === "plan";
+    case "reports":
+      return document.documentType === "report";
+    case "photos":
+      return document.documentType === "photo";
+    case "finance":
+      return document.documentType === "finance";
+    case "quality":
+      return document.documentType === "quality";
+    case "exports":
+      return document.documentType === "export";
+    default:
+      return true;
+  }
+}
+
+function sortDocuments(documents: HubDocument[], sortKey: DocumentSortKey) {
+  const priorityWeight = { high: 0, medium: 1, low: 2 };
+
+  return [...documents].sort((left, right) => {
+    if (sortKey === "title") {
+      return left.title.localeCompare(right.title, "fr");
+    }
+    if (sortKey === "read") {
+      return right.file.readCount - left.file.readCount;
+    }
+    if (sortKey === "distribution") {
+      return right.file.recipients - left.file.recipients;
+    }
+    if (sortKey === "priority") {
+      return priorityWeight[left.priority] - priorityWeight[right.priority];
+    }
+    return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+  });
+}
+
+function getViewProfile(role: string) {
+  return roleViewProfiles[role] ?? roleViewProfiles["Chef de projet"];
+}
+
+function getTypeLetter(documentType: DocumentHubType) {
+  switch (documentType) {
+    case "plan":
+      return "P";
+    case "report":
+      return "R";
+    case "photo":
+      return "PH";
+    case "finance":
+      return "F";
+    case "quality":
+      return "Q";
+    case "export":
+      return "PDF";
+    case "audit":
+      return "A";
+    default:
+      return "D";
+  }
+}
+
 export function DocumentsModule() {
   const { activeProject, can, currentUser } = useWorkspace();
   const [projectData, setProjectData] = useState<DocumentsPayload | null>(null);
@@ -303,6 +758,12 @@ function DocumentsModuleContent({
   const [comparisonSelections, setComparisonSelections] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Tous");
+  const [workspaceView, setWorkspaceView] = useState<DocumentWorkspaceView>(() =>
+    getViewProfile(currentUserRole).defaultView,
+  );
+  const [sortKey, setSortKey] = useState<DocumentSortKey>("updated");
+  const [treeFilter, setTreeFilter] = useState<WorkspaceTreeFilter>(null);
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
   const [draftVersion, setDraftVersion] = useState(projectData.draftVersion);
   const [metadataDraft, setMetadataDraft] = useState({
     title: projectData.files[0]?.title ?? "",
@@ -313,6 +774,7 @@ function DocumentsModuleContent({
   const [versionFile, setVersionFile] = useState<File | null>(null);
   const [mutationError, setMutationError] = useState("");
   const [pendingAction, setPendingAction] = useState("");
+  const [compareDrawerOpen, setCompareDrawerOpen] = useState(false);
 
   const deferredSearch = useDeferredValue(search);
 
@@ -420,9 +882,6 @@ function DocumentsModuleContent({
     }
   }
 
-  const selectedDocument =
-    documents.find((item) => item.id === selectedDocumentId) ?? documents[0];
-
   useEffect(() => {
     const tab = searchParams.get("tab");
     const documentId = searchParams.get("document");
@@ -451,6 +910,9 @@ function DocumentsModuleContent({
   function handleSelectDocument(documentId: string) {
     const nextDocument = documents.find((item) => item.id === documentId);
     setSelectedDocumentId(documentId);
+    setSelectedDocumentIds((current) =>
+      current.includes(documentId) && current.length === 1 ? current : [documentId],
+    );
     if (nextDocument) {
       setMetadataDraft({
         title: nextDocument.title,
@@ -462,15 +924,36 @@ function DocumentsModuleContent({
     replaceModuleUrl(activeTab, documentId);
   }
 
+  const roleViewProfile = useMemo(() => getViewProfile(currentUserRole), [currentUserRole]);
+
+  const hubDocuments = useMemo(() => {
+    const documentsWithRoleFilter = documents.map((document) =>
+      buildHubDocument({
+        document,
+        recipients: recipients.filter((recipient) => recipient.documentId === document.id),
+        cachedDocumentUrls,
+        currentUserRole,
+      }),
+    );
+
+    const roleRelevant = documentsWithRoleFilter.filter((document) =>
+      documentMatchesRole(document, currentUserRole),
+    );
+
+    return roleRelevant.length > 0 ? roleRelevant : documentsWithRoleFilter;
+  }, [cachedDocumentUrls, currentUserRole, documents, recipients]);
+
   const filteredDocuments = useMemo(() => {
-    return documents.filter((document) => {
+    const nextDocuments = hubDocuments.filter((document) => {
       const needle = deferredSearch.trim().toLowerCase();
       const matchesSearch =
         !needle ||
         document.code.toLowerCase().includes(needle) ||
         document.title.toLowerCase().includes(needle) ||
         document.discipline.toLowerCase().includes(needle) ||
-        document.phase.toLowerCase().includes(needle);
+        document.phase.toLowerCase().includes(needle) ||
+        document.documentTypeLabel.toLowerCase().includes(needle) ||
+        document.sourceModule.toLowerCase().includes(needle);
 
       const matchesFilter =
         filter === "Tous" ||
@@ -480,9 +963,27 @@ function DocumentsModuleContent({
         (filter === "Courants" && document.status === "Courante") ||
         (filter === "Obsoletes" && document.status === "Obsolete");
 
-      return matchesSearch && matchesFilter;
+      const matchesWorkspaceView = documentMatchesWorkspaceView(document, workspaceView);
+
+      const matchesTreeFilter =
+        !treeFilter ||
+        (treeFilter.kind === "lot" && document.lot === treeFilter.value) ||
+        (treeFilter.kind === "phase" && document.phase === treeFilter.value) ||
+        (treeFilter.kind === "discipline" && document.discipline === treeFilter.value);
+
+      return matchesSearch && matchesFilter && matchesWorkspaceView && matchesTreeFilter;
     });
-  }, [deferredSearch, documents, filter]);
+
+    return sortDocuments(nextDocuments, sortKey);
+  }, [deferredSearch, filter, hubDocuments, sortKey, treeFilter, workspaceView]);
+
+  const effectiveSelectedDocumentId = filteredDocuments.some(
+    (document) => document.id === selectedDocumentId,
+  )
+    ? selectedDocumentId
+    : (filteredDocuments[0]?.id ?? selectedDocumentId);
+  const selectedDocument =
+    documents.find((item) => item.id === effectiveSelectedDocumentId) ?? documents[0];
 
   const recipientsForSelected = useMemo(
     () => recipients.filter((recipient) => recipient.documentId === selectedDocument?.id),
@@ -492,6 +993,8 @@ function DocumentsModuleContent({
     () => recipientsForSelected.filter((recipient) => recipient.status !== "Lu"),
     [recipientsForSelected],
   );
+  const selectedHubDocument =
+    filteredDocuments.find((item) => item.id === selectedDocument?.id) ?? filteredDocuments[0];
   const readRate = selectedDocument
     ? Math.round(
         (selectedDocument.readCount / Math.max(selectedDocument.recipients, 1)) * 100,
@@ -668,6 +1171,48 @@ function DocumentsModuleContent({
     [documents, projectData.projectSetup.lots, projectData.projectSetup.phases],
   );
 
+  function toggleDocumentSelection(documentId: string) {
+    setSelectedDocumentIds((current) =>
+      current.includes(documentId)
+        ? current.filter((item) => item !== documentId)
+        : [...current, documentId],
+    );
+  }
+
+  function openWorkflow(nextTab: DocumentsTab) {
+    selectTab(nextTab);
+  }
+
+  function applyKpiView(label: string) {
+    if (label.includes("Volume")) {
+      setWorkspaceView("all");
+      return;
+    }
+    if (label.includes("Lecture")) {
+      setWorkspaceView("distribution-pending");
+      return;
+    }
+    if (label.includes("Versions")) {
+      setWorkspaceView("current");
+      return;
+    }
+    if (label.includes("non diffus")) {
+      setWorkspaceView("to-distribute");
+    }
+  }
+
+  async function prepareOfflineSelection() {
+    const offlineCandidates = documents.filter((document) =>
+      selectedDocumentIds.includes(document.id),
+    );
+
+    for (const document of offlineCandidates) {
+      if (!document.offlineReady) {
+        await toggleOffline(document.id);
+      }
+    }
+  }
+
   async function publishNewVersion() {
     if (!selectedDocument) {
       return;
@@ -782,11 +1327,11 @@ function DocumentsModuleContent({
     <div className="space-y-6">
       <SectionHeading
         eyebrow="Documents"
-        title="Plans d'execution et diffusion controlee"
-        description="Publier la bonne revision, la diffuser au bon groupe, puis suivre les lectures sans perdre la trace documentaire."
+        title="Module 6 — GED & Plans"
+        description="Hub documentaire central du projet : plans, rapports, preuves, exports signes et justificatifs relies au meme espace documentaire."
         action={
           <button
-            onClick={() => (canPublishVersion ? selectTab("versions") : null)}
+            onClick={() => (canPublishVersion ? openWorkflow("versions") : null)}
             disabled={!canPublishVersion || Boolean(pendingAction)}
             className={cx(
               "rounded-2xl px-4 py-3 text-sm font-semibold",
@@ -802,14 +1347,15 @@ function DocumentsModuleContent({
 
       <div className="grid gap-4 xl:grid-cols-4">
         {overview.kpis.map((item, index) => (
-          <MetricCard
-            key={item.label}
-            label={item.label}
-            value={item.value}
-            helper={item.helper}
-            tone={item.tone}
-            icon={metricIcons[index]}
-          />
+          <button key={item.label} type="button" onClick={() => applyKpiView(item.label)} className="text-left">
+            <MetricCard
+              label={item.label}
+              value={item.value}
+              helper={`${item.helper} · cliquer pour filtrer`}
+              tone={item.tone}
+              icon={metricIcons[index]}
+            />
+          </button>
         ))}
       </div>
 
@@ -839,346 +1385,296 @@ function DocumentsModuleContent({
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <Panel
-          title="Parcours documentaire"
-          description="Le flux reste simple : choisir la reference, publier la bonne revision, diffuser, puis verifier les lectures."
-        >
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {workflowSteps.map((step) => (
-              <div
-                key={step.step}
+      <Panel className="overflow-hidden">
+        <div className="space-y-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <label className="glass-panel-soft flex flex-1 items-center gap-3 rounded-[24px] px-4 py-4 text-sm text-slate-300">
+              <Search className="size-4 text-slate-400" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="w-full bg-transparent text-white outline-none placeholder:text-slate-500"
+                placeholder="Recherche globale : plan, rapport, preuve, revision, finance..."
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              <label className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+                <ArrowUpDown className="size-4 text-slate-400" />
+                <select
+                  value={sortKey}
+                  onChange={(event) => setSortKey(event.target.value as DocumentSortKey)}
+                  className="bg-transparent text-white outline-none"
+                >
+                  {Object.entries(sortLabels).map(([value, label]) => (
+                    <option key={value} value={value} className="bg-stone-950 text-white">
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => (canPublishVersion ? openWorkflow("versions") : null)}
+                disabled={!canPublishVersion || Boolean(pendingAction)}
                 className={cx(
-                  "rounded-[22px] border px-4 py-4",
-                  step.state === "done"
-                    ? "border-emerald-200 bg-emerald-50"
-                    : step.state === "current"
-                      ? "border-black/10 bg-stone-100"
-                      : "border-stone-200 bg-stone-50",
+                  "rounded-full px-4 py-3 text-sm font-semibold",
+                  canPublishVersion && !pendingAction
+                    ? "bg-black text-white hover:bg-stone-800"
+                    : "cursor-not-allowed bg-stone-200 text-stone-500",
                 )}
               >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-stone-950">{step.step}</p>
-                  <StatusBadge
-                    tone={
-                      step.tone === "danger"
-                        ? "danger"
-                        : step.tone === "warning"
-                          ? "warning"
-                          : step.tone === "success"
-                            ? "success"
-                            : "primary"
-                    }
-                  >
-                    {step.state === "done"
-                      ? "Pret"
-                      : step.state === "current"
-                        ? "En cours"
-                        : "A venir"}
-                  </StatusBadge>
-                </div>
-                <p className="mt-3 text-sm leading-6 text-stone-600">{step.detail}</p>
-              </div>
+                Publier une revision
+              </button>
+              <button
+                type="button"
+                onClick={() => (selectedDocument ? openWorkflow("distribution") : null)}
+                disabled={!selectedDocument || Boolean(pendingAction)}
+                className={cx(
+                  "rounded-full border px-4 py-3 text-sm font-semibold",
+                  selectedDocument && !pendingAction
+                    ? "border-black/10 bg-white text-stone-950 hover:bg-stone-100"
+                    : "cursor-not-allowed border-stone-200 bg-stone-100 text-stone-400",
+                )}
+              >
+                Distribuer
+              </button>
+              <button
+                type="button"
+                onClick={() => setCompareDrawerOpen(true)}
+                disabled={!selectedDocument || selectedDocument.format !== "PDF"}
+                className={cx(
+                  "rounded-full border px-4 py-3 text-sm font-semibold",
+                  selectedDocument && selectedDocument.format === "PDF"
+                    ? "border-black/10 bg-white text-stone-950 hover:bg-stone-100"
+                    : "cursor-not-allowed border-stone-200 bg-stone-100 text-stone-400",
+                )}
+                title={
+                  selectedDocument?.format === "PDF"
+                    ? "Comparer cette revision avec son historique."
+                    : "La comparaison visuelle est reservee aux PDF."
+                }
+              >
+                Comparer
+              </button>
+              <button
+                type="button"
+                onClick={() => openWorkflow("offline")}
+                className="rounded-full border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-stone-950 hover:bg-stone-100"
+              >
+                Preparer offline
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge tone="primary">{workspaceViewLabels[workspaceView]}</StatusBadge>
+            {treeFilter ? (
+              <StatusBadge tone="neutral">
+                {treeFilter.kind === "lot" ? "Lot" : treeFilter.kind === "phase" ? "Phase" : "Discipline"} · {treeFilter.value}
+              </StatusBadge>
+            ) : null}
+            {documentFilters.slice(0, 8).map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setFilter(item)}
+                className={cx(
+                  "rounded-full border px-4 py-2 text-sm font-semibold",
+                  filter === item
+                    ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
+                    : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
+                )}
+              >
+                {item}
+              </button>
             ))}
           </div>
-        </Panel>
 
-        <Panel
-          title="Prochaine etape"
-          description={nextDocumentAction.detail}
-          action={
-            <button
-              type="button"
-              onClick={() => selectTab(nextDocumentAction.tab)}
-              className={cx(
-                "rounded-2xl px-4 py-3 text-sm font-semibold",
-                nextDocumentAction.actionTone === "success"
-                  ? "bg-emerald-600 text-white hover:bg-emerald-500"
-                  : nextDocumentAction.actionTone === "warning"
-                    ? "bg-amber-500 text-stone-950 hover:bg-amber-400"
-                    : "bg-black text-white hover:bg-stone-800",
-              )}
-            >
-              {nextDocumentAction.actionLabel}
-            </button>
-          }
-        >
-          <div className="space-y-4">
-            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-stone-950">{nextDocumentAction.title}</p>
-                  <p className="mt-2 text-sm leading-6 text-stone-600">{nextDocumentAction.helper}</p>
-                </div>
-                {selectedDocument ? (
-                  <StatusBadge tone={selectedDocument.tone}>{selectedDocument.status}</StatusBadge>
-                ) : null}
-              </div>
-            </div>
+          <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
+            <DocumentsSidebar
+              activeView={workspaceView}
+              currentUserRole={currentUserRole}
+              profile={roleViewProfile}
+              setActiveView={setWorkspaceView}
+              tree={projectData.tree}
+              treeFilter={treeFilter}
+              setTreeFilter={setTreeFilter}
+            />
 
-            {selectedDocument ? (
-              <div className="grid gap-3 sm:grid-cols-3">
-                <MiniStat label="Revision" value={selectedDocument.revision} />
-                <MiniStat label="Diffusion" value={selectedDocument.recipients > 0 ? `${selectedDocument.recipients} cible(s)` : "A lancer"} />
-                <MiniStat label="Lectures" value={selectedDocument.recipients > 0 ? `${readRate}%` : "0%"} />
-              </div>
-            ) : null}
-          </div>
-        </Panel>
-      </div>
+            <LibraryTab
+              documents={filteredDocuments}
+              selectedDocumentId={effectiveSelectedDocumentId}
+              selectDocument={handleSelectDocument}
+              selectedDocumentIds={selectedDocumentIds}
+              toggleDocumentSelection={toggleDocumentSelection}
+            />
 
-      <Panel className="overflow-hidden">
-        <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => selectTab(tab.key)}
-                  className={cx(
-                    "rounded-[20px] border px-4 py-3 text-left",
-                    activeTab === tab.key
-                      ? "border-sky-400/25 bg-sky-400/12 text-white"
-                      : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
-                  )}
-                >
-                  <div className="text-sm font-semibold">{tab.label}</div>
-                  <div className="mt-1 text-xs text-slate-400">{tab.helper}</div>
-                </button>
-              ))}
-            </div>
-
-            <div className="rounded-[28px] border border-white/8 bg-white/4 p-5">
-              {activeTab === "library" ? (
-                <LibraryTab
-                  documents={filteredDocuments}
-                  selectedDocumentId={selectedDocumentId}
-                  selectDocument={handleSelectDocument}
-                  search={search}
-                  setSearch={setSearch}
-                  filter={filter}
-                  setFilter={setFilter}
-                  documentFilters={documentFilters}
-                />
-              ) : null}
-
-              {activeTab === "versions" ? selectedDocument ? (
-                <VersionsTab
-                  canMarkSelectedObsolete={canMarkSelectedObsolete}
-                  canPublishSelectedVersion={canPublishSelectedVersion}
-                  markObsoleteHelper={markObsoleteHelper}
-                  pendingAction={pendingAction}
-                  publishVersionHelper={publishVersionHelper}
-                  selectedDocument={selectedDocument}
-                  draftVersion={draftVersion}
-                  versionFile={versionFile}
-                  setVersionFile={setVersionFile}
-                  setDraftVersion={setDraftVersion}
-                  publishNewVersion={publishNewVersion}
-                  markObsolete={markObsolete}
-                />
-              ) : null : null}
-
-              {activeTab === "distribution" ? selectedDocument ? (
-                <DistributionTab
-                  canDistributeSelected={canDistributeSelected}
-                  distributeActionHelper={distributeActionHelper}
-                  pendingAction={pendingAction}
-                  selectedDocument={selectedDocument}
-                  recipients={recipientsForSelected}
-                  draftVersion={draftVersion}
-                  setDraftVersion={setDraftVersion}
-                  distributionOptions={projectData.distributionOptions}
-                  canAcknowledgeRecipient={canAcknowledgeRecipient}
-                  distributeSelected={distributeSelected}
-                  getRecipientAcknowledgeHelper={getRecipientAcknowledgeHelper}
-                  acknowledgeRecipient={acknowledgeRecipient}
-                />
-              ) : null : null}
-
-              {activeTab === "offline" ? (
-                <OfflineTab
-                  documents={documents}
-                  offlineSummary={overview.offline}
-                  cachedUrls={cachedDocumentUrls}
-                  pendingAction={pendingAction}
-                  toggleOffline={toggleOffline}
-                />
-              ) : null}
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <Panel
-              title="Revision selectionnee"
-              description="Consultez la version courante, mettez a jour ses metadonnees et comparez les revisions PDF."
-            >
-              {selectedDocument ? (
-                <div className="space-y-4 rounded-[24px] border border-white/8 bg-white/4 p-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-display text-2xl font-semibold text-white">
-                        {selectedDocument.code}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-300">
-                        {selectedDocument.title}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <StatusBadge tone={selectedDocument.tone}>
-                        {selectedDocument.status}
-                      </StatusBadge>
-                      <StatusBadge tone="primary">
-                        {selectedDocument.revision}
-                      </StatusBadge>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field
-                      label="Titre"
-                      value={metadataDraft.title}
-                      onChange={(value) =>
-                        setMetadataDraft((current) => ({ ...current, title: value }))
-                      }
-                    />
-                    <Field
-                      label="Discipline"
-                      value={metadataDraft.discipline}
-                      onChange={(value) =>
-                        setMetadataDraft((current) => ({ ...current, discipline: value }))
-                      }
-                    />
-                    <SelectField
-                      label="Lot"
-                      value={metadataDraft.lot}
-                      options={projectData.projectSetup.lots}
-                      onChange={(value) =>
-                        setMetadataDraft((current) => ({ ...current, lot: value }))
-                      }
-                    />
-                    <SelectField
-                      label="Phase"
-                      value={metadataDraft.phase}
-                      options={projectData.projectSetup.phases}
-                      onChange={(value) =>
-                        setMetadataDraft((current) => ({ ...current, phase: value }))
-                      }
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => (canSubmitMetadataUpdate ? void updateMetadata() : null)}
-                    disabled={!canSubmitMetadataUpdate}
-                    title={metadataActionHelper}
-                    className={cx(
-                      "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
-                      canSubmitMetadataUpdate
-                        ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
-                        : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
-                    )}
-                  >
-                    <CheckCheck className="size-4" />
-                    {pendingAction === "update-metadata"
-                      ? "Mise a jour..."
-                      : "Mettre a jour les metadonnees"}
-                  </button>
-                  <p className="text-xs leading-5 text-slate-400">{metadataActionHelper}</p>
-
-                  <div className="rounded-[22px] border border-dashed border-sky-400/20 bg-sky-400/8 p-5">
-                    <div className="flex flex-wrap gap-2">
-                      <StatusBadge tone="success">
-                        {selectedDocument.isCurrent ? "Version en vigueur" : "Hors vigueur"}
-                      </StatusBadge>
-                      <StatusBadge tone="primary">
-                        {selectedDocument.readCount}/{selectedDocument.recipients} lus
-                      </StatusBadge>
-                      <StatusBadge tone={selectedDocument.offlineReady ? "success" : "warning"}>
-                        {selectedDocument.offlineReady ? "Offline pret" : "Non synchronise"}
-                      </StatusBadge>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      {selectedDocument.downloadUrl ? (
-                        <a
-                          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/8"
-                          href={selectedDocument.downloadUrl}
-                          target="_blank"
-                        >
-                          <CloudDownload className="size-4" />
-                          Telecharger la version courante
-                        </a>
-                      ) : (
-                        <div className="rounded-full border border-white/8 bg-white/4 px-4 py-2 text-sm text-slate-400">
-                          Aucun fichier televerse pour cette revision
-                        </div>
-                      )}
-                      {selectedDocument.fileName ? (
-                        <div className="rounded-full border border-white/8 bg-white/4 px-4 py-2 text-sm text-slate-300">
-                          {selectedDocument.fileName}
-                        </div>
-                      ) : null}
-                    </div>
-                    {selectedDocument.format === "PDF" ? (
-                      <div className="mt-4">
-                        <PdfOverlayCompare
-                          document={selectedDocument}
-                          key={`${selectedDocument.id}-${selectedCompareVersion || "default"}`}
-                          onSelectVersion={(version) =>
-                            setComparisonSelections((current) => ({
-                              ...current,
-                              [selectedDocument.id]: version,
-                            }))
-                          }
-                          selectedVersion={selectedCompareVersion}
-                        />
-                      </div>
-                    ) : (
-                      <div className="mt-4 rounded-[22px] border border-white/8 bg-white/4 px-4 py-5 text-sm leading-6 text-slate-300">
-                        La comparaison visuelle par superposition est disponible pour les revisions
-                        PDF. Les autres formats restent consultables via l&apos;historique et le
-                        telechargement courant.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-            </Panel>
-
-            <Panel
-              title="Classement du projet"
-              description="Retrouvez la structure par lot, phase et dossier de diffusion."
-            >
-              <div className="space-y-3">
-                {projectData.tree.map((root: DocumentTreeRoot) => (
-                  <div
-                    key={root.title}
-                    className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-                  >
-                    <div className="flex items-center gap-3">
-                      <FolderOpen className="size-4 text-slate-400" />
-                      <p className="text-sm font-semibold text-white">{root.title}</p>
-                    </div>
-                    <div className="mt-4 space-y-3">
-                      {root.nodes.map((node) => (
-                        <div
-                          key={node.label}
-                          className="rounded-[18px] border border-white/8 bg-white/4 px-4 py-3"
-                        >
-                          <p className="text-sm text-white">{node.label}</p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Phases: {node.phases.join(", ")}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-
+            <DocumentContextPanel
+              canMarkSelectedObsolete={canMarkSelectedObsolete}
+              canSubmitMetadataUpdate={canSubmitMetadataUpdate}
+              documentsCount={filteredDocuments.length}
+              markObsolete={markObsolete}
+              markObsoleteHelper={markObsoleteHelper}
+              metadataActionHelper={metadataActionHelper}
+              metadataDraft={metadataDraft}
+              nextDocumentAction={nextDocumentAction}
+              openCompare={() => setCompareDrawerOpen(true)}
+              openDistribution={() => openWorkflow("distribution")}
+              openOffline={() => openWorkflow("offline")}
+              openVersions={() => openWorkflow("versions")}
+              pendingAction={pendingAction}
+              readRate={readRate}
+              recipientsForSelected={recipientsForSelected}
+              selectedCompareVersion={selectedCompareVersion}
+              selectedDocument={selectedDocument}
+              selectedHubDocument={selectedHubDocument}
+              setMetadataDraft={setMetadataDraft}
+              workflowSteps={workflowSteps}
+              updateMetadata={updateMetadata}
+              projectLots={projectData.projectSetup.lots}
+              projectPhases={projectData.projectSetup.phases}
+            />
           </div>
         </div>
       </Panel>
+
+      {selectedDocumentIds.length > 0 ? (
+        <div className="sticky bottom-6 z-20 rounded-[24px] border border-black/10 bg-white/95 px-4 py-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-stone-950">
+                {selectedDocumentIds.length} document(s) selectionne(s)
+              </p>
+              <p className="text-sm text-stone-600">
+                La barre rapide garde le document actif au centre, puis ouvre la bonne action sans quitter la GED.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => selectedDocument && openWorkflow("distribution")}
+                disabled={!selectedDocument}
+                className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-stone-100"
+              >
+                Distribuer la selection
+              </button>
+              <button
+                type="button"
+                onClick={() => void prepareOfflineSelection()}
+                className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-stone-100"
+              >
+                Preparer offline
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedDocumentIds([])}
+                className="rounded-full border border-stone-200 bg-stone-100 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-200"
+              >
+                Vider la selection
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <WorkflowDrawer
+        open={activeTab === "versions"}
+        title="Publier une nouvelle revision"
+        description="Ajoutez la nouvelle version, verifiez l'historique et gardez une revision courante claire."
+        onClose={() => selectTab("library")}
+      >
+        {selectedDocument ? (
+          <VersionsTab
+            canMarkSelectedObsolete={canMarkSelectedObsolete}
+            canPublishSelectedVersion={canPublishSelectedVersion}
+            markObsoleteHelper={markObsoleteHelper}
+            pendingAction={pendingAction}
+            publishVersionHelper={publishVersionHelper}
+            selectedDocument={selectedDocument}
+            draftVersion={draftVersion}
+            versionFile={versionFile}
+            setVersionFile={setVersionFile}
+            setDraftVersion={setDraftVersion}
+            publishNewVersion={publishNewVersion}
+            markObsolete={markObsolete}
+          />
+        ) : (
+          <EmptyStateCard
+            title="Selectionnez un document"
+            detail="Choisissez d'abord un document dans la bibliotheque centrale pour publier une nouvelle revision."
+          />
+        )}
+      </WorkflowDrawer>
+
+      <WorkflowDrawer
+        open={activeTab === "distribution"}
+        title="Diffusion controlee"
+        description="Lancez la diffusion, suivez les non-lus et relancez les lectures critiques."
+        onClose={() => selectTab("library")}
+      >
+        {selectedDocument ? (
+          <DistributionTab
+            canDistributeSelected={canDistributeSelected}
+            distributeActionHelper={distributeActionHelper}
+            pendingAction={pendingAction}
+            selectedDocument={selectedDocument}
+            recipients={recipientsForSelected}
+            draftVersion={draftVersion}
+            setDraftVersion={setDraftVersion}
+            distributionOptions={projectData.distributionOptions}
+            canAcknowledgeRecipient={canAcknowledgeRecipient}
+            distributeSelected={distributeSelected}
+            getRecipientAcknowledgeHelper={getRecipientAcknowledgeHelper}
+            acknowledgeRecipient={acknowledgeRecipient}
+          />
+        ) : (
+          <EmptyStateCard
+            title="Selectionnez un document"
+            detail="Choisissez d'abord la reference a diffuser depuis la table centrale."
+          />
+        )}
+      </WorkflowDrawer>
+
+      <WorkflowDrawer
+        open={activeTab === "offline"}
+        title="Preparation offline"
+        description="Gardez les documents utiles disponibles sur le chantier, meme hors connexion."
+        onClose={() => selectTab("library")}
+      >
+        <OfflineTab
+          documents={documents}
+          offlineSummary={overview.offline}
+          cachedUrls={cachedDocumentUrls}
+          pendingAction={pendingAction}
+          toggleOffline={toggleOffline}
+        />
+      </WorkflowDrawer>
+
+      <WorkflowDrawer
+        open={compareDrawerOpen}
+        title="Comparer les versions"
+        description="Verifiez visuellement les differences entre la revision en vigueur et son historique."
+        onClose={() => setCompareDrawerOpen(false)}
+      >
+        {selectedDocument?.format === "PDF" ? (
+          <PdfOverlayCompare
+            document={selectedDocument}
+            key={`${selectedDocument.id}-${selectedCompareVersion || "default"}-drawer`}
+            onSelectVersion={(version) =>
+              setComparisonSelections((current) => ({
+                ...current,
+                [selectedDocument.id]: version,
+              }))
+            }
+            selectedVersion={selectedCompareVersion}
+          />
+        ) : (
+          <EmptyStateCard
+            title="Comparaison reservee aux PDF"
+            detail="Les autres formats restent visibles dans l'historique et les telechargements du document."
+          />
+        )}
+      </WorkflowDrawer>
     </div>
   );
 }
@@ -1187,100 +1683,732 @@ function LibraryTab({
   documents,
   selectedDocumentId,
   selectDocument,
-  search,
-  setSearch,
-  filter,
-  setFilter,
-  documentFilters,
+  selectedDocumentIds,
+  toggleDocumentSelection,
 }: {
-  documents: DocumentFile[];
+  documents: HubDocument[];
   selectedDocumentId: string;
   selectDocument: (documentId: string) => void;
-  search: string;
-  setSearch: React.Dispatch<React.SetStateAction<string>>;
-  filter: string;
-  setFilter: React.Dispatch<React.SetStateAction<string>>;
-  documentFilters: string[];
+  selectedDocumentIds: string[];
+  toggleDocumentSelection: (documentId: string) => void;
+}) {
+  return (
+    <div className="rounded-[28px] border border-white/8 bg-white/4">
+      <div className="border-b border-white/8 px-4 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-white">Bibliotheque documentaire</p>
+            <p className="mt-1 text-sm text-slate-400">
+              La table centrale vous montre la bonne version, la diffusion, la lecture et l&apos;etat offline sans ouvrir chaque fiche.
+            </p>
+          </div>
+          <StatusBadge tone="primary">{documents.length} element(s)</StatusBadge>
+        </div>
+      </div>
+
+      {documents.length === 0 ? (
+        <div className="p-5">
+          <EmptyStateCard
+            title="Aucun document dans cette vue"
+            detail="Essayez un autre filtre, une autre vue de gauche, ou repassez sur Tous les documents."
+          />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse text-left">
+            <thead className="border-b border-white/8 bg-black/10 text-xs uppercase tracking-[0.16em] text-slate-500">
+              <tr>
+                <th className="px-4 py-3">
+                  <span className="sr-only">Selection</span>
+                </th>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Code</th>
+                <th className="px-4 py-3">Titre</th>
+                <th className="px-4 py-3">Source</th>
+                <th className="px-4 py-3">Lot</th>
+                <th className="px-4 py-3">Phase</th>
+                <th className="px-4 py-3">Discipline</th>
+                <th className="px-4 py-3">Revision</th>
+                <th className="px-4 py-3">Statut</th>
+                <th className="px-4 py-3">Diffusion</th>
+                <th className="px-4 py-3">Lecture</th>
+                <th className="px-4 py-3">Offline</th>
+                <th className="px-4 py-3">Derniere mise a jour</th>
+              </tr>
+            </thead>
+            <tbody>
+              {documents.map((document) => {
+                const isSelected = selectedDocumentId === document.id;
+                const isChecked = selectedDocumentIds.includes(document.id);
+
+                return (
+                  <tr
+                    key={document.id}
+                    onClick={() => selectDocument(document.id)}
+                    className={cx(
+                      "cursor-pointer border-b border-white/6 text-sm text-slate-200 transition hover:bg-white/6",
+                      isSelected ? "bg-sky-400/10" : "",
+                    )}
+                  >
+                    <td className="px-4 py-4" onClick={(event) => event.stopPropagation()}>
+                      <input
+                        checked={isChecked}
+                        onChange={() => toggleDocumentSelection(document.id)}
+                        type="checkbox"
+                        aria-label={`Selectionner ${document.title}`}
+                        className="size-4 rounded border-white/10 bg-white/5"
+                      />
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="inline-flex min-w-[44px] items-center justify-center rounded-full border border-white/8 bg-white/5 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white">
+                        {getTypeLetter(document.documentType)}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 font-semibold text-white">{document.code}</td>
+                    <td className="px-4 py-4">
+                      <div>
+                        <p className="font-medium text-white">{document.title}</p>
+                        <p className="mt-1 text-xs text-slate-500">{document.documentTypeLabel}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-slate-300">{document.sourceModule}</td>
+                    <td className="px-4 py-4 text-slate-300">{document.lot}</td>
+                    <td className="px-4 py-4 text-slate-300">{document.phase}</td>
+                    <td className="px-4 py-4 text-slate-300">{document.discipline}</td>
+                    <td className="px-4 py-4">
+                      <StatusBadge tone="primary">{formatVersion(document.revision)}</StatusBadge>
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusBadge tone={document.tone}>{document.status}</StatusBadge>
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusBadge tone={document.distributionTone}>{document.distributionLabel}</StatusBadge>
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusBadge tone={document.readTone}>{document.readLabel}</StatusBadge>
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusBadge tone={document.offlineTone}>{document.offlineLabel}</StatusBadge>
+                    </td>
+                    <td className="px-4 py-4 text-slate-300">
+                      <div>
+                        <p>{formatDate(document.updatedAt)}</p>
+                        <p className="mt-1 text-xs text-slate-500">{document.updatedBy} · {timeAgo(document.updatedAt)}</p>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DocumentsSidebar({
+  activeView,
+  currentUserRole,
+  profile,
+  setActiveView,
+  tree,
+  treeFilter,
+  setTreeFilter,
+}: {
+  activeView: DocumentWorkspaceView;
+  currentUserRole: string;
+  profile: ReturnType<typeof getViewProfile>;
+  setActiveView: React.Dispatch<React.SetStateAction<DocumentWorkspaceView>>;
+  tree: DocumentTreeRoot[];
+  treeFilter: WorkspaceTreeFilter;
+  setTreeFilter: React.Dispatch<React.SetStateAction<WorkspaceTreeFilter>>;
 }) {
   return (
     <div className="space-y-4">
-      <StepHeading
-        title="1. Trouver la bonne reference"
-        description="Cherchez un plan, filtrez par lot ou phase, puis gardez une seule reference active pour la suite."
-      />
-      <label className="glass-panel-soft flex items-center gap-3 rounded-[24px] px-4 py-4 text-sm text-slate-300">
-        <Search className="size-4 text-slate-400" />
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          className="w-full bg-transparent text-white outline-none placeholder:text-slate-500"
-          placeholder="Chercher un plan, une phase, une discipline..."
-        />
-      </label>
+      <Panel
+        title="Vues documentaires"
+        description={`Navigation adaptee au role ${currentUserRole}.`}
+      >
+        <div className="space-y-5">
+          <SidebarGroup
+            title="Workflow"
+            views={profile.workflowViews}
+            activeView={activeView}
+            onSelect={setActiveView}
+          />
+          <SidebarGroup
+            title="Contenus"
+            views={profile.contentViews}
+            activeView={activeView}
+            onSelect={setActiveView}
+          />
+        </div>
+      </Panel>
 
-      <div className="flex flex-wrap gap-2">
-        {documentFilters.map((item) => (
-          <button
-            key={item}
-            onClick={() => setFilter(item)}
-            className={cx(
-              "rounded-full border px-4 py-2 text-sm font-semibold",
-              filter === item
-                ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
-                : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
-            )}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-
-      <StepHeading
-        title="2. Ouvrir le document de travail"
-        description="Selectionnez la revision a traiter pour synchroniser la publication, la diffusion et le suivi."
-      />
-      <div className="space-y-3">
-        {documents.map((document) => (
-          <button
-            key={document.id}
-            type="button"
-            onClick={() => selectDocument(document.id)}
-            title={
-              selectedDocumentId === document.id
-                ? "Ce document est deja selectionne."
-                : "Ouvrir ce document et synchroniser la selection dans l'URL."
-            }
-            className={cx(
-              "w-full rounded-[24px] border p-4 text-left",
-              selectedDocumentId === document.id
-                ? "border-sky-400/25 bg-sky-400/10"
-                : "border-white/8 bg-white/4 hover:bg-white/6",
-            )}
-          >
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-display text-lg font-semibold text-white">
-                    {document.code}
-                  </p>
-                  <StatusBadge tone={document.tone}>{document.status}</StatusBadge>
-                  <StatusBadge tone="primary">{document.format}</StatusBadge>
-                </div>
-                <p className="mt-2 text-sm text-slate-200">{document.title}</p>
-                <p className="mt-1 text-sm text-slate-400">
-                  {document.discipline} - {document.lot} - {document.phase}
-                </p>
+      <Panel
+        title="Classement du projet"
+        description="Naviguez par lot, phase et discipline comme dans un classement chantier."
+      >
+        <div className="space-y-3">
+          {tree.map((root) => (
+            <div
+              key={root.title}
+              className="rounded-[22px] border border-white/8 bg-white/4 p-4"
+            >
+              <div className="flex items-center gap-3">
+                <FolderOpen className="size-4 text-slate-400" />
+                <button
+                  type="button"
+                  onClick={() => setTreeFilter({ kind: "discipline", value: root.title })}
+                  className={cx(
+                    "text-sm font-semibold",
+                    treeFilter?.kind === "discipline" && treeFilter.value === root.title
+                      ? "text-white"
+                      : "text-slate-300",
+                  )}
+                >
+                  {root.title}
+                </button>
               </div>
-              <div className="grid grid-cols-2 gap-3 text-sm text-slate-300 sm:grid-cols-4">
-                <MiniStat label="Revision" value={document.revision} />
-                <MiniStat label="Taille" value={`${document.fileSizeMb} Mo`} />
-                <MiniStat label="Publie" value={formatDate(document.publishedAt)} />
-                <MiniStat label="Lectures" value={`${document.readCount}/${document.recipients}`} />
+              <div className="mt-4 space-y-3">
+                {root.nodes.map((node) => (
+                  <div
+                    key={node.label}
+                    className="space-y-2 rounded-[18px] border border-white/8 bg-white/4 px-4 py-3"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setTreeFilter({ kind: "lot", value: node.label })}
+                      className={cx(
+                        "text-left text-sm font-medium",
+                        treeFilter?.kind === "lot" && treeFilter.value === node.label
+                          ? "text-white"
+                          : "text-slate-300",
+                      )}
+                    >
+                      {node.label}
+                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      {node.phases.map((phase) => (
+                        <button
+                          key={`${node.label}-${phase}`}
+                          type="button"
+                          onClick={() => setTreeFilter({ kind: "phase", value: phase })}
+                          className={cx(
+                            "rounded-full border px-3 py-1 text-xs",
+                            treeFilter?.kind === "phase" && treeFilter.value === phase
+                              ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
+                              : "border-white/10 bg-white/5 text-slate-400",
+                          )}
+                        >
+                          {phase}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
+          ))}
+          {treeFilter ? (
+            <button
+              type="button"
+              onClick={() => setTreeFilter(null)}
+              className="w-full rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+            >
+              Effacer le classement
+            </button>
+          ) : null}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function SidebarGroup({
+  title,
+  views,
+  activeView,
+  onSelect,
+}: {
+  title: string;
+  views: DocumentWorkspaceView[];
+  activeView: DocumentWorkspaceView;
+  onSelect: (view: DocumentWorkspaceView) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{title}</p>
+      <div className="space-y-2">
+        {views.map((view) => (
+          <button
+            key={view}
+            type="button"
+            onClick={() => onSelect(view)}
+            className={cx(
+              "flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left text-sm font-semibold",
+              activeView === view
+                ? "border-sky-400/25 bg-sky-400/12 text-white"
+                : "border-white/8 bg-white/4 text-slate-300 hover:bg-white/6",
+            )}
+          >
+            <span>{workspaceViewLabels[view]}</span>
+            <span className="text-xs text-slate-500">{view === activeView ? "Actif" : ""}</span>
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function DocumentContextPanel({
+  canMarkSelectedObsolete,
+  canSubmitMetadataUpdate,
+  documentsCount,
+  markObsolete,
+  markObsoleteHelper,
+  metadataActionHelper,
+  metadataDraft,
+  nextDocumentAction,
+  openCompare,
+  openDistribution,
+  openOffline,
+  openVersions,
+  pendingAction,
+  readRate,
+  recipientsForSelected,
+  selectedCompareVersion,
+  selectedDocument,
+  selectedHubDocument,
+  setMetadataDraft,
+  workflowSteps,
+  updateMetadata,
+  projectLots,
+  projectPhases,
+}: {
+  canMarkSelectedObsolete: boolean;
+  canSubmitMetadataUpdate: boolean;
+  documentsCount: number;
+  markObsolete: (documentId: string) => void;
+  markObsoleteHelper: string;
+  metadataActionHelper: string;
+  metadataDraft: {
+    title: string;
+    discipline: string;
+    lot: string;
+    phase: string;
+  };
+  nextDocumentAction: {
+    title: string;
+    detail: string;
+    helper: string;
+    actionLabel: string;
+    actionTone: ActiveTone;
+    tab: DocumentsTab;
+  };
+  openCompare: () => void;
+  openDistribution: () => void;
+  openOffline: () => void;
+  openVersions: () => void;
+  pendingAction: string;
+  readRate: number;
+  recipientsForSelected: Recipient[];
+  selectedCompareVersion: string;
+  selectedDocument?: DocumentFile;
+  selectedHubDocument?: HubDocument;
+  setMetadataDraft: React.Dispatch<
+    React.SetStateAction<{
+      title: string;
+      discipline: string;
+      lot: string;
+      phase: string;
+    }>
+  >;
+  workflowSteps: DocumentWorkflowStep[];
+  updateMetadata: () => void;
+  projectLots: string[];
+  projectPhases: string[];
+}) {
+  return (
+    <div className="space-y-4">
+      <Panel
+        title="Document selectionne"
+        description={
+          selectedHubDocument
+            ? "Le panneau de contexte repond tout de suite aux questions de version, diffusion, lecture et offline."
+            : "Selectionnez un document dans la table pour ouvrir son contexte."
+        }
+      >
+        {!selectedHubDocument || !selectedDocument ? (
+          <EmptyStateCard
+            title="Aucune fiche ouverte"
+            detail={`Choisissez un document parmi les ${documentsCount} elements de la bibliotheque pour ouvrir sa fiche detail.`}
+          />
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-display text-2xl font-semibold text-white">{selectedHubDocument.code}</p>
+                    <StatusBadge tone={selectedHubDocument.tone}>{selectedHubDocument.status}</StatusBadge>
+                  </div>
+                  <p className="text-sm text-slate-200">{selectedHubDocument.title}</p>
+                  <p className="text-sm text-slate-500">
+                    {selectedHubDocument.documentTypeLabel} · {selectedHubDocument.sourceModule}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {selectedHubDocument.quickBadges.map((badge) => (
+                    <StatusBadge key={badge.label} tone={badge.tone}>
+                      {badge.label}
+                    </StatusBadge>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {selectedHubDocument.quickBadges.slice(0, 4).map((badge) => (
+                  <div
+                    key={`${selectedHubDocument.id}-${badge.label}`}
+                    className="rounded-[18px] border border-white/8 bg-white/4 px-4 py-3"
+                  >
+                    <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Reponse rapide</p>
+                    <p className="mt-1 text-sm font-semibold text-white">{badge.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <QuickActionButton label="Ouvrir" onClick={() => (selectedDocument.downloadUrl ? window.open(selectedDocument.downloadUrl, "_blank") : null)} disabled={!selectedDocument.downloadUrl} />
+              <QuickActionButton label="Telecharger" onClick={() => (selectedDocument.downloadUrl ? window.open(selectedDocument.downloadUrl, "_blank") : null)} disabled={!selectedDocument.downloadUrl} />
+              <QuickActionButton label="Distribuer" onClick={openDistribution} />
+              <QuickActionButton label="Publier revision" onClick={openVersions} />
+              <QuickActionButton label="Comparer" onClick={openCompare} disabled={selectedDocument.format !== "PDF"} />
+              <QuickActionButton
+                label={pendingAction === "mark-obsolete" ? "Mise a jour..." : "Marquer obsolete"}
+                onClick={() => (canMarkSelectedObsolete ? markObsolete(selectedDocument.id) : null)}
+                disabled={!canMarkSelectedObsolete}
+                title={markObsoleteHelper}
+              />
+            </div>
+
+            <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+              <p className="text-sm font-semibold text-white">Metadonnees</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Titre"
+                  value={metadataDraft.title}
+                  onChange={(value) =>
+                    setMetadataDraft((current) => ({ ...current, title: value }))
+                  }
+                />
+                <Field
+                  label="Discipline"
+                  value={metadataDraft.discipline}
+                  onChange={(value) =>
+                    setMetadataDraft((current) => ({ ...current, discipline: value }))
+                  }
+                />
+                <SelectField
+                  label="Lot"
+                  value={metadataDraft.lot}
+                  options={projectLots}
+                  onChange={(value) =>
+                    setMetadataDraft((current) => ({ ...current, lot: value }))
+                  }
+                />
+                <SelectField
+                  label="Phase"
+                  value={metadataDraft.phase}
+                  options={projectPhases}
+                  onChange={(value) =>
+                    setMetadataDraft((current) => ({ ...current, phase: value }))
+                  }
+                />
+              </div>
+              <button
+                onClick={() => (canSubmitMetadataUpdate ? void updateMetadata() : null)}
+                disabled={!canSubmitMetadataUpdate}
+                title={metadataActionHelper}
+                className={cx(
+                  "mt-4 inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
+                  canSubmitMetadataUpdate
+                    ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
+                    : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
+                )}
+              >
+                <CheckCheck className="size-4" />
+                {pendingAction === "update-metadata" ? "Mise a jour..." : "Mettre a jour les metadonnees"}
+              </button>
+              <p className="mt-2 text-xs leading-5 text-slate-400">{metadataActionHelper}</p>
+            </div>
+
+            <DetailSection title="Pieces jointes" description="Le parent document et ses elements relies restent visibles au meme endroit.">
+              {selectedHubDocument.attachments.length > 0 ? (
+                <div className="space-y-2">
+                  {selectedHubDocument.attachments.map((attachment) => (
+                    <AttachmentRow key={attachment.id} attachment={attachment} />
+                  ))}
+                </div>
+              ) : (
+                <EmptyHint text="Aucune piece jointe supplementaire exposee par la source actuelle." />
+              )}
+            </DetailSection>
+
+            <DetailSection title="Preuves liees" description="Photos et preuves rattachees au document parent quand elles existent.">
+              {selectedHubDocument.relatedPhotos.length > 0 ? (
+                <div className="space-y-2">
+                  {selectedHubDocument.relatedPhotos.map((attachment) => (
+                    <AttachmentRow key={attachment.id} attachment={attachment} />
+                  ))}
+                </div>
+              ) : (
+                <EmptyHint text="Les preuves liees apparaitront ici a mesure que les autres modules alimentent le hub documentaire." />
+              )}
+            </DetailSection>
+
+            <DetailSection title="Versions" description="Historique complet et comparaison de la revision en vigueur.">
+              <div className="space-y-2">
+                {selectedDocument.versions.slice().reverse().map((version) => (
+                  <div key={`${selectedDocument.id}-${version.version}`} className="rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-white">{formatVersion(version.version)}</p>
+                      <StatusBadge tone={version.status === "Courante" ? "success" : version.status === "Obsolete" ? "warning" : "primary"}>
+                        {version.status}
+                      </StatusBadge>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-400">Publie le {formatDate(version.publishedAt)}</p>
+                  </div>
+                ))}
+              </div>
+              {selectedDocument.format === "PDF" ? (
+                <div className="mt-3 rounded-[18px] border border-white/8 bg-white/4 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Comparaison PDF</p>
+                      <p className="mt-1 text-sm text-slate-400">
+                        Revision de reference : {selectedCompareVersion ? formatVersion(selectedCompareVersion) : formatVersion(selectedDocument.compareWith)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={openCompare}
+                      className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+                    >
+                      Comparer
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </DetailSection>
+
+            <DetailSection title="Diffusion" description="Audience, progression de lecture et relances depuis la meme fiche.">
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <MiniStat label="Audience" value={selectedDocument.recipients > 0 ? `${selectedDocument.recipients} cible(s)` : "A definir"} />
+                  <MiniStat label="Lecture" value={selectedDocument.recipients > 0 ? `${readRate}%` : "0%"} />
+                  <MiniStat label="Non lus" value={`${selectedHubDocument.unreadCount}`} />
+                </div>
+                <ProgressBar value={readRate} tone={selectedHubDocument.unreadCount > 0 ? "warning" : "success"} />
+                {recipientsForSelected.length > 0 ? (
+                  <div className="space-y-2">
+                    {recipientsForSelected.map((recipient) => (
+                      <div key={recipient.id} className="flex items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{recipient.name}</p>
+                          <p className="mt-1 text-xs text-slate-500">{recipient.role}</p>
+                        </div>
+                        <StatusBadge tone={recipient.status === "Lu" ? "success" : "warning"}>
+                          {recipient.status}
+                        </StatusBadge>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyHint text="Aucune diffusion lancee pour cette revision." />
+                )}
+              </div>
+            </DetailSection>
+
+            <DetailSection title="Offline" description="Suivi du cache mobile et dernier etat de synchronisation.">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <MiniStat label="Etat" value={selectedHubDocument.offlineLabel} />
+                <MiniStat label="Derniere sync" value={timeAgo(selectedDocument.publishedAt)} />
+              </div>
+              <button
+                type="button"
+                onClick={openOffline}
+                className="mt-3 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+              >
+                Gerer le cache
+              </button>
+            </DetailSection>
+
+            <DetailSection title="Audit trail" description="Trace documentaire, diffusion et origine du flux.">
+              <div className="space-y-2">
+                <AuditTrailRow label="Publie par" value={`${selectedHubDocument.updatedBy} · ${formatDate(selectedHubDocument.updatedAt)}`} />
+                <AuditTrailRow label="Source" value={selectedHubDocument.sourceModule} />
+                <AuditTrailRow label="Visibilite" value={selectedHubDocument.visibilityScope} />
+                <AuditTrailRow label="Priorite" value={selectedHubDocument.priority === "high" ? "Haute" : selectedHubDocument.priority === "medium" ? "Moyenne" : "Basse"} />
+              </div>
+            </DetailSection>
+
+            <DetailSection title="Prochaine etape" description={nextDocumentAction.detail}>
+              <div className="space-y-3">
+                <div className="rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
+                  <p className="text-sm font-semibold text-white">{nextDocumentAction.title}</p>
+                  <p className="mt-2 text-sm text-slate-400">{nextDocumentAction.helper}</p>
+                </div>
+                <div className="space-y-2">
+                  {workflowSteps.map((step) => (
+                    <div key={step.step} className="rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-white">{step.step}</p>
+                        <StatusBadge tone={step.state === "done" ? "success" : step.state === "current" ? "primary" : "neutral"}>
+                          {step.state === "done" ? "Pret" : step.state === "current" ? "En cours" : "A venir"}
+                        </StatusBadge>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-400">{step.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </DetailSection>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+function WorkflowDrawer({
+  open,
+  title,
+  description,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  description: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/40 backdrop-blur-sm">
+      <div className="flex h-full w-full max-w-[960px] flex-col border-l border-white/8 bg-stone-950 shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/8 px-6 py-5">
+          <div>
+            <p className="font-display text-2xl font-semibold text-white">{title}</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">{description}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 bg-white/5 p-2 text-white hover:bg-white/8"
+            aria-label="Fermer"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-6">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function DetailSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
+      <p className="text-sm font-semibold text-white">{title}</p>
+      <p className="mt-1 text-sm leading-6 text-slate-400">{description}</p>
+      <div className="mt-4">{children}</div>
+    </div>
+  );
+}
+
+function QuickActionButton({
+  label,
+  onClick,
+  disabled,
+  title,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      title={title}
+      className={cx(
+        "rounded-[18px] border px-4 py-3 text-sm font-semibold",
+        disabled
+          ? "cursor-not-allowed border-white/8 bg-white/5 text-slate-500"
+          : "border-white/10 bg-white/5 text-white hover:bg-white/8",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function AttachmentRow({ attachment }: { attachment: HubAttachment }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
+      <div>
+        <p className="text-sm font-semibold text-white">{attachment.label}</p>
+        <p className="mt-1 text-xs text-slate-500">
+          {attachment.kind} · {attachment.meta}
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <StatusBadge tone="primary">{attachment.status}</StatusBadge>
+        {attachment.href ? (
+          <a
+            href={attachment.href}
+            target="_blank"
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white hover:bg-white/8"
+          >
+            Ouvrir
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function EmptyHint({ text }: { text: string }) {
+  return (
+    <div className="rounded-[18px] border border-dashed border-white/8 bg-white/4 px-4 py-4 text-sm leading-6 text-slate-400">
+      {text}
+    </div>
+  );
+}
+
+function AuditTrailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
+      <p className="text-sm text-slate-400">{label}</p>
+      <p className="text-sm font-semibold text-white">{value}</p>
     </div>
   );
 }

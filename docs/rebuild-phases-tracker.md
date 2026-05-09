@@ -254,58 +254,58 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 
 ### Frontend Tasks
 
-- [ ] Refactor Module 6 information architecture from a plans page into a unified document hub.
-- [ ] Keep the KPI strip at the top and make each KPI clickable as a filter/view switch.
-- [ ] Add a desktop action bar under the KPIs with:
-- [ ] global search
-- [ ] filter chips
-- [ ] sort dropdown
-- [ ] primary actions for revision publish, distribution, compare, and offline prep
-- [ ] Rebuild the page into a stable desktop 3-column workspace:
-- [ ] left navigation / smart views
-- [ ] center document library table
-- [ ] right contextual document panel
-- [ ] Add the new left navigation model:
-- [ ] workflow views (`Tous les documents`, `Plans en vigueur`, `A diffuser`, `Diffusion en attente`, `Obsoletes`, `Offline chantier`, `Audit documentaire`)
-- [ ] content views (`Plans & revisions`, `Rapports chantier`, `Photos & preuves`, `Finance & justificatifs`, `Qualite / NCR`, `Exports & PDF signes`)
-- [ ] tree navigation by project / lot / phase / discipline
-- [ ] Rebuild the center library as a dense document table with scan-friendly columns for:
-- [ ] document type
-- [ ] code
-- [ ] title
-- [ ] type
-- [ ] source
-- [ ] lot
-- [ ] phase
-- [ ] discipline
-- [ ] revision
-- [ ] status
-- [ ] distribution
-- [ ] reading progress
-- [ ] offline state
-- [ ] last update
-- [ ] Rebuild the right document panel so the selected record surfaces:
-- [ ] document header and quick badges
-- [ ] quick actions
-- [ ] metadata
-- [ ] attachments & photos
-- [ ] versions timeline
-- [ ] distribution state
-- [ ] offline state
-- [ ] audit trail
-- [ ] Replace full-page action jumps with drawers/modals for:
-- [ ] publish revision
-- [ ] distribute
-- [ ] compare versions
-- [ ] prepare offline
-- [ ] Build a frontend adapter layer so reports, photos, finance proofs, quality evidence, and generated PDFs can be represented in the hub without waiting for every backend-native type to exist.
-- [ ] Preserve current search, filters, permissions, and mutations while improving their layout and readability.
-- [ ] Surface the 4 critical document answers instantly for each selected item:
-- [ ] is this the right/current version
-- [ ] has it been distributed
-- [ ] who has read it
-- [ ] is it available offline
-- [ ] Add the bottom bulk action bar for multi-select document actions.
+- [x] Refactor Module 6 information architecture from a plans page into a unified document hub.
+- [x] Keep the KPI strip at the top and make each KPI clickable as a filter/view switch.
+- [x] Add a desktop action bar under the KPIs with:
+- [x] global search
+- [x] filter chips
+- [x] sort dropdown
+- [x] primary actions for revision publish, distribution, compare, and offline prep
+- [x] Rebuild the page into a stable desktop 3-column workspace:
+- [x] left navigation / smart views
+- [x] center document library table
+- [x] right contextual document panel
+- [x] Add the new left navigation model:
+- [x] workflow views (`Tous les documents`, `Plans en vigueur`, `A diffuser`, `Diffusion en attente`, `Obsoletes`, `Offline chantier`, `Audit documentaire`)
+- [x] content views (`Plans & revisions`, `Rapports chantier`, `Photos & preuves`, `Finance & justificatifs`, `Qualite / NCR`, `Exports & PDF signes`)
+- [x] tree navigation by project / lot / phase / discipline
+- [x] Rebuild the center library as a dense document table with scan-friendly columns for:
+- [x] document type
+- [x] code
+- [x] title
+- [x] type
+- [x] source
+- [x] lot
+- [x] phase
+- [x] discipline
+- [x] revision
+- [x] status
+- [x] distribution
+- [x] reading progress
+- [x] offline state
+- [x] last update
+- [x] Rebuild the right document panel so the selected record surfaces:
+- [x] document header and quick badges
+- [x] quick actions
+- [x] metadata
+- [x] attachments & photos
+- [x] versions timeline
+- [x] distribution state
+- [x] offline state
+- [x] audit trail
+- [x] Replace full-page action jumps with drawers/modals for:
+- [x] publish revision
+- [x] distribute
+- [x] compare versions
+- [x] prepare offline
+- [x] Build a frontend adapter layer so reports, photos, finance proofs, quality evidence, and generated PDFs can be represented in the hub without waiting for every backend-native type to exist.
+- [x] Preserve current search, filters, permissions, and mutations while improving their layout and readability.
+- [x] Surface the 4 critical document answers instantly for each selected item:
+- [x] is this the right/current version
+- [x] has it been distributed
+- [x] who has read it
+- [x] is it available offline
+- [x] Add the bottom bulk action bar for multi-select document actions.
 
 ### Cutover Tasks
 
@@ -316,16 +316,16 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 
 ### Phase 4 Exit Criteria
 
-- [ ] Module 6 uses a stable desktop 3-column document workspace.
-- [ ] The KPI strip remains at the top and is actionable.
-- [ ] The center area is a proper document library table, not a dashboard block layout.
-- [ ] The UI supports a broader document hub model beyond plan files.
-- [ ] Versions, distribution, offline state, attachments, and audit are surfaced through the selected-document panel.
-- [ ] Role-aware relevance and visibility are reflected in the workspace.
+- [x] Module 6 uses a stable desktop 3-column document workspace.
+- [x] The KPI strip remains at the top and is actionable.
+- [x] The center area is a proper document library table, not a dashboard block layout.
+- [x] The UI supports a broader document hub model beyond plan files.
+- [x] Versions, distribution, offline state, attachments, and audit are surfaced through the selected-document panel.
+- [x] Role-aware relevance and visibility are reflected in the workspace.
 - [ ] Finance-related roles surface only finance-relevant files/photos in the hub.
 - [ ] Reports and related photos can conceptually live inside the same document system.
-- [ ] Existing actions, permissions, and current workflows remain functional.
-- [ ] Document status, revision status, read progress, offline status, and source context are materially easier to scan.
+- [x] Existing actions, permissions, and current workflows remain functional.
+- [x] Document status, revision status, read progress, offline status, and source context are materially easier to scan.
 - [ ] The full `publish -> distribute -> acknowledge -> compare` flow runs from rebuild APIs.
 
 ## Phase 5 - Finance Rebuild
