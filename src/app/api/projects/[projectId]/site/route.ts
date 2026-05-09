@@ -8,6 +8,7 @@ import {
   uploadSitePhoto,
 } from "@/lib/backend/service";
 import { getRebuildAccessTokenFromRequest } from "@/lib/rebuild-auth";
+import { getPilotSiteModuleSeedByLegacyId } from "@/lib/server/pilot-seed";
 import {
   buildRebuildSitePayload,
   mutateRebuildSiteReports,
@@ -31,15 +32,16 @@ export async function GET(
   try {
     const { projectId } = await params;
     const token = request.cookies.get(sessionCookieName)?.value ?? "";
-    const legacyPayload = await getSitePayload(token, projectId);
 
     if (shouldUseRebuildSiteBridge()) {
       try {
         const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+        const compatibilityPayload =
+          getPilotSiteModuleSeedByLegacyId(projectId) ?? (await getSitePayload(token, projectId));
         const bridgedPayload = await buildRebuildSitePayload(
           rebuildAccessToken,
           projectId,
-          legacyPayload,
+          compatibilityPayload,
         );
 
         if (bridgedPayload) {
@@ -50,7 +52,7 @@ export async function GET(
       }
     }
 
-    const payload = legacyPayload;
+    const payload = await getSitePayload(token, projectId);
     return NextResponse.json(payload);
   } catch (error) {
     if (isApiError(error)) {
@@ -97,8 +99,10 @@ export async function POST(
               );
 
               if (bridged) {
-                const legacyPayload = await getSitePayload(token, projectId);
-                legacyPayload.draftPhoto = {
+                const compatibilityPayload =
+                  getPilotSiteModuleSeedByLegacyId(projectId) ??
+                  (await getSitePayload(token, projectId));
+                compatibilityPayload.draftPhoto = {
                   geo: photoPayload.geo,
                   lot: photoPayload.lot,
                   task: photoPayload.task,
@@ -108,14 +112,14 @@ export async function POST(
                 const nextPayload = await buildRebuildSitePayload(
                   rebuildAccessToken,
                   projectId,
-                  legacyPayload,
+                  compatibilityPayload,
                 );
 
                 if (nextPayload) {
                   return NextResponse.json(nextPayload);
                 }
 
-                return NextResponse.json(legacyPayload);
+                return NextResponse.json(compatibilityPayload);
               }
             } catch (error) {
               console.error("[site bridge] photo upload fallback to legacy payload", error);
@@ -157,11 +161,13 @@ export async function POST(
               }
 
               if (bridged) {
-                const legacyPayload = await getSitePayload(token, projectId);
+                const compatibilityPayload =
+                  getPilotSiteModuleSeedByLegacyId(projectId) ??
+                  (await getSitePayload(token, projectId));
                 if (body.action === "create-ncr") {
                   const draftNcr = body.payload?.draftNcr;
                   if (draftNcr && typeof draftNcr === "object") {
-                    legacyPayload.draftNcr = {
+                    compatibilityPayload.draftNcr = {
                       description: String((draftNcr as Record<string, unknown>).description ?? ""),
                       dueDate: String((draftNcr as Record<string, unknown>).dueDate ?? ""),
                       owner: String((draftNcr as Record<string, unknown>).owner ?? ""),
@@ -176,14 +182,14 @@ export async function POST(
                 const nextPayload = await buildRebuildSitePayload(
                   rebuildAccessToken,
                   projectId,
-                  legacyPayload,
+                  compatibilityPayload,
                 );
 
                 if (nextPayload) {
                   return NextResponse.json(nextPayload);
                 }
 
-                return NextResponse.json(legacyPayload);
+                return NextResponse.json(compatibilityPayload);
               }
             } catch (error) {
               console.error("[site bridge] mutation fallback to legacy payload", error);

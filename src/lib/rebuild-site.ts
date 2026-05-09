@@ -8,7 +8,10 @@ import type {
   SiteReportDraft,
   SiteReportRecord,
 } from "@/lib/backend/types";
-import { findPilotUserCompatibilityByBackendId } from "@/lib/server/pilot-seed";
+import {
+  findPilotUserCompatibilityByBackendId,
+  getPilotSiteModuleSeedByLegacyId,
+} from "@/lib/server/pilot-seed";
 import {
   fetchRebuildProjectMembers,
   getRebuildApiUrl,
@@ -87,6 +90,11 @@ type RebuildNcrPayload = {
   items: RebuildNcr[];
 };
 
+type RebuildNcrDetailPayload = {
+  item: RebuildNcr;
+  photos: Array<{ fileKey: string; fileUrl: string; id: string; uploadedAt?: string }>;
+};
+
 type RebuildProjectMember = NonNullable<
   Awaited<ReturnType<typeof fetchRebuildProjectMembers>>
 >[number];
@@ -129,6 +137,9 @@ type NcrMutationPayload = {
 };
 
 type EncodedPhotoTaskTag = {
+  accent?: string;
+  author?: string;
+  legacyPhotoId?: string;
   lot?: string;
   task?: string;
   title?: string;
@@ -178,12 +189,15 @@ export function shouldUseRebuildSiteBridge() {
 export async function buildRebuildSitePayload(
   accessToken: string,
   legacyProjectId: string,
-  legacyPayload: SiteModuleData,
+  fallbackPayload: SiteModuleData,
 ) {
   const resolvedProject = await resolveRebuildProjectForLegacyId(accessToken, legacyProjectId);
   if (!resolvedProject) {
     return null;
   }
+
+  const compatibilitySeed =
+    getPilotSiteModuleSeedByLegacyId(legacyProjectId) ?? fallbackPayload;
 
   const [rebuildReports, projectMembers, rebuildPhotos, rebuildNcrs] = await Promise.all([
     fetchRebuildReports(accessToken, resolvedProject.id),
@@ -192,41 +206,41 @@ export async function buildRebuildSitePayload(
     fetchRebuildNcrs(accessToken, resolvedProject.id),
   ]);
 
-  if (!rebuildReports) {
+  if (!rebuildReports || !rebuildPhotos || !rebuildNcrs) {
     return null;
   }
 
   const userLookup = buildRebuildUserLookup(projectMembers);
   const rebuildMappedReports = rebuildReports.map((report) =>
-    mapRebuildReportToLegacy(report, legacyProjectId, legacyPayload.lotProgress, userLookup),
+    mapRebuildReportToLegacy(
+      report,
+      legacyProjectId,
+      compatibilitySeed.lotProgress,
+      compatibilitySeed,
+      userLookup,
+    ),
   );
-  const reports = mergeReportsByDate(rebuildMappedReports, legacyPayload.reports);
-  const lotProgress = deriveLotProgress(reports, legacyPayload.lotProgress);
-  const photoLibrary =
-    rebuildPhotos === null
-      ? legacyPayload.photoLibrary
-      : mergePhotoLibrary(
-          rebuildPhotos.map((photo, index) =>
-            mapRebuildPhotoToLegacy(photo, userLookup, index),
-          ),
-          legacyPayload.photoLibrary,
-        );
-  const ncrs =
-    rebuildNcrs === null
-      ? legacyPayload.ncrs
-      : mergeNcrs(
-          rebuildNcrs.map((ncr) => mapRebuildNcrToLegacy(ncr, userLookup)),
-          legacyPayload.ncrs,
-        );
+  const reports = rebuildMappedReports.sort((left, right) =>
+    right.date.localeCompare(left.date),
+  );
+  const lotProgress = deriveLotProgress(reports, compatibilitySeed.lotProgress);
+  const photoLibrary = rebuildPhotos
+    .map((photo, index) =>
+      mapRebuildPhotoToLegacy(photo, compatibilitySeed, userLookup, index),
+    )
+    .sort((left, right) => String(right.timestamp).localeCompare(String(left.timestamp)));
+  const ncrs = rebuildNcrs
+    .map((ncr) => mapRebuildNcrToLegacy(ncr, compatibilitySeed, userLookup))
+    .sort((left, right) => String(right.dueDate).localeCompare(String(left.dueDate)));
   const overviewKpis = deriveOverviewKpis(reports, ncrs, lotProgress);
   const signatureQueue = deriveSignatureQueue(reports);
-  const reportDraft = deriveReportDraft(reports[0], lotProgress, legacyPayload.reportDraft);
+  const reportDraft = deriveReportDraft(reports[0], lotProgress, compatibilitySeed.reportDraft);
 
   return {
-    ...legacyPayload,
+    ...compatibilitySeed,
     lotProgress,
     overview: {
-      ...legacyPayload.overview,
+      ...compatibilitySeed.overview,
       kpis: overviewKpis,
     },
     photoLibrary,
@@ -380,9 +394,14 @@ export async function mutateRebuildSiteNcr(
 
       const projectMembers = await fetchRebuildProjectMembers(accessToken, resolvedProject.id);
       const assignedMember = resolveAssignedRebuildMember(projectMembers, draftNcr.owner);
-      const evidenceUrl = draftNcr.photoAttached
-        ? buildCompatEvidenceUrl("create", draftNcr.title)
-        : undefined;
+      const photoAttachments = draftNcr.photoAttached
+        ? await resolveNcrPhotoAttachments(
+            accessToken,
+            resolvedProject.id,
+            draftNcr.title,
+            draftNcr.owner,
+          )
+        : [];
 
       return Boolean(
         await callRebuildJson(
@@ -397,7 +416,8 @@ export async function mutateRebuildSiteNcr(
               assignedTo: assignedMember?.userId,
               deadline: normalizeDateInput(draftNcr.dueDate),
               description: draftNcr.description.trim(),
-              evidenceUrl,
+              evidenceUrl: photoAttachments[0]?.fileUrl,
+              photos: photoAttachments,
               severity: mapLegacyNcrSeverityToRebuild(draftNcr.severity),
               title: draftNcr.title.trim(),
             }),
@@ -416,6 +436,22 @@ export async function mutateRebuildSiteNcr(
         return false;
       }
 
+      const ncrDetail = await fetchRebuildNcrDetail(
+        accessToken,
+        resolvedProject.id,
+        backendNcrId,
+      );
+      const fallbackAttachments =
+        ncrDetail?.photos?.length
+          ? []
+          : await resolveNcrPhotoAttachments(
+              accessToken,
+              resolvedProject.id,
+              ref,
+            );
+      const evidenceUrl =
+        ncrDetail?.photos?.[0]?.fileUrl ?? fallbackAttachments[0]?.fileUrl ?? undefined;
+
       return Boolean(
         await callRebuildJson(
           `/api/v1/projects/${resolvedProject.id}/ncr/${backendNcrId}/close`,
@@ -426,7 +462,8 @@ export async function mutateRebuildSiteNcr(
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              evidenceUrl: buildCompatEvidenceUrl("close", ref),
+              evidenceUrl,
+              photos: fallbackAttachments,
             }),
           },
         ),
@@ -471,8 +508,11 @@ function mapRebuildReportToLegacy(
   report: RebuildReport,
   legacyProjectId: string,
   legacyLotProgress: SiteLotProgressRecord[],
+  compatibilitySeed: SiteModuleData,
   userLookup: Map<string, { email: string; fullName: string }>,
 ): SiteReportRecord {
+  const compatibilityReport =
+    compatibilitySeed.reports.find((item) => item.date === String(report.reportDate)) ?? null;
   const compatibilityAuthor = findPilotUserCompatibilityByBackendId(String(report.createdBy));
   const compatibilitySigner =
     report.signedBy ? findPilotUserCompatibilityByBackendId(String(report.signedBy)) : null;
@@ -492,33 +532,44 @@ function mapRebuildReportToLegacy(
       tone: resolveProgressTone(progress, planned),
     };
   });
-  const mappedStatus =
+  const backendStatus =
     report.status === "draft" && completeness >= 95
       ? { status: "Soumis", tone: "primary" as const }
       : statusToLegacy[report.status];
-  const pdfReady = report.status !== "draft";
-  const compatId = buildCompatReportId(report.id);
+  const mappedStatus =
+    report.status === "signed"
+      ? { status: "Signe", tone: "success" as const }
+      : compatibilityReport
+        ? {
+            status: compatibilityReport.status,
+            tone: compatibilityReport.tone as SiteReportRecord["tone"],
+          }
+        : backendStatus;
+  const pdfReady = compatibilityReport?.pdfReady ?? report.status !== "draft";
+  const compatId = compatibilityReport?.id ?? buildCompatReportId(report.id);
 
   return {
     id: compatId,
     date: String(report.reportDate),
     weather: weatherToLegacy[report.weather] ?? String(report.weather),
     workforce: Number(report.workforceCount ?? 0),
-    progress: resolveProgressAverage(progressByLot),
+    progress: compatibilityReport?.progress ?? resolveProgressAverage(progressByLot),
     author:
+      compatibilityReport?.author ??
       compatibilityAuthor?.name ??
       rebuildAuthor?.fullName ??
       rebuildAuthor?.email ??
       String(report.createdBy),
     status: mappedStatus.status,
     tone: mappedStatus.tone,
-    summary: summarizeActivities(report.activities),
-    completeness,
+    summary: compatibilityReport?.summary ?? summarizeActivities(report.activities),
+    completeness: compatibilityReport?.completeness ?? completeness,
     pdfReady,
-    signedByCt: true,
-    signedByMoe: report.status === "signed",
+    signedByCt: compatibilityReport?.signedByCt ?? true,
+    signedByMoe: report.status === "signed" ? true : compatibilityReport?.signedByMoe ?? false,
     ctSignatureAt: formatDateTimeLabel(report.createdAt),
     ctSignatureBy:
+      compatibilityReport?.author ??
       compatibilityAuthor?.name ??
       rebuildAuthor?.fullName ??
       rebuildAuthor?.email ??
@@ -543,6 +594,7 @@ function mapRebuildReportToLegacy(
 
 function mapRebuildPhotoToLegacy(
   photo: RebuildPhoto,
+  compatibilitySeed: SiteModuleData,
   userLookup: Map<string, { email: string; fullName: string }>,
   index: number,
 ): SitePhotoBaseRecord & {
@@ -550,26 +602,36 @@ function mapRebuildPhotoToLegacy(
   fileUrl?: string;
 } {
   const encodedTask = decodePhotoTaskTag(photo.taskTag);
+  const compatibilityPhoto =
+    (encodedTask.legacyPhotoId
+      ? compatibilitySeed.photoLibrary.find((item) => item.id === encodedTask.legacyPhotoId)
+      : compatibilitySeed.photoLibrary.find(
+          (item) =>
+            item.title === (encodedTask.title ?? derivePhotoTitle(photo.fileKey)) &&
+            item.timestamp.slice(0, 16) === String(photo.takenAt ?? "").slice(0, 16),
+        )) ?? null;
   const compatibilityAuthor = findPilotUserCompatibilityByBackendId(String(photo.uploadedBy));
   const rebuildAuthor = userLookup.get(String(photo.uploadedBy));
-  const zone = String(photo.locationLabel ?? "Zone chantier");
+  const zone = compatibilityPhoto?.zone ?? String(photo.locationLabel ?? "Zone chantier");
   const timestamp = String(photo.takenAt ?? new Date().toISOString());
 
   return {
-    id: String(photo.id),
-    title: encodedTask.title ?? derivePhotoTitle(photo.fileKey),
+    id: compatibilityPhoto?.id ?? String(photo.id),
+    title: compatibilityPhoto?.title ?? encodedTask.title ?? derivePhotoTitle(photo.fileKey),
     zone,
-    lot: encodedTask.lot ?? "Lot terrain",
-    task: encodedTask.task ?? String(photo.taskTag ?? "Suivi terrain"),
-    time: formatShortTime(timestamp),
+    lot: compatibilityPhoto?.lot ?? encodedTask.lot ?? "Lot terrain",
+    task: compatibilityPhoto?.task ?? encodedTask.task ?? String(photo.taskTag ?? "Suivi terrain"),
+    time: compatibilityPhoto?.time ?? formatShortTime(timestamp),
     timestamp,
     geo: formatGeoLabel(photo.gpsLat, photo.gpsLng),
     author:
+      compatibilityPhoto?.author ??
+      encodedTask.author ??
       compatibilityAuthor?.name ??
       rebuildAuthor?.fullName ??
       rebuildAuthor?.email ??
       "Equipe terrain",
-    accent: getPhotoAccent(index),
+    accent: compatibilityPhoto?.accent ?? encodedTask.accent ?? getPhotoAccent(index),
     fileName: deriveFileName(photo.fileKey),
     fileUrl: String(photo.thumbnailUrl || photo.fileUrl),
   };
@@ -577,22 +639,28 @@ function mapRebuildPhotoToLegacy(
 
 function mapRebuildNcrToLegacy(
   ncr: RebuildNcr,
+  compatibilitySeed: SiteModuleData,
   userLookup: Map<string, { email: string; fullName: string }>,
 ): SiteNcrBaseRecord {
+  const compatibilityNcr =
+    compatibilitySeed.ncrs.find((item) => item.ref === String(ncr.reference)) ?? null;
   const compatibilityOwner =
     ncr.assignedTo ? findPilotUserCompatibilityByBackendId(String(ncr.assignedTo)) : null;
   const rebuildOwner = ncr.assignedTo ? userLookup.get(String(ncr.assignedTo)) : null;
   const compatibilityClosedBy =
     ncr.closedBy ? findPilotUserCompatibilityByBackendId(String(ncr.closedBy)) : null;
   const rebuildClosedBy = ncr.closedBy ? userLookup.get(String(ncr.closedBy)) : null;
-  const severity = severityToLegacy[ncr.severity] ?? "Majeure";
-  const status = mapRebuildNcrStatusToLegacy(ncr.status);
+  const severity = compatibilityNcr?.severity ?? severityToLegacy[ncr.severity] ?? "Majeure";
+  const status = ncr.status === "closed"
+    ? "Levee"
+    : compatibilityNcr?.status ?? mapRebuildNcrStatusToLegacy(ncr.status);
   const tone = resolveNcrTone(status, severity);
 
   return {
     ref: String(ncr.reference),
-    title: String(ncr.title),
+    title: compatibilityNcr?.title ?? String(ncr.title),
     owner:
+      compatibilityNcr?.owner ??
       compatibilityOwner?.name ??
       rebuildOwner?.fullName ??
       rebuildOwner?.email ??
@@ -601,8 +669,10 @@ function mapRebuildNcrToLegacy(
     severity,
     status,
     tone,
-    photoAttached: Boolean(ncr.evidenceUrl) || Number(ncr.photoCount ?? 0) > 0,
-    description: String(ncr.description ?? ""),
+    photoAttached:
+      compatibilityNcr?.photoAttached ??
+      (Boolean(ncr.evidenceUrl) || Number(ncr.photoCount ?? 0) > 0),
+    description: compatibilityNcr?.description ?? String(ncr.description ?? ""),
     closedAt: ncr.closedAt ? formatDateTimeLabel(String(ncr.closedAt)) : undefined,
     closedBy:
       compatibilityClosedBy?.name ??
@@ -791,6 +861,17 @@ async function fetchRebuildNcrs(accessToken: string, rebuildProjectId: string) {
   return payload?.items ?? null;
 }
 
+async function fetchRebuildNcrDetail(
+  accessToken: string,
+  rebuildProjectId: string,
+  ncrId: string,
+) {
+  return callRebuildJson<RebuildNcrDetailPayload>(
+    `/api/v1/projects/${rebuildProjectId}/ncr/${ncrId}`,
+    accessToken,
+  );
+}
+
 async function resolveBackendReportId(
   accessToken: string,
   legacyProjectId: string,
@@ -802,7 +883,15 @@ async function resolveBackendReportId(
   }
 
   const reports = await fetchRebuildReports(accessToken, resolvedProject.id);
-  const report = reports?.find((item) => buildCompatReportId(item.id) === compatReportId);
+  const compatibilityReport = getPilotSiteModuleSeedByLegacyId(legacyProjectId)?.reports.find(
+    (item) => item.id === compatReportId,
+  );
+  const report =
+    reports?.find((item) =>
+      compatibilityReport
+        ? String(item.reportDate) === compatibilityReport.date
+        : buildCompatReportId(item.id) === compatReportId,
+    ) ?? null;
   return report?.id ?? null;
 }
 
@@ -896,65 +985,6 @@ function buildRebuildUserLookup(projectMembers: RebuildProjectMember[] | null) {
   }
 
   return lookup;
-}
-
-function mergeReportsByDate(rebuildReports: SiteReportRecord[], legacyReports: SiteReportRecord[]) {
-  const reportsByDate = new Map<string, SiteReportRecord>();
-
-  for (const report of legacyReports) {
-    reportsByDate.set(report.date, report);
-  }
-
-  for (const report of rebuildReports) {
-    reportsByDate.set(report.date, report);
-  }
-
-  return Array.from(reportsByDate.values()).sort((left, right) =>
-    right.date.localeCompare(left.date),
-  );
-}
-
-function mergePhotoLibrary(
-  rebuildPhotos: Array<SitePhotoBaseRecord & { fileName?: string; fileUrl?: string }>,
-  legacyPhotos: SiteModuleData["photoLibrary"],
-) {
-  const seen = new Set<string>();
-  const merged: SiteModuleData["photoLibrary"] = [];
-
-  for (const photo of [...rebuildPhotos, ...legacyPhotos]) {
-    const key = [
-      photo.title.trim().toLowerCase(),
-      photo.zone.trim().toLowerCase(),
-      photo.lot.trim().toLowerCase(),
-      photo.task.trim().toLowerCase(),
-      String(photo.timestamp).slice(0, 16),
-    ].join("|");
-
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    merged.push(photo);
-  }
-
-  return merged.sort((left, right) => String(right.timestamp).localeCompare(String(left.timestamp)));
-}
-
-function mergeNcrs(rebuildNcrs: SiteNcrBaseRecord[], legacyNcrs: SiteModuleData["ncrs"]) {
-  const byRef = new Map<string, SiteNcrBaseRecord>();
-
-  for (const ncr of legacyNcrs) {
-    byRef.set(ncr.ref, ncr);
-  }
-
-  for (const ncr of rebuildNcrs) {
-    byRef.set(ncr.ref, ncr);
-  }
-
-  return Array.from(byRef.values()).sort((left, right) =>
-    String(right.dueDate).localeCompare(String(left.dueDate)),
-  );
 }
 
 function normalizeReportProgress(
@@ -1165,6 +1195,53 @@ function parseGeoCoordinates(value: string) {
   };
 }
 
+async function resolveNcrPhotoAttachments(
+  accessToken: string,
+  rebuildProjectId: string,
+  ...hints: string[]
+) {
+  const photos = await fetchRebuildPhotos(accessToken, rebuildProjectId);
+  if (!photos?.length) {
+    return [];
+  }
+
+  const normalizedHints = hints
+    .map((hint) => normalizeLookupKey(hint))
+    .filter(Boolean);
+
+  const sortedPhotos = [...photos].sort((left, right) =>
+    String(right.takenAt ?? "").localeCompare(String(left.takenAt ?? "")),
+  );
+  const matchingPhoto =
+    sortedPhotos.find((photo) => {
+      const encodedTask = decodePhotoTaskTag(photo.taskTag);
+      const haystack = normalizeLookupKey(
+        [
+          encodedTask.title,
+          encodedTask.lot,
+          encodedTask.task,
+          photo.locationLabel,
+          photo.fileKey,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+
+      return normalizedHints.some((hint) => haystack.includes(hint));
+    }) ?? sortedPhotos[0];
+
+  if (!matchingPhoto) {
+    return [];
+  }
+
+  return [
+    {
+      fileKey: matchingPhoto.fileKey,
+      fileUrl: String(matchingPhoto.fileUrl),
+    },
+  ];
+}
+
 async function fileToDataUrl(file: File) {
   const bytes = Buffer.from(await file.arrayBuffer());
   const mimeType = file.type || "application/octet-stream";
@@ -1179,16 +1256,6 @@ function buildCompatPhotoFileKey(projectId: string, originalName: string) {
     .replace(/-+/g, "-");
 
   return `compat/site-photos/${projectId}/${Date.now()}-${safeName || "photo.jpg"}`;
-}
-
-function buildCompatEvidenceUrl(action: "close" | "create", label: string) {
-  const safeLabel = label
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/-+/g, "-");
-
-  return `compat://ncr-evidence/${action}/${safeLabel || "ncr"}`;
 }
 
 async function callRebuildJson<T = { item?: unknown }>(
@@ -1240,4 +1307,12 @@ function extractFileName(contentDisposition: string | null) {
 
   const match = /filename="?([^";]+)"?/i.exec(contentDisposition);
   return match?.[1] ?? null;
+}
+
+function normalizeLookupKey(value: string | undefined | null) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }

@@ -1,7 +1,10 @@
 import "server-only";
 
 import type { AppUser } from "@/lib/auth";
-import type { WorkspaceProject } from "@/lib/backend/types";
+import type { SiteModuleData, WorkspaceProject } from "@/lib/backend/types";
+import {
+  getPilotSiteModuleSeedByLegacyId as getPilotSiteModuleSeedFromCatalog,
+} from "../../../backend/src/bootstrap/pilot-site-catalog";
 import {
   pilotProjects,
   pilotTenant,
@@ -101,6 +104,11 @@ export function getPilotProjectSeedByLegacyId(legacyId: string) {
 
 export function getPilotProjectSeedByBackendId(backendId: string) {
   return pilotProjects.find((project) => project.backendId === backendId) ?? null;
+}
+
+export function getPilotSiteModuleSeedByLegacyId(legacyId: string): SiteModuleData | null {
+  const seed = getPilotSiteModuleSeedFromCatalog(legacyId);
+  return seed ? (seed as unknown as SiteModuleData) : null;
 }
 
 export function getPilotUserSeedByLegacyId(legacyId: string) {

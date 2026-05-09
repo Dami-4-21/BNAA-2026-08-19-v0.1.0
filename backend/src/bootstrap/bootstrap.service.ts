@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { v4 as uuidv4 } from "uuid";
 import * as bcrypt from "bcrypt";
 
+import { seedPilotSiteData } from "@/bootstrap/pilot-site-hydration";
 import { PrismaService } from "@/database/prisma.service";
 import { TenantDatabaseService } from "@/database/tenant-database.service";
 import { TenantsService } from "@/tenants/tenants.service";
@@ -188,6 +189,8 @@ export class BootstrapService implements OnModuleInit {
             [uuidv4(), projectId, member.id, member.role],
           );
         }
+
+        await seedPilotSiteData(client, project.backendId, projectId, users);
       }
     });
   }

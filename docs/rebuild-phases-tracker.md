@@ -180,6 +180,7 @@ Goal: rebuild the `Site` domain on the new backend and frontend stack while pres
 ### Cutover Tasks
 
 - [x] Add a feature-flagged compat bridge for `/api/projects/[projectId]/site`.
+- [x] Hydrate the rebuild backend with canonical pilot chantier data and remove legacy merge behavior inside the site bridge.
 - [x] Replace the legacy site route with rebuild-backed data once parity is validated.
 
 ### Phase 3 Exit Criteria
