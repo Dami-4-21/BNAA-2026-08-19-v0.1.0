@@ -86,6 +86,10 @@ export function findPilotProjectCompatibilityByBackendId(backendId: string) {
   return compatibilityProjects.find((project) => project.backendId === backendId) ?? null;
 }
 
+export function findPilotProjectCompatibilityByLegacyId(legacyId: string) {
+  return compatibilityProjects.find((project) => project.legacyId === legacyId) ?? null;
+}
+
 export function findPilotProjectCompatibilityByName(name: string) {
   const normalizedName = buildCompatibilityKey(name);
   return compatibilityProjects.find((project) => buildCompatibilityKey(project.name) === normalizedName) ?? null;

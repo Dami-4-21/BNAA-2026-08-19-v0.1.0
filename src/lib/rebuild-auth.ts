@@ -9,6 +9,7 @@ import {
 import type { WorkspaceProject } from "@/lib/backend/types";
 import {
   findPilotProjectCompatibilityByBackendId,
+  findPilotProjectCompatibilityByLegacyId,
   findPilotProjectCompatibilityByName,
   findPilotUserCompatibilityByBackendId,
   findPilotUserCompatibilityByEmail,
@@ -271,6 +272,32 @@ export async function fetchRebuildProjectMembers(
   );
 
   return payload?.items ?? null;
+}
+
+export async function resolveRebuildProjectForLegacyId(
+  accessToken: string,
+  legacyProjectId: string,
+) {
+  const rebuildProjects = await fetchRebuildProjects(accessToken);
+
+  if (!rebuildProjects) {
+    return null;
+  }
+
+  const legacyCompatibilityRecord = findPilotProjectCompatibilityByLegacyId(legacyProjectId);
+  if (!legacyCompatibilityRecord) {
+    return null;
+  }
+
+  return (
+    rebuildProjects.find((project) => {
+      const compatibilityRecord =
+        findPilotProjectCompatibilityByBackendId(project.id) ??
+        findPilotProjectCompatibilityByName(project.name);
+
+      return compatibilityRecord?.legacyId === legacyProjectId;
+    }) ?? null
+  );
 }
 
 export async function fetchBridgedWorkspaceProjects(

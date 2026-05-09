@@ -289,8 +289,13 @@ export class ReportsService {
   async downloadPdf(currentUser: AuthenticatedUser, projectId: string, reportId: string) {
     return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
       const report = await this.getReport(client, projectId, reportId);
-      if (report.status !== DailyReportStatus.signed) {
-        throw new BadRequestException("Only signed reports can generate a PDF.");
+      if (
+        report.status !== DailyReportStatus.pending_signature &&
+        report.status !== DailyReportStatus.signed
+      ) {
+        throw new BadRequestException(
+          "Only prepared or signed reports can generate a PDF.",
+        );
       }
 
       const project = await this.siteScope.getProjectSummary(client, projectId);

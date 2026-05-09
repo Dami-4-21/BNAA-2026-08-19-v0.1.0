@@ -7,6 +7,19 @@ import {
   mutateSitePayload,
   uploadSitePhoto,
 } from "@/lib/backend/service";
+import { getRebuildAccessTokenFromRequest } from "@/lib/rebuild-auth";
+import {
+  buildRebuildSitePayload,
+  mutateRebuildSiteReports,
+  shouldUseRebuildSiteBridge,
+} from "@/lib/rebuild-site";
+
+const rebuildReportActions = new Set([
+  "create-report",
+  "mark-pdf-ready",
+  "sign-report",
+  "update-report",
+]);
 
 export async function GET(
   request: NextRequest,
@@ -15,7 +28,26 @@ export async function GET(
   try {
     const { projectId } = await params;
     const token = request.cookies.get(sessionCookieName)?.value ?? "";
-    const payload = await getSitePayload(token, projectId);
+    const legacyPayload = await getSitePayload(token, projectId);
+
+    if (shouldUseRebuildSiteBridge()) {
+      try {
+        const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+        const bridgedPayload = await buildRebuildSitePayload(
+          rebuildAccessToken,
+          projectId,
+          legacyPayload,
+        );
+
+        if (bridgedPayload) {
+          return NextResponse.json(bridgedPayload);
+        }
+      } catch (error) {
+        console.error("[site bridge] fallback to legacy payload", error);
+      }
+    }
+
+    const payload = legacyPayload;
     return NextResponse.json(payload);
   } catch (error) {
     if (isApiError(error)) {
@@ -58,6 +90,38 @@ export async function POST(
             action?: string;
             payload?: Record<string, unknown>;
           };
+
+          if (shouldUseRebuildSiteBridge() && rebuildReportActions.has(body.action ?? "")) {
+            try {
+              const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+              const bridged = await mutateRebuildSiteReports(
+                rebuildAccessToken,
+                projectId,
+                body.action as
+                  | "create-report"
+                  | "mark-pdf-ready"
+                  | "sign-report"
+                  | "update-report",
+                body.payload ?? {},
+              );
+
+              if (bridged) {
+                const legacyPayload = await getSitePayload(token, projectId);
+                const nextPayload = await buildRebuildSitePayload(
+                  rebuildAccessToken,
+                  projectId,
+                  legacyPayload,
+                );
+
+                if (nextPayload) {
+                  return NextResponse.json(nextPayload);
+                }
+              }
+            } catch (error) {
+              console.error("[site bridge] mutation fallback to legacy payload", error);
+            }
+          }
+
           const nextPayload = await mutateSitePayload(
             token,
             projectId,

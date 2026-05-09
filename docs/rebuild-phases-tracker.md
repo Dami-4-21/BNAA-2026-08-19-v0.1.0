@@ -170,16 +170,16 @@ Goal: rebuild the `Site` domain on the new backend and frontend stack while pres
 
 ### Frontend Tasks
 
-- [ ] Rebuild reports list against the rebuild API.
+- [x] Rebuild reports list against the rebuild API.
 - [ ] Rebuild the mobile report form with autosave and draft recovery.
 - [ ] Rebuild photo journal and task/zone association.
 - [ ] Rebuild the NCR board and detail flow.
 - [ ] Rebuild chantier dashboard metrics from the rebuild backend.
-- [ ] Connect the PDF and approval flow to rebuild APIs.
+- [x] Connect the PDF and approval flow to rebuild APIs.
 
 ### Cutover Tasks
 
-- [ ] Add a feature-flagged compat bridge for `/api/projects/[projectId]/site`.
+- [x] Add a feature-flagged compat bridge for `/api/projects/[projectId]/site`.
 - [ ] Replace the legacy site route with rebuild-backed data once parity is validated.
 
 ### Phase 3 Exit Criteria
