@@ -160,13 +160,13 @@ Goal: rebuild the `Site` domain on the new backend and frontend stack while pres
 - [x] prepare/sign report
 - [x] create/list/update/close NCR
 - [x] photo upload and metadata
-- [ ] Implement PDF generation on the rebuild backend for daily reports.
+- [x] Implement PDF generation on the rebuild backend for daily reports.
 - [x] Implement report lifecycle enforcement:
 - [x] draft
 - [x] pending signature
 - [x] signed
-- [ ] Implement GPS / EXIF / thumbnail handling as required by the spec.
-- [ ] Implement notifications and email triggers for report and NCR events.
+- [x] Implement GPS / EXIF / thumbnail handling as required by the spec.
+- [x] Implement notifications and email triggers for report and NCR events.
 
 ### Frontend Tasks
 

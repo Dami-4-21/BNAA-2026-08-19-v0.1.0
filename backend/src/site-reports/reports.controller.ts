@@ -4,9 +4,12 @@ import {
   Get,
   Param,
   Post,
+  Res,
+  StreamableFile,
   Put,
   UseGuards,
 } from "@nestjs/common";
+import type { Response } from "express";
 
 import { CurrentUser } from "@/common/decorators/current-user.decorator";
 import { Roles } from "@/common/decorators/roles.decorator";
@@ -37,6 +40,22 @@ export class ReportsController {
     @Param("reportId") reportId: string,
   ) {
     return this.reportsService.detail(currentUser, projectId, reportId);
+  }
+
+  @Get(":reportId/pdf")
+  async pdf(
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Param("id") projectId: string,
+    @Param("reportId") reportId: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const pdf = await this.reportsService.downloadPdf(currentUser, projectId, reportId);
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader(
+      "Content-Disposition",
+      `inline; filename=\"${pdf.fileName.replaceAll('"', "")}\"`,
+    );
+    return new StreamableFile(pdf.buffer);
   }
 
   @Post()

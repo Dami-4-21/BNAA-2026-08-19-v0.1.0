@@ -10,6 +10,7 @@ import type { PoolClient } from "pg";
 import { v4 as uuidv4 } from "uuid";
 
 import { AuthenticatedUser } from "@/common/types/authenticated-user.interface";
+import { MailService } from "@/mail/mail.service";
 import { NotificationsService } from "@/notifications/notifications.service";
 import { PdfService } from "@/pdf/pdf.service";
 import { CreateReportDto } from "@/site-reports/dto/create-report.dto";
@@ -24,6 +25,7 @@ type ReportRow = Record<string, unknown>;
 @Injectable()
 export class ReportsService {
   constructor(
+    private readonly mailService: MailService,
     private readonly notificationsService: NotificationsService,
     private readonly pdfService: PdfService,
     private readonly siteScope: SiteScopeService,
@@ -209,6 +211,7 @@ export class ReportsService {
       );
 
       const prepared = await this.getReport(client, projectId, reportId);
+      const project = await this.siteScope.getProjectSummary(client, projectId);
       await this.notificationsService.createForProjectRoles(client, {
         projectId,
         roles: [UserRole.CP, UserRole.MO],
@@ -218,6 +221,7 @@ export class ReportsService {
         link: `/site?reportId=${reportId}`,
         excludeUserIds: [currentUser.sub],
       });
+      await this.sendReportSubmittedEmails(client, currentUser, project.name, prepared, reportId);
 
       return {
         item: this.mapReportRow(prepared),
@@ -247,6 +251,18 @@ export class ReportsService {
       );
 
       const signed = await this.getReport(client, projectId, reportId);
+      const project = await this.siteScope.getProjectSummary(client, projectId);
+      const pdfResult = await this.pdfService.generateReportPdf(
+        this.buildReportPdfPayload(project.name, signed),
+      );
+      await client.query(
+        `UPDATE daily_reports
+         SET pdf_url = $3,
+             updated_at = NOW()
+         WHERE id = $1 AND project_id = $2`,
+        [reportId, projectId, pdfResult.pdfUrl],
+      );
+
       await this.notificationsService.createForUsers(client, {
         userIds: [String(signed.created_by)],
         projectId,
@@ -255,10 +271,46 @@ export class ReportsService {
         body: `Le rapport du ${signed.report_date} est signe et archive.`,
         link: `/site?reportId=${reportId}`,
       });
+      await this.sendReportSignedEmails(client, currentUser, project.name, signed, reportId);
 
       return {
-        item: this.mapReportRow(signed),
+        item: this.mapReportRow(
+          {
+            ...signed,
+            pdf_url: pdfResult.pdfUrl,
+          },
+          Number(signed.photo_count ?? 0),
+        ),
         pdfJob: this.pdfService.queueReportPdf(reportId),
+      };
+    });
+  }
+
+  async downloadPdf(currentUser: AuthenticatedUser, projectId: string, reportId: string) {
+    return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
+      const report = await this.getReport(client, projectId, reportId);
+      if (report.status !== DailyReportStatus.signed) {
+        throw new BadRequestException("Only signed reports can generate a PDF.");
+      }
+
+      const project = await this.siteScope.getProjectSummary(client, projectId);
+      const pdfResult = await this.pdfService.generateReportPdf(
+        this.buildReportPdfPayload(project.name, report),
+      );
+
+      if (String(report.pdf_url ?? "") !== pdfResult.pdfUrl) {
+        await client.query(
+          `UPDATE daily_reports
+           SET pdf_url = $3,
+               updated_at = NOW()
+           WHERE id = $1 AND project_id = $2`,
+          [reportId, projectId, pdfResult.pdfUrl],
+        );
+      }
+
+      return {
+        buffer: pdfResult.buffer,
+        fileName: pdfResult.fileName,
       };
     });
   }
@@ -401,5 +453,98 @@ export class ReportsService {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
+  }
+
+  private buildReportPdfPayload(projectName: string, report: ReportRow) {
+    return {
+      activities: String(report.activities ?? ""),
+      createdAt: this.formatDateTime(report.created_at),
+      createdBy: String(report.created_by ?? ""),
+      incidents: this.parseJsonArray(report.incidents) as Array<{
+        action?: string;
+        severity?: string;
+        type?: string;
+      }>,
+      notes: String(report.notes ?? ""),
+      photoCount: Number(report.photo_count ?? 0),
+      progressByLot: this.parseJsonArray(report.progress_by_lot) as Array<{
+        label?: string;
+        lot?: string;
+        progress?: number;
+        task?: string;
+      }>,
+      projectId: String(report.project_id),
+      projectName,
+      reportDate: String(report.report_date),
+      reportId: String(report.id),
+      signedAt: report.signed_at ? this.formatDateTime(report.signed_at) : null,
+      signedBy: report.signed_by ? String(report.signed_by) : null,
+      status: String(report.status),
+      weather: String(report.weather ?? WeatherCode.cloudy),
+      workforceCount: Number(report.workforce_count ?? 0),
+      workforceBreakdown: this.parseJsonArray(report.workforce_breakdown) as Array<{
+        count?: number;
+        label?: string;
+        trade?: string;
+      }>,
+    };
+  }
+
+  private async sendReportSubmittedEmails(
+    client: PoolClient,
+    currentUser: AuthenticatedUser,
+    projectName: string,
+    report: ReportRow,
+    reportId: string,
+  ) {
+    const recipients = await this.siteScope.listProjectUsersByRoles(
+      client,
+      currentUser.tenantId,
+      String(report.project_id),
+      [UserRole.CP, UserRole.MO],
+    );
+
+    for (const recipient of recipients) {
+      if (recipient.id === currentUser.sub) {
+        continue;
+      }
+
+      await this.mailService.sendReportSubmittedEmail({
+        projectName,
+        recipientEmail: recipient.email,
+        recipientName: recipient.fullName,
+        reportDate: String(report.report_date),
+        reportLink: `/site?reportId=${reportId}`,
+      });
+    }
+  }
+
+  private async sendReportSignedEmails(
+    client: PoolClient,
+    currentUser: AuthenticatedUser,
+    projectName: string,
+    report: ReportRow,
+    reportId: string,
+  ) {
+    const recipients = await this.siteScope.listActiveUsersByIds(
+      client,
+      currentUser.tenantId,
+      [String(report.created_by)],
+    );
+
+    for (const recipient of recipients) {
+      await this.mailService.sendReportSignedEmail({
+        projectName,
+        recipientEmail: recipient.email,
+        recipientName: recipient.fullName,
+        reportDate: String(report.report_date),
+        reportLink: `/site?reportId=${reportId}`,
+      });
+    }
+  }
+
+  private formatDateTime(value: unknown) {
+    const date = new Date(String(value));
+    return Number.isNaN(date.getTime()) ? String(value ?? "") : date.toISOString();
   }
 }

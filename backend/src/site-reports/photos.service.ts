@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from "uuid";
 
 import { AuthenticatedUser } from "@/common/types/authenticated-user.interface";
 import { CreatePhotoDto } from "@/site-reports/dto/create-photo.dto";
+import { PhotoMetadataService } from "@/site-reports/photo-metadata.service";
 import { SiteScopeService } from "@/site-reports/site-scope.service";
 
 const PHOTO_EDIT_ROLES = new Set<UserRole>([UserRole.ADMIN, UserRole.CP, UserRole.CT]);
@@ -17,7 +18,10 @@ type PhotoRow = Record<string, unknown>;
 
 @Injectable()
 export class PhotosService {
-  constructor(private readonly siteScope: SiteScopeService) {}
+  constructor(
+    private readonly metadataService: PhotoMetadataService,
+    private readonly siteScope: SiteScopeService,
+  ) {}
 
   async list(currentUser: AuthenticatedUser, projectId: string, reportId?: string) {
     return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
@@ -55,12 +59,16 @@ export class PhotosService {
     this.assertCanManagePhotos(currentUser);
 
     return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
-      if (payload.reportId) {
-        await this.assertReportExists(client, projectId, payload.reportId);
+      const normalizedPayload = await this.metadataService.enrichPhotoPayload(payload);
+
+      if (normalizedPayload.reportId) {
+        await this.assertReportExists(client, projectId, normalizedPayload.reportId);
       }
 
       const photoId = uuidv4();
-      const takenAt = payload.takenAt ? new Date(payload.takenAt) : new Date();
+      const takenAt = normalizedPayload.takenAt
+        ? new Date(normalizedPayload.takenAt)
+        : new Date();
       if (Number.isNaN(takenAt.getTime())) {
         throw new BadRequestException("Invalid photo timestamp.");
       }
@@ -84,15 +92,15 @@ export class PhotosService {
         )`,
         [
           photoId,
-          payload.reportId ?? null,
+          normalizedPayload.reportId ?? null,
           projectId,
-          payload.fileUrl,
-          payload.fileKey,
-          payload.thumbnailUrl ?? null,
-          payload.gpsLat ?? null,
-          payload.gpsLng ?? null,
-          payload.locationLabel?.trim() || null,
-          payload.taskTag?.trim() || null,
+          normalizedPayload.fileUrl,
+          normalizedPayload.fileKey,
+          normalizedPayload.thumbnailUrl ?? null,
+          normalizedPayload.gpsLat ?? null,
+          normalizedPayload.gpsLng ?? null,
+          normalizedPayload.locationLabel?.trim() || null,
+          normalizedPayload.taskTag?.trim() || null,
           currentUser.sub,
           takenAt.toISOString(),
         ],

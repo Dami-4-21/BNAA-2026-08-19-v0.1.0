@@ -6,6 +6,13 @@ import { AuthenticatedUser } from "@/common/types/authenticated-user.interface";
 import { TenantDatabaseService } from "@/database/tenant-database.service";
 import { TenantsService } from "@/tenants/tenants.service";
 
+type TenantUserContact = {
+  email: string;
+  fullName: string;
+  id: string;
+  role: string;
+};
+
 @Injectable()
 export class SiteScopeService {
   constructor(
@@ -49,6 +56,69 @@ export class SiteScopeService {
 
       return true;
     });
+  }
+
+  async getProjectSummary(client: PoolClient, projectId: string) {
+    const result = await client.query<{ id: string; name: string }>(
+      `SELECT id, name
+       FROM projects
+       WHERE id = $1
+       LIMIT 1`,
+      [projectId],
+    );
+
+    if (!result.rowCount) {
+      throw new NotFoundException("Project not found.");
+    }
+
+    return result.rows[0];
+  }
+
+  async listActiveUsersByIds(
+    client: PoolClient,
+    tenantId: string,
+    userIds: string[],
+  ): Promise<TenantUserContact[]> {
+    const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
+    if (uniqueUserIds.length === 0) {
+      return [];
+    }
+
+    const result = await client.query<TenantUserContact>(
+      `SELECT id, email, full_name AS "fullName", role
+       FROM public.users
+       WHERE tenant_id = $1
+         AND is_active = true
+         AND id = ANY($2::uuid[])`,
+      [tenantId, uniqueUserIds],
+    );
+
+    return result.rows;
+  }
+
+  async listProjectUsersByRoles(
+    client: PoolClient,
+    tenantId: string,
+    projectId: string,
+    roles: UserRole[],
+  ): Promise<TenantUserContact[]> {
+    if (roles.length === 0) {
+      return [];
+    }
+
+    const result = await client.query<TenantUserContact>(
+      `SELECT DISTINCT u.id, u.email, u.full_name AS "fullName", u.role
+       FROM project_members pm
+       INNER JOIN public.users u
+         ON u.id = pm.user_id
+       WHERE pm.project_id = $1
+         AND pm.role = ANY($2::text[])
+         AND u.tenant_id = $3
+         AND u.is_active = true`,
+      [projectId, roles, tenantId],
+    );
+
+    return result.rows;
   }
 
   private async findAccessibleProject(

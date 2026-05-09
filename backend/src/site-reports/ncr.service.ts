@@ -9,6 +9,7 @@ import type { PoolClient } from "pg";
 import { v4 as uuidv4 } from "uuid";
 
 import { AuthenticatedUser } from "@/common/types/authenticated-user.interface";
+import { MailService } from "@/mail/mail.service";
 import { NotificationsService } from "@/notifications/notifications.service";
 import { CloseNcrDto } from "@/site-reports/dto/close-ncr.dto";
 import { CreateNcrDto } from "@/site-reports/dto/create-ncr.dto";
@@ -21,6 +22,7 @@ type NcrRow = Record<string, unknown>;
 @Injectable()
 export class NcrService {
   constructor(
+    private readonly mailService: MailService,
     private readonly notificationsService: NotificationsService,
     private readonly siteScope: SiteScopeService,
   ) {}
@@ -130,6 +132,7 @@ export class NcrService {
       await this.insertNcrPhotos(client, ncrId, payload.photos ?? []);
 
       const created = await this.getNcr(client, projectId, ncrId);
+      const project = await this.siteScope.getProjectSummary(client, projectId);
 
       if (payload.assignedTo && payload.assignedTo !== currentUser.sub) {
         await this.notificationsService.createForUsers(client, {
@@ -140,6 +143,14 @@ export class NcrService {
           body: payload.title.trim(),
           link: `/site?ncrId=${ncrId}`,
         });
+        await this.sendNcrAssignedEmails(
+          client,
+          currentUser,
+          project.name,
+          created,
+          payload.assignedTo,
+          ncrId,
+        );
       }
 
       return {
@@ -196,6 +207,7 @@ export class NcrService {
       );
 
       const updated = await this.getNcr(client, projectId, ncrId);
+      const project = await this.siteScope.getProjectSummary(client, projectId);
 
       if (
         payload.assignedTo &&
@@ -210,6 +222,14 @@ export class NcrService {
           body: String(updated.title ?? ""),
           link: `/site?ncrId=${ncrId}`,
         });
+        await this.sendNcrAssignedEmails(
+          client,
+          currentUser,
+          project.name,
+          updated,
+          payload.assignedTo,
+          ncrId,
+        );
       }
 
       return {
@@ -259,6 +279,7 @@ export class NcrService {
       );
 
       const closed = await this.getNcr(client, projectId, ncrId);
+      const project = await this.siteScope.getProjectSummary(client, projectId);
       if (String(closed.created_by) !== currentUser.sub) {
         await this.notificationsService.createForUsers(client, {
           userIds: [String(closed.created_by)],
@@ -268,6 +289,7 @@ export class NcrService {
           body: String(closed.title ?? ""),
           link: `/site?ncrId=${ncrId}`,
         });
+        await this.sendNcrClosedEmails(client, currentUser, project.name, closed, ncrId);
       }
 
       return {
@@ -359,6 +381,58 @@ export class NcrService {
     );
 
     return Number(result.rows[0]?.total ?? 0);
+  }
+
+  private async sendNcrAssignedEmails(
+    client: PoolClient,
+    currentUser: AuthenticatedUser,
+    projectName: string,
+    ncr: NcrRow,
+    assignedTo: string,
+    ncrId: string,
+  ) {
+    const recipients = await this.siteScope.listActiveUsersByIds(
+      client,
+      currentUser.tenantId,
+      [assignedTo],
+    );
+
+    for (const recipient of recipients) {
+      await this.mailService.sendNcrAssignedEmail({
+        deadline: ncr.deadline ? String(ncr.deadline) : null,
+        ncrLink: `/site?ncrId=${ncrId}`,
+        projectName,
+        recipientEmail: recipient.email,
+        recipientName: recipient.fullName,
+        reference: String(ncr.reference ?? ""),
+        title: String(ncr.title ?? ""),
+      });
+    }
+  }
+
+  private async sendNcrClosedEmails(
+    client: PoolClient,
+    currentUser: AuthenticatedUser,
+    projectName: string,
+    ncr: NcrRow,
+    ncrId: string,
+  ) {
+    const recipients = await this.siteScope.listActiveUsersByIds(
+      client,
+      currentUser.tenantId,
+      [String(ncr.created_by)],
+    );
+
+    for (const recipient of recipients) {
+      await this.mailService.sendNcrClosedEmail({
+        ncrLink: `/site?ncrId=${ncrId}`,
+        projectName,
+        recipientEmail: recipient.email,
+        recipientName: recipient.fullName,
+        reference: String(ncr.reference ?? ""),
+        title: String(ncr.title ?? ""),
+      });
+    }
   }
 
   private toDateOnly(value: Date) {

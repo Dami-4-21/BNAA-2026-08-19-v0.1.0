@@ -17,6 +17,17 @@ type ResetPasswordEmailInput = {
   resetLink: string;
 };
 
+type SiteActionEmailInput = {
+  contextLines: string[];
+  ctaLabel: string;
+  ctaPath: string;
+  intro: string;
+  recipientEmail: string;
+  recipientName: string;
+  subject: string;
+  title: string;
+};
+
 type MailDeliveryResult = {
   mode: "debug" | "sent";
   messageId?: string;
@@ -91,6 +102,104 @@ export class MailService {
     return `${this.appUrl}/reset-password?token=${encodeURIComponent(token)}`;
   }
 
+  buildAppLink(path: string) {
+    return `${this.appUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  }
+
+  async sendReportSubmittedEmail(input: {
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+    reportDate: string;
+    reportLink: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `RJC a valider - ${input.projectName}`,
+      title: "Rapport journalier soumis",
+      intro: "Un rapport journalier est pret pour signature sur votre projet.",
+      ctaLabel: "Ouvrir le rapport",
+      ctaPath: input.reportLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Date du rapport : ${input.reportDate}`,
+      ],
+    });
+  }
+
+  async sendReportSignedEmail(input: {
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+    reportDate: string;
+    reportLink: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `RJC signe - ${input.projectName}`,
+      title: "Rapport journalier signe",
+      intro: "Le rapport journalier a ete signe et archive.",
+      ctaLabel: "Consulter le rapport",
+      ctaPath: input.reportLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Date du rapport : ${input.reportDate}`,
+      ],
+    });
+  }
+
+  async sendNcrAssignedEmail(input: {
+    deadline?: string | null;
+    ncrLink: string;
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+    reference: string;
+    title: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `NC assignee - ${input.reference}`,
+      title: "Non-conformite assignee",
+      intro: "Une non-conformite vous a ete attribuee sur chantier.",
+      ctaLabel: "Ouvrir la NC",
+      ctaPath: input.ncrLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Reference : ${input.reference}`,
+        `Intitule : ${input.title}`,
+        ...(input.deadline ? [`Delai : ${input.deadline}`] : []),
+      ],
+    });
+  }
+
+  async sendNcrClosedEmail(input: {
+    ncrLink: string;
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+    reference: string;
+    title: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `NC cloturee - ${input.reference}`,
+      title: "Non-conformite cloturee",
+      intro: "La non-conformite a ete cloturee avec piece justificative.",
+      ctaLabel: "Voir la NC",
+      ctaPath: input.ncrLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Reference : ${input.reference}`,
+        `Intitule : ${input.title}`,
+      ],
+    });
+  }
+
   private async sendEmail(input: {
     html: string;
     recipientEmail: string;
@@ -117,5 +226,31 @@ export class MailService {
       mode: "sent",
       messageId: result.data?.id,
     };
+  }
+
+  private async sendSiteActionEmail(input: SiteActionEmailInput) {
+    const ctaLink = this.buildAppLink(input.ctaPath);
+    const contextBlock = input.contextLines
+      .map((line) => `<li style="margin-bottom:4px">${line}</li>`)
+      .join("");
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;color:#111;line-height:1.6">
+        <div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:12px">BnaaSaaS</div>
+        <h2 style="margin-bottom:8px">${input.title}</h2>
+        <p>Bonjour ${input.recipientName},</p>
+        <p>${input.intro}</p>
+        <ul style="padding-left:18px;margin:12px 0 18px">${contextBlock}</ul>
+        <p><a href="${ctaLink}" style="display:inline-block;padding:12px 18px;background:#111;color:#fff;text-decoration:none;border-radius:10px">${input.ctaLabel}</a></p>
+        <p>Si le bouton ne fonctionne pas, utilisez ce lien :</p>
+        <p><a href="${ctaLink}">${ctaLink}</a></p>
+      </div>
+    `;
+
+    return this.sendEmail({
+      html,
+      recipientEmail: input.recipientEmail,
+      subject: input.subject,
+    });
   }
 }
