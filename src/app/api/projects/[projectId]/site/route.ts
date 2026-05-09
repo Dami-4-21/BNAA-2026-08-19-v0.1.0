@@ -11,7 +11,9 @@ import { getRebuildAccessTokenFromRequest } from "@/lib/rebuild-auth";
 import {
   buildRebuildSitePayload,
   mutateRebuildSiteReports,
+  mutateRebuildSiteNcr,
   shouldUseRebuildSiteBridge,
+  uploadRebuildSitePhoto,
 } from "@/lib/rebuild-site";
 
 const rebuildReportActions = new Set([
@@ -20,6 +22,7 @@ const rebuildReportActions = new Set([
   "sign-report",
   "update-report",
 ]);
+const rebuildNcrActions = new Set(["close-ncr", "create-ncr"]);
 
 export async function GET(
   request: NextRequest,
@@ -75,38 +78,33 @@ export async function POST(
             return NextResponse.json({ error: "Fichier photo manquant." }, { status: 400 });
           }
 
-          const nextPayload = await uploadSitePhoto(token, projectId, {
+          const photoPayload = {
             file,
             geo: String(formData.get("geo") ?? ""),
             lot: String(formData.get("lot") ?? ""),
             task: String(formData.get("task") ?? ""),
             title: String(formData.get("title") ?? ""),
             zone: String(formData.get("zone") ?? ""),
-          });
-          return NextResponse.json(nextPayload);
-        })()
-      : await (async () => {
-          const body = (await request.json()) as {
-            action?: string;
-            payload?: Record<string, unknown>;
           };
 
-          if (shouldUseRebuildSiteBridge() && rebuildReportActions.has(body.action ?? "")) {
+          if (shouldUseRebuildSiteBridge()) {
             try {
               const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
-              const bridged = await mutateRebuildSiteReports(
+              const bridged = await uploadRebuildSitePhoto(
                 rebuildAccessToken,
                 projectId,
-                body.action as
-                  | "create-report"
-                  | "mark-pdf-ready"
-                  | "sign-report"
-                  | "update-report",
-                body.payload ?? {},
+                photoPayload,
               );
 
               if (bridged) {
                 const legacyPayload = await getSitePayload(token, projectId);
+                legacyPayload.draftPhoto = {
+                  geo: photoPayload.geo,
+                  lot: photoPayload.lot,
+                  task: photoPayload.task,
+                  title: photoPayload.title,
+                  zone: photoPayload.zone,
+                };
                 const nextPayload = await buildRebuildSitePayload(
                   rebuildAccessToken,
                   projectId,
@@ -116,6 +114,76 @@ export async function POST(
                 if (nextPayload) {
                   return NextResponse.json(nextPayload);
                 }
+
+                return NextResponse.json(legacyPayload);
+              }
+            } catch (error) {
+              console.error("[site bridge] photo upload fallback to legacy payload", error);
+            }
+          }
+
+          const nextPayload = await uploadSitePhoto(token, projectId, photoPayload);
+          return NextResponse.json(nextPayload);
+        })()
+      : await (async () => {
+          const body = (await request.json()) as {
+            action?: string;
+            payload?: Record<string, unknown>;
+          };
+
+          if (shouldUseRebuildSiteBridge()) {
+            try {
+              const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+              let bridged = false;
+
+              if (rebuildReportActions.has(body.action ?? "")) {
+                bridged = await mutateRebuildSiteReports(
+                  rebuildAccessToken,
+                  projectId,
+                  body.action as
+                    | "create-report"
+                    | "mark-pdf-ready"
+                    | "sign-report"
+                    | "update-report",
+                  body.payload ?? {},
+                );
+              } else if (rebuildNcrActions.has(body.action ?? "")) {
+                bridged = await mutateRebuildSiteNcr(
+                  rebuildAccessToken,
+                  projectId,
+                  body.action as "close-ncr" | "create-ncr",
+                  body.payload ?? {},
+                );
+              }
+
+              if (bridged) {
+                const legacyPayload = await getSitePayload(token, projectId);
+                if (body.action === "create-ncr") {
+                  const draftNcr = body.payload?.draftNcr;
+                  if (draftNcr && typeof draftNcr === "object") {
+                    legacyPayload.draftNcr = {
+                      description: String((draftNcr as Record<string, unknown>).description ?? ""),
+                      dueDate: String((draftNcr as Record<string, unknown>).dueDate ?? ""),
+                      owner: String((draftNcr as Record<string, unknown>).owner ?? ""),
+                      photoAttached: Boolean(
+                        (draftNcr as Record<string, unknown>).photoAttached ?? false,
+                      ),
+                      severity: String((draftNcr as Record<string, unknown>).severity ?? ""),
+                      title: String((draftNcr as Record<string, unknown>).title ?? ""),
+                    };
+                  }
+                }
+                const nextPayload = await buildRebuildSitePayload(
+                  rebuildAccessToken,
+                  projectId,
+                  legacyPayload,
+                );
+
+                if (nextPayload) {
+                  return NextResponse.json(nextPayload);
+                }
+
+                return NextResponse.json(legacyPayload);
               }
             } catch (error) {
               console.error("[site bridge] mutation fallback to legacy payload", error);

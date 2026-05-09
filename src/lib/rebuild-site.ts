@@ -1,7 +1,10 @@
+import { Buffer } from "node:buffer";
+
 import type {
   SiteLotProgressRecord,
   SiteModuleData,
   SiteNcrBaseRecord,
+  SitePhotoBaseRecord,
   SiteReportDraft,
   SiteReportRecord,
 } from "@/lib/backend/types";
@@ -14,6 +17,8 @@ import {
 
 type RebuildWeatherCode = "cloudy" | "rain" | "strong_wind" | "sunny";
 type RebuildReportStatus = "draft" | "pending_signature" | "signed";
+type RebuildNcrSeverity = "high" | "low" | "medium";
+type RebuildNcrStatus = "closed" | "in_progress" | "open";
 
 type RebuildReport = {
   id: string;
@@ -35,8 +40,51 @@ type RebuildReport = {
   updatedAt: string;
 };
 
+type RebuildPhoto = {
+  id: string;
+  reportId?: string | null;
+  projectId: string;
+  fileUrl: string;
+  fileKey: string;
+  thumbnailUrl?: string | null;
+  gpsLat?: number | null;
+  gpsLng?: number | null;
+  locationLabel?: string | null;
+  taskTag?: string | null;
+  uploadedBy: string;
+  takenAt?: string | null;
+  reportDate?: string | null;
+};
+
+type RebuildNcr = {
+  id: string;
+  projectId: string;
+  reference: string;
+  title: string;
+  description?: string | null;
+  severity: RebuildNcrSeverity;
+  status: RebuildNcrStatus;
+  assignedTo?: string | null;
+  deadline?: string | null;
+  evidenceUrl?: string | null;
+  createdBy: string;
+  closedBy?: string | null;
+  closedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  photoCount: number;
+};
+
 type RebuildReportsPayload = {
   items: RebuildReport[];
+};
+
+type RebuildPhotosPayload = {
+  items: RebuildPhoto[];
+};
+
+type RebuildNcrPayload = {
+  items: RebuildNcr[];
 };
 
 type RebuildProjectMember = NonNullable<
@@ -48,6 +96,8 @@ type ReportMutationAction =
   | "mark-pdf-ready"
   | "sign-report"
   | "update-report";
+
+type NcrMutationAction = "close-ncr" | "create-ncr";
 
 type ReportFormState = {
   activities: string;
@@ -62,6 +112,26 @@ type ReportFormState = {
   reportDate: string;
   weather: string;
   workforceCount: number;
+};
+
+type PhotoMutationPayload = {
+  file: File;
+  geo: string;
+  lot: string;
+  task: string;
+  title: string;
+  zone: string;
+};
+
+type NcrMutationPayload = {
+  draftNcr?: SiteModuleData["draftNcr"];
+  ref?: string;
+};
+
+type EncodedPhotoTaskTag = {
+  lot?: string;
+  task?: string;
+  title?: string;
 };
 
 const weatherToLegacy: Record<RebuildWeatherCode, string> = {
@@ -94,6 +164,13 @@ const statusToLegacy: Record<RebuildReportStatus, { status: string; tone: SiteRe
   signed: { status: "Valide", tone: "success" },
 };
 
+const photoAccents = [
+  "from-sky-500/55 to-violet-300/18",
+  "from-amber-400/55 to-orange-300/20",
+  "from-emerald-400/55 to-teal-300/20",
+  "from-fuchsia-500/45 to-rose-300/20",
+] as const;
+
 export function shouldUseRebuildSiteBridge() {
   return process.env.BNAASAAS_REBUILD_SITE_ENABLED === "true";
 }
@@ -108,9 +185,11 @@ export async function buildRebuildSitePayload(
     return null;
   }
 
-  const [rebuildReports, projectMembers] = await Promise.all([
+  const [rebuildReports, projectMembers, rebuildPhotos, rebuildNcrs] = await Promise.all([
     fetchRebuildReports(accessToken, resolvedProject.id),
     fetchRebuildProjectMembers(accessToken, resolvedProject.id),
+    fetchRebuildPhotos(accessToken, resolvedProject.id),
+    fetchRebuildNcrs(accessToken, resolvedProject.id),
   ]);
 
   if (!rebuildReports) {
@@ -123,7 +202,23 @@ export async function buildRebuildSitePayload(
   );
   const reports = mergeReportsByDate(rebuildMappedReports, legacyPayload.reports);
   const lotProgress = deriveLotProgress(reports, legacyPayload.lotProgress);
-  const overviewKpis = deriveOverviewKpis(reports, legacyPayload.ncrs, lotProgress);
+  const photoLibrary =
+    rebuildPhotos === null
+      ? legacyPayload.photoLibrary
+      : mergePhotoLibrary(
+          rebuildPhotos.map((photo, index) =>
+            mapRebuildPhotoToLegacy(photo, userLookup, index),
+          ),
+          legacyPayload.photoLibrary,
+        );
+  const ncrs =
+    rebuildNcrs === null
+      ? legacyPayload.ncrs
+      : mergeNcrs(
+          rebuildNcrs.map((ncr) => mapRebuildNcrToLegacy(ncr, userLookup)),
+          legacyPayload.ncrs,
+        );
+  const overviewKpis = deriveOverviewKpis(reports, ncrs, lotProgress);
   const signatureQueue = deriveSignatureQueue(reports);
   const reportDraft = deriveReportDraft(reports[0], lotProgress, legacyPayload.reportDraft);
 
@@ -134,6 +229,8 @@ export async function buildRebuildSitePayload(
       ...legacyPayload.overview,
       kpis: overviewKpis,
     },
+    photoLibrary,
+    ncrs,
     reports,
     reportDraft,
     signatureQueue,
@@ -145,7 +242,7 @@ export async function mutateRebuildSiteReports(
   legacyProjectId: string,
   action: ReportMutationAction,
   payload: Record<string, unknown>,
-) {
+): Promise<boolean> {
   const resolvedProject = await resolveRebuildProjectForLegacyId(accessToken, legacyProjectId);
   if (!resolvedProject) {
     return false;
@@ -157,10 +254,15 @@ export async function mutateRebuildSiteReports(
       if (!formState) {
         return false;
       }
-      return await callRebuildJson(`/api/v1/projects/${resolvedProject.id}/reports`, accessToken, {
-        method: "POST",
-        body: JSON.stringify(mapFormStateToRebuildReportPayload(formState)),
-      });
+      return Boolean(
+        await callRebuildJson(`/api/v1/projects/${resolvedProject.id}/reports`, accessToken, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(mapFormStateToRebuildReportPayload(formState)),
+        }),
+      );
     }
     case "update-report": {
       const compatReportId = String(payload.reportId ?? "");
@@ -172,13 +274,18 @@ export async function mutateRebuildSiteReports(
       if (!backendReportId) {
         return false;
       }
-      return await callRebuildJson(
-        `/api/v1/projects/${resolvedProject.id}/reports/${backendReportId}`,
-        accessToken,
-        {
-          method: "PUT",
-          body: JSON.stringify(mapFormStateToRebuildReportPayload(formState)),
-        },
+      return Boolean(
+        await callRebuildJson(
+          `/api/v1/projects/${resolvedProject.id}/reports/${backendReportId}`,
+          accessToken,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(mapFormStateToRebuildReportPayload(formState)),
+          },
+        ),
       );
     }
     case "mark-pdf-ready": {
@@ -187,10 +294,12 @@ export async function mutateRebuildSiteReports(
       if (!backendReportId) {
         return false;
       }
-      return await callRebuildJson(
-        `/api/v1/projects/${resolvedProject.id}/reports/${backendReportId}/prepare`,
-        accessToken,
-        { method: "POST" },
+      return Boolean(
+        await callRebuildJson(
+          `/api/v1/projects/${resolvedProject.id}/reports/${backendReportId}/prepare`,
+          accessToken,
+          { method: "POST" },
+        ),
       );
     }
     case "sign-report": {
@@ -199,10 +308,128 @@ export async function mutateRebuildSiteReports(
       if (!backendReportId) {
         return false;
       }
-      return await callRebuildJson(
-        `/api/v1/projects/${resolvedProject.id}/reports/${backendReportId}/sign`,
-        accessToken,
-        { method: "POST" },
+      return Boolean(
+        await callRebuildJson(
+          `/api/v1/projects/${resolvedProject.id}/reports/${backendReportId}/sign`,
+          accessToken,
+          { method: "POST" },
+        ),
+      );
+    }
+    default:
+      return false;
+  }
+}
+
+export async function uploadRebuildSitePhoto(
+  accessToken: string,
+  legacyProjectId: string,
+  payload: PhotoMutationPayload,
+): Promise<boolean> {
+  const resolvedProject = await resolveRebuildProjectForLegacyId(accessToken, legacyProjectId);
+  if (!resolvedProject) {
+    return false;
+  }
+
+  const fileUrl = await fileToDataUrl(payload.file);
+  const gps = parseGeoCoordinates(payload.geo);
+
+  return Boolean(
+    await callRebuildJson(
+      `/api/v1/projects/${resolvedProject.id}/photos`,
+      accessToken,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fileKey: buildCompatPhotoFileKey(resolvedProject.id, payload.file.name || payload.title),
+          fileUrl,
+          gpsLat: gps?.lat,
+          gpsLng: gps?.lng,
+          locationLabel: payload.zone.trim(),
+          taskTag: encodePhotoTaskTag({
+            lot: payload.lot.trim(),
+            task: payload.task.trim(),
+            title: payload.title.trim(),
+          }),
+        }),
+      },
+    ),
+  );
+}
+
+export async function mutateRebuildSiteNcr(
+  accessToken: string,
+  legacyProjectId: string,
+  action: NcrMutationAction,
+  payload: NcrMutationPayload,
+): Promise<boolean> {
+  const resolvedProject = await resolveRebuildProjectForLegacyId(accessToken, legacyProjectId);
+  if (!resolvedProject) {
+    return false;
+  }
+
+  switch (action) {
+    case "create-ncr": {
+      const draftNcr = payload.draftNcr;
+      if (!draftNcr) {
+        return false;
+      }
+
+      const projectMembers = await fetchRebuildProjectMembers(accessToken, resolvedProject.id);
+      const assignedMember = resolveAssignedRebuildMember(projectMembers, draftNcr.owner);
+      const evidenceUrl = draftNcr.photoAttached
+        ? buildCompatEvidenceUrl("create", draftNcr.title)
+        : undefined;
+
+      return Boolean(
+        await callRebuildJson(
+          `/api/v1/projects/${resolvedProject.id}/ncr`,
+          accessToken,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              assignedTo: assignedMember?.userId,
+              deadline: normalizeDateInput(draftNcr.dueDate),
+              description: draftNcr.description.trim(),
+              evidenceUrl,
+              severity: mapLegacyNcrSeverityToRebuild(draftNcr.severity),
+              title: draftNcr.title.trim(),
+            }),
+          },
+        ),
+      );
+    }
+    case "close-ncr": {
+      const ref = String(payload.ref ?? "").trim();
+      if (!ref) {
+        return false;
+      }
+
+      const backendNcrId = await resolveBackendNcrId(accessToken, legacyProjectId, ref);
+      if (!backendNcrId) {
+        return false;
+      }
+
+      return Boolean(
+        await callRebuildJson(
+          `/api/v1/projects/${resolvedProject.id}/ncr/${backendNcrId}/close`,
+          accessToken,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              evidenceUrl: buildCompatEvidenceUrl("close", ref),
+            }),
+          },
+        ),
       );
     }
     default:
@@ -311,6 +538,77 @@ function mapRebuildReportToLegacy(
     pdfUrl: pdfReady
       ? `/api/projects/${legacyProjectId}/site/reports/${compatId}/pdf`
       : undefined,
+  };
+}
+
+function mapRebuildPhotoToLegacy(
+  photo: RebuildPhoto,
+  userLookup: Map<string, { email: string; fullName: string }>,
+  index: number,
+): SitePhotoBaseRecord & {
+  fileName?: string;
+  fileUrl?: string;
+} {
+  const encodedTask = decodePhotoTaskTag(photo.taskTag);
+  const compatibilityAuthor = findPilotUserCompatibilityByBackendId(String(photo.uploadedBy));
+  const rebuildAuthor = userLookup.get(String(photo.uploadedBy));
+  const zone = String(photo.locationLabel ?? "Zone chantier");
+  const timestamp = String(photo.takenAt ?? new Date().toISOString());
+
+  return {
+    id: String(photo.id),
+    title: encodedTask.title ?? derivePhotoTitle(photo.fileKey),
+    zone,
+    lot: encodedTask.lot ?? "Lot terrain",
+    task: encodedTask.task ?? String(photo.taskTag ?? "Suivi terrain"),
+    time: formatShortTime(timestamp),
+    timestamp,
+    geo: formatGeoLabel(photo.gpsLat, photo.gpsLng),
+    author:
+      compatibilityAuthor?.name ??
+      rebuildAuthor?.fullName ??
+      rebuildAuthor?.email ??
+      "Equipe terrain",
+    accent: getPhotoAccent(index),
+    fileName: deriveFileName(photo.fileKey),
+    fileUrl: String(photo.thumbnailUrl || photo.fileUrl),
+  };
+}
+
+function mapRebuildNcrToLegacy(
+  ncr: RebuildNcr,
+  userLookup: Map<string, { email: string; fullName: string }>,
+): SiteNcrBaseRecord {
+  const compatibilityOwner =
+    ncr.assignedTo ? findPilotUserCompatibilityByBackendId(String(ncr.assignedTo)) : null;
+  const rebuildOwner = ncr.assignedTo ? userLookup.get(String(ncr.assignedTo)) : null;
+  const compatibilityClosedBy =
+    ncr.closedBy ? findPilotUserCompatibilityByBackendId(String(ncr.closedBy)) : null;
+  const rebuildClosedBy = ncr.closedBy ? userLookup.get(String(ncr.closedBy)) : null;
+  const severity = severityToLegacy[ncr.severity] ?? "Majeure";
+  const status = mapRebuildNcrStatusToLegacy(ncr.status);
+  const tone = resolveNcrTone(status, severity);
+
+  return {
+    ref: String(ncr.reference),
+    title: String(ncr.title),
+    owner:
+      compatibilityOwner?.name ??
+      rebuildOwner?.fullName ??
+      rebuildOwner?.email ??
+      "Equipe chantier",
+    dueDate: normalizeDateInput(String(ncr.deadline ?? ncr.createdAt)),
+    severity,
+    status,
+    tone,
+    photoAttached: Boolean(ncr.evidenceUrl) || Number(ncr.photoCount ?? 0) > 0,
+    description: String(ncr.description ?? ""),
+    closedAt: ncr.closedAt ? formatDateTimeLabel(String(ncr.closedAt)) : undefined,
+    closedBy:
+      compatibilityClosedBy?.name ??
+      rebuildClosedBy?.fullName ??
+      rebuildClosedBy?.email ??
+      undefined,
   };
 }
 
@@ -475,6 +773,24 @@ async function fetchRebuildReports(accessToken: string, rebuildProjectId: string
   return payload?.items ?? null;
 }
 
+async function fetchRebuildPhotos(accessToken: string, rebuildProjectId: string) {
+  const payload = await callRebuildJson<RebuildPhotosPayload>(
+    `/api/v1/projects/${rebuildProjectId}/photos`,
+    accessToken,
+  );
+
+  return payload?.items ?? null;
+}
+
+async function fetchRebuildNcrs(accessToken: string, rebuildProjectId: string) {
+  const payload = await callRebuildJson<RebuildNcrPayload>(
+    `/api/v1/projects/${rebuildProjectId}/ncr`,
+    accessToken,
+  );
+
+  return payload?.items ?? null;
+}
+
 async function resolveBackendReportId(
   accessToken: string,
   legacyProjectId: string,
@@ -488,6 +804,21 @@ async function resolveBackendReportId(
   const reports = await fetchRebuildReports(accessToken, resolvedProject.id);
   const report = reports?.find((item) => buildCompatReportId(item.id) === compatReportId);
   return report?.id ?? null;
+}
+
+async function resolveBackendNcrId(
+  accessToken: string,
+  legacyProjectId: string,
+  ref: string,
+) {
+  const resolvedProject = await resolveRebuildProjectForLegacyId(accessToken, legacyProjectId);
+  if (!resolvedProject) {
+    return null;
+  }
+
+  const ncrs = await fetchRebuildNcrs(accessToken, resolvedProject.id);
+  const record = ncrs?.find((item) => String(item.reference) === ref);
+  return record?.id ?? null;
 }
 
 function mapFormStateToRebuildReportPayload(formState: ReportFormState) {
@@ -583,6 +914,49 @@ function mergeReportsByDate(rebuildReports: SiteReportRecord[], legacyReports: S
   );
 }
 
+function mergePhotoLibrary(
+  rebuildPhotos: Array<SitePhotoBaseRecord & { fileName?: string; fileUrl?: string }>,
+  legacyPhotos: SiteModuleData["photoLibrary"],
+) {
+  const seen = new Set<string>();
+  const merged: SiteModuleData["photoLibrary"] = [];
+
+  for (const photo of [...rebuildPhotos, ...legacyPhotos]) {
+    const key = [
+      photo.title.trim().toLowerCase(),
+      photo.zone.trim().toLowerCase(),
+      photo.lot.trim().toLowerCase(),
+      photo.task.trim().toLowerCase(),
+      String(photo.timestamp).slice(0, 16),
+    ].join("|");
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    merged.push(photo);
+  }
+
+  return merged.sort((left, right) => String(right.timestamp).localeCompare(String(left.timestamp)));
+}
+
+function mergeNcrs(rebuildNcrs: SiteNcrBaseRecord[], legacyNcrs: SiteModuleData["ncrs"]) {
+  const byRef = new Map<string, SiteNcrBaseRecord>();
+
+  for (const ncr of legacyNcrs) {
+    byRef.set(ncr.ref, ncr);
+  }
+
+  for (const ncr of rebuildNcrs) {
+    byRef.set(ncr.ref, ncr);
+  }
+
+  return Array.from(byRef.values()).sort((left, right) =>
+    String(right.dueDate).localeCompare(String(left.dueDate)),
+  );
+}
+
 function normalizeReportProgress(
   value: RebuildReport["progressByLot"] | unknown,
 ): RebuildReport["progressByLot"] {
@@ -616,9 +990,133 @@ function normalizeReportDateForInput(value: string) {
   return value.includes("/") ? value.split("/").reverse().join("-") : value;
 }
 
+function normalizeDateInput(value: string) {
+  const trimmed = value.trim();
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
+    const [day, month, year] = trimmed.split("/");
+    return `${year}-${month}-${day}`;
+  }
+
+  return trimmed.slice(0, 10);
+}
+
 function mapWeatherToRebuild(value: string): RebuildWeatherCode {
   const normalized = value.trim().toLowerCase();
   return weatherToRebuild[normalized] ?? "cloudy";
+}
+
+function mapLegacyNcrSeverityToRebuild(value: string): RebuildNcrSeverity {
+  switch (value.trim().toLowerCase()) {
+    case "mineure":
+      return "low";
+    case "critique":
+      return "high";
+    case "majeure":
+    default:
+      return "medium";
+  }
+}
+
+function mapRebuildNcrStatusToLegacy(status: RebuildNcrStatus) {
+  switch (status) {
+    case "closed":
+      return "Levee";
+    case "in_progress":
+      return "Validation";
+    case "open":
+    default:
+      return "En cours";
+  }
+}
+
+function resolveNcrTone(status: string, severity: string): SiteNcrBaseRecord["tone"] {
+  if (status === "Levee") {
+    return "success";
+  }
+
+  if (severity === "Critique") {
+    return "danger";
+  }
+
+  if (severity === "Majeure") {
+    return "warning";
+  }
+
+  return status === "Validation" ? "primary" : "primary";
+}
+
+function resolveAssignedRebuildMember(
+  members: RebuildProjectMember[] | null,
+  ownerName: string,
+) {
+  const normalizedOwner = ownerName.trim().toLowerCase();
+  if (!normalizedOwner) {
+    return null;
+  }
+
+  return (
+    members?.find((member) => {
+      const compatibility = findPilotUserCompatibilityByBackendId(String(member.userId));
+      const names = [
+        member.fullName.trim().toLowerCase(),
+        member.email.trim().toLowerCase(),
+        compatibility?.name.trim().toLowerCase(),
+      ].filter(Boolean);
+      return names.includes(normalizedOwner);
+    }) ?? null
+  );
+}
+
+function decodePhotoTaskTag(value: string | null | undefined): EncodedPhotoTaskTag {
+  if (!value) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(value) as EncodedPhotoTaskTag;
+    if (parsed && typeof parsed === "object") {
+      return parsed;
+    }
+  } catch {
+    return {
+      task: value,
+    };
+  }
+
+  return {};
+}
+
+function encodePhotoTaskTag(value: EncodedPhotoTaskTag) {
+  return JSON.stringify(value);
+}
+
+function derivePhotoTitle(fileKey: string) {
+  const fileName = deriveFileName(fileKey);
+  return fileName.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim() || "Photo chantier";
+}
+
+function deriveFileName(fileKey: string) {
+  return fileKey.split("/").filter(Boolean).pop() ?? "photo-chantier";
+}
+
+function formatGeoLabel(lat?: number | null, lng?: number | null) {
+  if (lat == null || lng == null) {
+    return "GPS indisponible";
+  }
+
+  return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+}
+
+function formatShortTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "00:00";
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function formatDateTimeLabel(value: string) {
@@ -646,6 +1144,51 @@ function diffInDays(targetDate: string) {
   today.setHours(0, 0, 0, 0);
   target.setHours(0, 0, 0, 0);
   return Math.round((today.getTime() - target.getTime()) / 86_400_000);
+}
+
+function getPhotoAccent(index: number) {
+  return photoAccents[index % photoAccents.length] ?? photoAccents[0];
+}
+
+function parseGeoCoordinates(value: string) {
+  const [latRaw, lngRaw] = value.split(",").map((item) => item.trim());
+  const lat = Number(latRaw);
+  const lng = Number(lngRaw);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+
+  return {
+    lat,
+    lng,
+  };
+}
+
+async function fileToDataUrl(file: File) {
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const mimeType = file.type || "application/octet-stream";
+  return `data:${mimeType};base64,${bytes.toString("base64")}`;
+}
+
+function buildCompatPhotoFileKey(projectId: string, originalName: string) {
+  const safeName = originalName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-");
+
+  return `compat/site-photos/${projectId}/${Date.now()}-${safeName || "photo.jpg"}`;
+}
+
+function buildCompatEvidenceUrl(action: "close" | "create", label: string) {
+  const safeLabel = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-");
+
+  return `compat://ncr-evidence/${action}/${safeLabel || "ncr"}`;
 }
 
 async function callRebuildJson<T = { item?: unknown }>(
