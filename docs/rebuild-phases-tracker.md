@@ -270,6 +270,7 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 - [x] Tighten the shared workspace density with a more compact collapsed rail and smaller document typography.
 - [x] Embed the right context rail inside the shared workspace card, add a library full-view toggle, and tighten button typography so labels fit cleanly.
 - [x] Remove the internal dual-panel split so the left rail and library read as one continuous workspace card.
+- [x] Rebalance the desktop workspace proportions with a wider left navigation rail and a slimmer right context rail.
 - [x] Add the new left navigation model:
 - [x] workflow views (`Tous les documents`, `Plans en vigueur`, `A diffuser`, `Diffusion en attente`, `Obsoletes`, `Offline chantier`, `Audit documentaire`)
 - [x] content views (`Plans & revisions`, `Rapports chantier`, `Photos & preuves`, `Finance & justificatifs`, `Qualite / NCR`, `Exports & PDF signes`)
