@@ -18,6 +18,8 @@ import {
   FolderOpen,
   HardDriveDownload,
   Layers3,
+  Maximize2,
+  Minimize2,
   Search,
   Send,
   ShieldCheck,
@@ -816,6 +818,7 @@ function DocumentsModuleContent({
   const [pendingAction, setPendingAction] = useState("");
   const [compareDrawerOpen, setCompareDrawerOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isContextPanelOpen, setIsContextPanelOpen] = useState(true);
 
   const deferredSearch = useDeferredValue(search);
 
@@ -1531,66 +1534,81 @@ function DocumentsModuleContent({
             ))}
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="overflow-hidden rounded-[28px] border border-white/8 bg-white/4">
-              <div
-                className={cx(
-                  "grid min-h-full",
-                  isSidebarOpen
-                    ? "xl:grid-cols-[296px_minmax(0,1fr)]"
-                    : "xl:grid-cols-[72px_minmax(0,1fr)]",
-                )}
-              >
-                <DocumentsSidebar
-                  activeView={workspaceView}
-                  collapsed={!isSidebarOpen}
-                  currentUserRole={currentUserRole}
-                  onToggle={() => setIsSidebarOpen((current) => !current)}
-                  profile={roleViewProfile}
-                  setActiveView={setWorkspaceView}
-                  tree={projectData.tree}
-                  treeFilter={treeFilter}
-                  setTreeFilter={setTreeFilter}
-                />
-
-                <div className="min-w-0">
-                  <LibraryTab
-                    documents={filteredDocuments}
-                    embedded
-                    selectedDocumentId={effectiveSelectedDocumentId}
-                    selectDocument={handleSelectDocument}
-                    selectedDocumentIds={selectedDocumentIds}
-                    toggleDocumentSelection={toggleDocumentSelection}
+          <div className="overflow-hidden rounded-[28px] border border-white/8 bg-white/4">
+            <div
+              className={cx(
+                "grid min-h-full",
+                isContextPanelOpen ? "xl:grid-cols-[minmax(0,1fr)_280px]" : "grid-cols-1",
+              )}
+            >
+              <div className="min-w-0">
+                <div
+                  className={cx(
+                    "grid min-h-full",
+                    isSidebarOpen
+                      ? "xl:grid-cols-[296px_minmax(0,1fr)]"
+                      : "xl:grid-cols-[72px_minmax(0,1fr)]",
+                  )}
+                >
+                  <DocumentsSidebar
+                    activeView={workspaceView}
+                    collapsed={!isSidebarOpen}
+                    currentUserRole={currentUserRole}
+                    onToggle={() => setIsSidebarOpen((current) => !current)}
+                    profile={roleViewProfile}
+                    setActiveView={setWorkspaceView}
+                    tree={projectData.tree}
+                    treeFilter={treeFilter}
+                    setTreeFilter={setTreeFilter}
                   />
+
+                  <div className="min-w-0">
+                    <LibraryTab
+                      documents={filteredDocuments}
+                      embedded
+                      isFullView={!isContextPanelOpen}
+                      onToggleFullView={() => setIsContextPanelOpen((current) => !current)}
+                      selectedDocumentId={effectiveSelectedDocumentId}
+                      selectDocument={handleSelectDocument}
+                      selectedDocumentIds={selectedDocumentIds}
+                      toggleDocumentSelection={toggleDocumentSelection}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <DocumentContextPanel
-              canMarkSelectedObsolete={canMarkSelectedObsolete}
-              canSubmitMetadataUpdate={canSubmitMetadataUpdate}
-              documentsCount={filteredDocuments.length}
-              markObsolete={markObsolete}
-              markObsoleteHelper={markObsoleteHelper}
-              metadataActionHelper={metadataActionHelper}
-              metadataDraft={metadataDraft}
-              nextDocumentAction={nextDocumentAction}
-              openCompare={() => setCompareDrawerOpen(true)}
-              openDistribution={() => openWorkflow("distribution")}
-              openOffline={() => openWorkflow("offline")}
-              openVersions={() => openWorkflow("versions")}
-              pendingAction={pendingAction}
-              readRate={readRate}
-              recipientsForSelected={recipientsForSelected}
-              selectedCompareVersion={selectedCompareVersion}
-              selectedDocument={selectedDocument}
-              selectedHubDocument={selectedHubDocument}
-              setMetadataDraft={setMetadataDraft}
-              workflowSteps={workflowSteps}
-              updateMetadata={updateMetadata}
-              projectLots={projectData.projectSetup.lots}
-              projectPhases={projectData.projectSetup.phases}
-            />
+              {isContextPanelOpen ? (
+                <div className="min-w-0 border-t border-white/8 xl:border-l xl:border-t-0">
+                  <DocumentContextPanel
+                    canMarkSelectedObsolete={canMarkSelectedObsolete}
+                    canSubmitMetadataUpdate={canSubmitMetadataUpdate}
+                    compact
+                    documentsCount={filteredDocuments.length}
+                    embedded
+                    markObsolete={markObsolete}
+                    markObsoleteHelper={markObsoleteHelper}
+                    metadataActionHelper={metadataActionHelper}
+                    metadataDraft={metadataDraft}
+                    nextDocumentAction={nextDocumentAction}
+                    openCompare={() => setCompareDrawerOpen(true)}
+                    openDistribution={() => openWorkflow("distribution")}
+                    openOffline={() => openWorkflow("offline")}
+                    openVersions={() => openWorkflow("versions")}
+                    pendingAction={pendingAction}
+                    readRate={readRate}
+                    recipientsForSelected={recipientsForSelected}
+                    selectedCompareVersion={selectedCompareVersion}
+                    selectedDocument={selectedDocument}
+                    selectedHubDocument={selectedHubDocument}
+                    setMetadataDraft={setMetadataDraft}
+                    workflowSteps={workflowSteps}
+                    updateMetadata={updateMetadata}
+                    projectLots={projectData.projectSetup.lots}
+                    projectPhases={projectData.projectSetup.phases}
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </Panel>
@@ -1739,6 +1757,8 @@ function DocumentsModuleContent({
 function LibraryTab({
   documents,
   embedded = false,
+  isFullView,
+  onToggleFullView,
   selectedDocumentId,
   selectDocument,
   selectedDocumentIds,
@@ -1746,6 +1766,8 @@ function LibraryTab({
 }: {
   documents: HubDocument[];
   embedded?: boolean;
+  isFullView: boolean;
+  onToggleFullView: () => void;
   selectedDocumentId: string;
   selectDocument: (documentId: string) => void;
   selectedDocumentIds: string[];
@@ -1761,7 +1783,26 @@ function LibraryTab({
               La table centrale vous montre la bonne version, la diffusion, la lecture et l&apos;etat offline sans ouvrir chaque fiche.
             </p>
           </div>
-          <StatusBadge tone="primary">{documents.length} element(s)</StatusBadge>
+          <div className="flex items-center gap-2">
+            <StatusBadge tone="primary">{documents.length} element(s)</StatusBadge>
+            <button
+              type="button"
+              onClick={onToggleFullView}
+              className="inline-flex size-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white transition hover:bg-white/8"
+              title={
+                isFullView
+                  ? "Rouvrir le panneau document"
+                  : "Afficher la bibliotheque en vue large"
+              }
+              aria-label={
+                isFullView
+                  ? "Rouvrir le panneau document"
+                  : "Afficher la bibliotheque en vue large"
+              }
+            >
+              {isFullView ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2109,7 +2150,9 @@ function SidebarGroup({
 function DocumentContextPanel({
   canMarkSelectedObsolete,
   canSubmitMetadataUpdate,
+  compact = false,
   documentsCount,
+  embedded = false,
   markObsolete,
   markObsoleteHelper,
   metadataActionHelper,
@@ -2133,7 +2176,9 @@ function DocumentContextPanel({
 }: {
   canMarkSelectedObsolete: boolean;
   canSubmitMetadataUpdate: boolean;
+  compact?: boolean;
   documentsCount: number;
+  embedded?: boolean;
   markObsolete: (documentId: string) => void;
   markObsoleteHelper: string;
   metadataActionHelper: string;
@@ -2174,31 +2219,34 @@ function DocumentContextPanel({
   projectLots: string[];
   projectPhases: string[];
 }) {
-  return (
-    <div className="space-y-4">
-      <Panel
-        title="Document selectionne"
-        description={
-          selectedHubDocument
-            ? "Le panneau de contexte repond tout de suite aux questions de version, diffusion, lecture et offline."
-            : "Selectionnez un document dans la table pour ouvrir son contexte."
-        }
-      >
-        {!selectedHubDocument || !selectedDocument ? (
-          <EmptyStateCard
-            title="Aucune fiche ouverte"
-            detail={`Choisissez un document parmi les ${documentsCount} elements de la bibliotheque pour ouvrir sa fiche detail.`}
-          />
-        ) : (
-          <div className="space-y-4">
-            <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+  const panelTitle = "Document selectionne";
+  const panelDescription = selectedHubDocument
+    ? "Le panneau de contexte repond tout de suite aux questions de version, diffusion, lecture et offline."
+    : "Selectionnez un document dans la table pour ouvrir son contexte.";
+
+  const content =
+    !selectedHubDocument || !selectedDocument ? (
+      <EmptyStateCard
+        title="Aucune fiche ouverte"
+        detail={`Choisissez un document parmi les ${documentsCount} elements de la bibliotheque pour ouvrir sa fiche detail.`}
+      />
+    ) : (
+      <div className={cx("space-y-4", compact && "space-y-3")}>
+            <div className={cx("rounded-[22px] border border-white/8 bg-white/4", compact ? "p-4" : "p-5")}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-display text-xl font-semibold text-white">{selectedHubDocument.code}</p>
+                    <p
+                      className={cx(
+                        "font-display font-semibold text-white",
+                        compact ? "text-[1.35rem] leading-8" : "text-xl",
+                      )}
+                    >
+                      {selectedHubDocument.code}
+                    </p>
                     <StatusBadge tone={selectedHubDocument.tone}>{selectedHubDocument.status}</StatusBadge>
                   </div>
-                  <p className="text-[13px] leading-5 text-slate-200">{selectedHubDocument.title}</p>
+                  <p className={cx("leading-5 text-slate-200", compact ? "text-[12px]" : "text-[13px]")}>{selectedHubDocument.title}</p>
                   <p className="text-[13px] text-slate-500">
                     {selectedHubDocument.documentTypeLabel} · {selectedHubDocument.sourceModule}
                   </p>
@@ -2212,14 +2260,17 @@ function DocumentContextPanel({
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {selectedHubDocument.quickBadges.slice(0, 4).map((badge) => (
                   <div
                     key={`${selectedHubDocument.id}-${badge.label}`}
-                    className="rounded-[18px] border border-white/8 bg-white/4 px-4 py-3"
+                    className={cx(
+                      "rounded-[16px] border border-white/8 bg-white/4",
+                      compact ? "px-3 py-2.5" : "px-4 py-3",
+                    )}
                   >
-                    <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Reponse rapide</p>
-                    <p className="mt-1 text-[13px] font-semibold text-white">{badge.label}</p>
+                    <p className="text-[9px] uppercase tracking-[0.14em] text-slate-500">Reponse rapide</p>
+                    <p className={cx("mt-1 font-semibold text-white", compact ? "text-[12px] leading-5" : "text-[13px]")}>{badge.label}</p>
                   </div>
                 ))}
               </div>
@@ -2239,8 +2290,8 @@ function DocumentContextPanel({
               />
             </div>
 
-            <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-              <p className="text-[13px] font-semibold text-white">Metadonnees</p>
+            <div className={cx("rounded-[20px] border border-white/8 bg-white/4", compact ? "p-3.5" : "p-4")}>
+              <p className={cx("font-semibold text-white", compact ? "text-[12px]" : "text-[13px]")}>Metadonnees</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <Field
                   label="Titre"
@@ -2278,7 +2329,8 @@ function DocumentContextPanel({
                 disabled={!canSubmitMetadataUpdate}
                 title={metadataActionHelper}
                 className={cx(
-                  "mt-4 inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-[13px] font-semibold",
+                  "mt-4 inline-flex items-center gap-2 rounded-2xl font-semibold",
+                  compact ? "px-3.5 py-2 text-[12px]" : "px-4 py-2.5 text-[13px]",
                   canSubmitMetadataUpdate
                     ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
                     : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
@@ -2340,7 +2392,10 @@ function DocumentContextPanel({
                     <button
                       type="button"
                       onClick={openCompare}
-                      className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+                      className={cx(
+                        "rounded-full border border-white/10 bg-white/5 font-semibold text-white hover:bg-white/8",
+                        compact ? "px-3 py-1.5 text-[12px]" : "px-4 py-2 text-sm",
+                      )}
                     >
                       Comparer
                     </button>
@@ -2385,7 +2440,10 @@ function DocumentContextPanel({
               <button
                 type="button"
                 onClick={openOffline}
-                className="mt-3 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+                className={cx(
+                  "mt-3 rounded-full border border-white/10 bg-white/5 font-semibold text-white hover:bg-white/8",
+                  compact ? "px-3 py-1.5 text-[12px]" : "px-4 py-2 text-sm",
+                )}
               >
                 Gerer le cache
               </button>
@@ -2421,8 +2479,29 @@ function DocumentContextPanel({
                 </div>
               </div>
             </DetailSection>
-          </div>
-        )}
+      </div>
+    );
+
+  if (embedded) {
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-black/[0.02]">
+        <div className={cx("border-b border-white/8", compact ? "px-4 py-4" : "px-5 py-5")}>
+          <p className={cx("font-semibold text-white", compact ? "text-[15px]" : "text-lg")}>{panelTitle}</p>
+          <p className={cx("mt-2 text-slate-400", compact ? "text-[12px] leading-5" : "text-sm leading-6")}>
+            {panelDescription}
+          </p>
+        </div>
+        <div className={cx("min-h-0 flex-1 overflow-y-auto", compact ? "px-4 py-4" : "px-5 py-5")}>
+          {content}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Panel title={panelTitle} description={panelDescription}>
+        {content}
       </Panel>
     </div>
   );
@@ -2469,29 +2548,35 @@ function WorkflowDrawer({
 }
 
 function DetailSection({
+  compact = false,
   title,
   description,
   children,
 }: {
+  compact?: boolean;
   title: string;
   description: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-      <p className="text-[13px] font-semibold text-white">{title}</p>
-      <p className="mt-1 text-[13px] leading-5 text-slate-400">{description}</p>
-      <div className="mt-4">{children}</div>
+    <div className={cx("rounded-[20px] border border-white/8 bg-white/4", compact ? "p-3.5" : "p-4")}>
+      <p className={cx("font-semibold text-white", compact ? "text-[12px]" : "text-[13px]")}>{title}</p>
+      <p className={cx("mt-1 text-slate-400", compact ? "text-[12px] leading-5" : "text-[13px] leading-5")}>
+        {description}
+      </p>
+      <div className={cx(compact ? "mt-3" : "mt-4")}>{children}</div>
     </div>
   );
 }
 
 function QuickActionButton({
+  compact = false,
   label,
   onClick,
   disabled,
   title,
 }: {
+  compact?: boolean;
   label: string;
   onClick: () => void;
   disabled?: boolean;
@@ -2504,7 +2589,8 @@ function QuickActionButton({
       disabled={disabled}
       title={title}
       className={cx(
-        "rounded-[18px] border px-4 py-2.5 text-[13px] font-semibold",
+        "rounded-[18px] border font-semibold text-center leading-4 whitespace-normal",
+        compact ? "min-h-[42px] px-3 py-2 text-[11px]" : "min-h-[46px] px-4 py-2.5 text-[13px]",
         disabled
           ? "cursor-not-allowed border-white/8 bg-white/5 text-slate-500"
           : "border-white/10 bg-white/5 text-white hover:bg-white/8",
