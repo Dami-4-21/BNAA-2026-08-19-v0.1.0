@@ -267,6 +267,7 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 - [x] center document library table
 - [x] right contextual document panel
 - [x] Merge the left navigation and the library into one shared workspace card with a collapsible sidebar control.
+- [x] Tighten the shared workspace density with a more compact collapsed rail and smaller document typography.
 - [x] Add the new left navigation model:
 - [x] workflow views (`Tous les documents`, `Plans en vigueur`, `A diffuser`, `Diffusion en attente`, `Obsoletes`, `Offline chantier`, `Audit documentaire`)
 - [x] content views (`Plans & revisions`, `Rapports chantier`, `Photos & preuves`, `Finance & justificatifs`, `Qualite / NCR`, `Exports & PDF signes`)

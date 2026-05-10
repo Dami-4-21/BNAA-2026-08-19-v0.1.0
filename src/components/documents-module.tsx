@@ -334,6 +334,22 @@ const workspaceViewLabels: Record<DocumentWorkspaceView, string> = {
   exports: "Exports & PDF signes",
 };
 
+const workspaceViewCompactLabels: Record<DocumentWorkspaceView, string> = {
+  all: "Tous docs",
+  current: "Plans",
+  "to-distribute": "A diffuser",
+  "distribution-pending": "Attente",
+  obsolete: "Obsoletes",
+  offline: "Offline",
+  audit: "Audit",
+  plans: "Plans",
+  reports: "Rapports",
+  photos: "Photos",
+  finance: "Finance",
+  quality: "Qualite",
+  exports: "PDF",
+};
+
 const sortLabels: Record<DocumentSortKey, string> = {
   updated: "Derniere mise a jour",
   priority: "Priorite",
@@ -1515,14 +1531,14 @@ function DocumentsModuleContent({
             ))}
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
             <div className="overflow-hidden rounded-[28px] border border-white/8 bg-white/4">
               <div
                 className={cx(
                   "grid min-h-full",
                   isSidebarOpen
-                    ? "xl:grid-cols-[320px_minmax(0,1fr)]"
-                    : "xl:grid-cols-[88px_minmax(0,1fr)]",
+                    ? "xl:grid-cols-[296px_minmax(0,1fr)]"
+                    : "xl:grid-cols-[72px_minmax(0,1fr)]",
                 )}
               >
                 <DocumentsSidebar
@@ -1737,11 +1753,11 @@ function LibraryTab({
 }) {
   return (
     <div className={cx(embedded ? "h-full" : "rounded-[28px] border border-white/8 bg-white/4")}>
-      <div className="border-b border-white/8 px-4 py-4">
+      <div className="border-b border-white/8 px-4 py-3.5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-white">Bibliotheque documentaire</p>
-            <p className="mt-1 text-sm text-slate-400">
+            <p className="text-[15px] font-semibold text-white">Bibliotheque documentaire</p>
+            <p className="mt-1 max-w-3xl text-[13px] leading-5 text-slate-400">
               La table centrale vous montre la bonne version, la diffusion, la lecture et l&apos;etat offline sans ouvrir chaque fiche.
             </p>
           </div>
@@ -1759,24 +1775,24 @@ function LibraryTab({
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full border-collapse text-left">
-            <thead className="border-b border-white/8 bg-black/10 text-xs uppercase tracking-[0.16em] text-slate-500">
+            <thead className="border-b border-white/8 bg-black/10 text-[11px] uppercase tracking-[0.14em] text-slate-500">
               <tr>
-                <th className="px-4 py-3">
+                <th className="px-3 py-3">
                   <span className="sr-only">Selection</span>
                 </th>
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Code</th>
-                <th className="px-4 py-3">Titre</th>
-                <th className="px-4 py-3">Source</th>
-                <th className="px-4 py-3">Lot</th>
-                <th className="px-4 py-3">Phase</th>
-                <th className="px-4 py-3">Discipline</th>
-                <th className="px-4 py-3">Revision</th>
-                <th className="px-4 py-3">Statut</th>
-                <th className="px-4 py-3">Diffusion</th>
-                <th className="px-4 py-3">Lecture</th>
-                <th className="px-4 py-3">Offline</th>
-                <th className="px-4 py-3">Derniere mise a jour</th>
+                <th className="px-3 py-3">Type</th>
+                <th className="px-3 py-3">Code</th>
+                <th className="px-3 py-3">Titre</th>
+                <th className="px-3 py-3">Source</th>
+                <th className="px-3 py-3">Lot</th>
+                <th className="px-3 py-3">Phase</th>
+                <th className="px-3 py-3">Discipline</th>
+                <th className="px-3 py-3">Revision</th>
+                <th className="px-3 py-3">Statut</th>
+                <th className="px-3 py-3">Diffusion</th>
+                <th className="px-3 py-3">Lecture</th>
+                <th className="px-3 py-3">Offline</th>
+                <th className="px-3 py-3">Derniere mise a jour</th>
               </tr>
             </thead>
             <tbody>
@@ -1789,11 +1805,11 @@ function LibraryTab({
                     key={document.id}
                     onClick={() => selectDocument(document.id)}
                     className={cx(
-                      "cursor-pointer border-b border-white/6 text-sm text-slate-200 transition hover:bg-white/6",
+                      "cursor-pointer border-b border-white/6 text-[13px] text-slate-200 transition hover:bg-white/6",
                       isSelected ? "bg-sky-400/10" : "",
                     )}
                   >
-                    <td className="px-4 py-4" onClick={(event) => event.stopPropagation()}>
+                    <td className="px-3 py-3.5" onClick={(event) => event.stopPropagation()}>
                       <input
                         checked={isChecked}
                         onChange={() => toggleDocumentSelection(document.id)}
@@ -1802,40 +1818,40 @@ function LibraryTab({
                         className="size-4 rounded border-white/10 bg-white/5"
                       />
                     </td>
-                    <td className="px-4 py-4">
-                      <div className="inline-flex min-w-[44px] items-center justify-center rounded-full border border-white/8 bg-white/5 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white">
+                    <td className="px-3 py-3.5">
+                      <div className="inline-flex min-w-[36px] items-center justify-center rounded-full border border-white/8 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white">
                         {getTypeLetter(document.documentType)}
                       </div>
                     </td>
-                    <td className="px-4 py-4 font-semibold text-white">{document.code}</td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-3.5 font-semibold text-white">{document.code}</td>
+                    <td className="px-3 py-3.5">
                       <div>
-                        <p className="font-medium text-white">{document.title}</p>
-                        <p className="mt-1 text-xs text-slate-500">{document.documentTypeLabel}</p>
+                        <p className="font-medium leading-5 text-white">{document.title}</p>
+                        <p className="mt-1 text-[11px] text-slate-500">{document.documentTypeLabel}</p>
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-slate-300">{document.sourceModule}</td>
-                    <td className="px-4 py-4 text-slate-300">{document.lot}</td>
-                    <td className="px-4 py-4 text-slate-300">{document.phase}</td>
-                    <td className="px-4 py-4 text-slate-300">{document.discipline}</td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-3.5 text-slate-300">{document.sourceModule}</td>
+                    <td className="px-3 py-3.5 text-slate-300">{document.lot}</td>
+                    <td className="px-3 py-3.5 text-slate-300">{document.phase}</td>
+                    <td className="px-3 py-3.5 text-slate-300">{document.discipline}</td>
+                    <td className="px-3 py-3.5">
                       <StatusBadge tone="primary">{formatVersion(document.revision)}</StatusBadge>
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-3.5">
                       <StatusBadge tone={document.tone}>{document.status}</StatusBadge>
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-3.5">
                       <StatusBadge tone={document.distributionTone}>{document.distributionLabel}</StatusBadge>
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-3.5">
                       <StatusBadge tone={document.readTone}>{document.readLabel}</StatusBadge>
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-3.5">
                       <StatusBadge tone={document.offlineTone}>{document.offlineLabel}</StatusBadge>
                     </td>
-                    <td className="px-4 py-4 text-slate-300">
+                    <td className="px-3 py-3.5 text-slate-300">
                       <div>
-                        <p>{formatDate(document.updatedAt)}</p>
+                        <p className="text-[13px]">{formatDate(document.updatedAt)}</p>
                         <p className="mt-1 text-xs text-slate-500">{document.updatedBy} · {timeAgo(document.updatedAt)}</p>
                       </div>
                     </td>
@@ -1875,26 +1891,43 @@ function DocumentsSidebar({
     <aside
       className={cx(
         "flex h-full flex-col bg-black/[0.03]",
-        collapsed ? "px-3 py-4" : "px-5 py-5",
+        collapsed ? "px-2 py-3" : "px-5 py-5",
       )}
     >
-      <div className="flex items-start justify-between gap-3 border-b border-white/8 pb-4">
-        <div className={cx("min-w-0", collapsed ? "space-y-2" : "space-y-1")}>
-          <p className="text-sm font-semibold text-white">
-            {collapsed ? "Vues" : "Vues documentaires"}
+      <div
+        className={cx(
+          "border-b border-white/8",
+          collapsed
+            ? "flex flex-col items-center gap-2 pb-3"
+            : "flex items-start justify-between gap-3 pb-4",
+        )}
+      >
+        <div className={cx("min-w-0", collapsed ? "text-center" : "space-y-1")}>
+          <p
+            className={cx(
+              "font-semibold text-white",
+              collapsed ? "text-[11px] uppercase tracking-[0.16em] text-slate-500" : "text-sm",
+            )}
+          >
+            {collapsed ? "GED" : "Vues documentaires"}
           </p>
           {!collapsed ? (
-            <p className="text-sm leading-6 text-slate-400">
+            <p className="text-[13px] leading-5 text-slate-400">
               Navigation adaptee au role {currentUserRole}.
             </p>
           ) : (
-            <StatusBadge tone="neutral">{workspaceViewLabels[activeView]}</StatusBadge>
+            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
+              {workspaceViewCompactLabels[activeView]}
+            </p>
           )}
         </div>
         <button
           type="button"
           onClick={onToggle}
-          className="inline-flex size-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white transition hover:bg-white/10"
+          className={cx(
+            "inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 text-white transition hover:bg-white/10",
+            collapsed ? "size-9" : "size-10",
+          )}
           title={
             collapsed
               ? "Ouvrir la navigation documentaire"
@@ -1911,31 +1944,28 @@ function DocumentsSidebar({
       </div>
 
       {collapsed ? (
-        <div className="mt-4 space-y-3">
-          <div className="rounded-[20px] border border-white/8 bg-white/4 px-3 py-3">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Vue active</p>
-            <p className="mt-2 text-sm font-semibold text-white">
-              {workspaceViewLabels[activeView]}
+        <div className="mt-3 space-y-2">
+          <div className="rounded-[18px] border border-white/8 bg-white/4 px-2.5 py-2.5">
+            <p className="text-[9px] uppercase tracking-[0.18em] text-slate-500">Vue</p>
+            <p className="mt-1 text-[11px] font-semibold leading-4 text-white">
+              {workspaceViewCompactLabels[activeView]}
             </p>
           </div>
           {treeFilter ? (
-            <div className="rounded-[20px] border border-white/8 bg-white/4 px-3 py-3">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+            <div className="rounded-[18px] border border-white/8 bg-white/4 px-2.5 py-2.5">
+              <p className="text-[9px] uppercase tracking-[0.18em] text-slate-500">
                 Classement
               </p>
-              <p className="mt-2 text-sm font-semibold text-white">
+              <p className="mt-1 text-[11px] font-semibold leading-4 text-white">
                 {treeFilter.kind === "lot"
                   ? "Lot"
                   : treeFilter.kind === "phase"
                     ? "Phase"
                     : "Discipline"}
               </p>
-              <p className="mt-1 text-sm text-slate-400">{treeFilter.value}</p>
+              <p className="mt-1 break-words text-[11px] leading-4 text-slate-400">{treeFilter.value}</p>
             </div>
           ) : null}
-          <p className="px-1 text-xs leading-5 text-slate-500">
-            Ouvrez le rail pour changer de vue ou de classement.
-          </p>
         </div>
       ) : (
         <div className="mt-5 space-y-5">
@@ -2053,7 +2083,7 @@ function SidebarGroup({
 }) {
   return (
     <div className="space-y-2">
-      <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{title}</p>
+      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{title}</p>
       <div className="space-y-2">
         {views.map((view) => (
           <button
@@ -2061,14 +2091,14 @@ function SidebarGroup({
             type="button"
             onClick={() => onSelect(view)}
             className={cx(
-              "flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left text-sm font-semibold",
+              "flex w-full items-center justify-between rounded-[18px] border px-4 py-2.5 text-left text-[13px] font-semibold",
               activeView === view
                 ? "border-sky-400/25 bg-sky-400/12 text-white"
                 : "border-white/8 bg-white/4 text-slate-300 hover:bg-white/6",
             )}
           >
             <span>{workspaceViewLabels[view]}</span>
-            <span className="text-xs text-slate-500">{view === activeView ? "Actif" : ""}</span>
+            <span className="text-[11px] text-slate-500">{view === activeView ? "Actif" : ""}</span>
           </button>
         ))}
       </div>
@@ -2165,11 +2195,11 @@ function DocumentContextPanel({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-display text-2xl font-semibold text-white">{selectedHubDocument.code}</p>
+                    <p className="font-display text-xl font-semibold text-white">{selectedHubDocument.code}</p>
                     <StatusBadge tone={selectedHubDocument.tone}>{selectedHubDocument.status}</StatusBadge>
                   </div>
-                  <p className="text-sm text-slate-200">{selectedHubDocument.title}</p>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-[13px] leading-5 text-slate-200">{selectedHubDocument.title}</p>
+                  <p className="text-[13px] text-slate-500">
                     {selectedHubDocument.documentTypeLabel} · {selectedHubDocument.sourceModule}
                   </p>
                 </div>
@@ -2188,8 +2218,8 @@ function DocumentContextPanel({
                     key={`${selectedHubDocument.id}-${badge.label}`}
                     className="rounded-[18px] border border-white/8 bg-white/4 px-4 py-3"
                   >
-                    <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Reponse rapide</p>
-                    <p className="mt-1 text-sm font-semibold text-white">{badge.label}</p>
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Reponse rapide</p>
+                    <p className="mt-1 text-[13px] font-semibold text-white">{badge.label}</p>
                   </div>
                 ))}
               </div>
@@ -2210,7 +2240,7 @@ function DocumentContextPanel({
             </div>
 
             <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-              <p className="text-sm font-semibold text-white">Metadonnees</p>
+              <p className="text-[13px] font-semibold text-white">Metadonnees</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <Field
                   label="Titre"
@@ -2248,7 +2278,7 @@ function DocumentContextPanel({
                 disabled={!canSubmitMetadataUpdate}
                 title={metadataActionHelper}
                 className={cx(
-                  "mt-4 inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
+                  "mt-4 inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-[13px] font-semibold",
                   canSubmitMetadataUpdate
                     ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
                     : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
@@ -2257,7 +2287,7 @@ function DocumentContextPanel({
                 <CheckCheck className="size-4" />
                 {pendingAction === "update-metadata" ? "Mise a jour..." : "Mettre a jour les metadonnees"}
               </button>
-              <p className="mt-2 text-xs leading-5 text-slate-400">{metadataActionHelper}</p>
+              <p className="mt-2 text-[11px] leading-5 text-slate-400">{metadataActionHelper}</p>
             </div>
 
             <DetailSection title="Pieces jointes" description="Le parent document et ses elements relies restent visibles au meme endroit.">
@@ -2449,8 +2479,8 @@ function DetailSection({
 }) {
   return (
     <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-      <p className="text-sm font-semibold text-white">{title}</p>
-      <p className="mt-1 text-sm leading-6 text-slate-400">{description}</p>
+      <p className="text-[13px] font-semibold text-white">{title}</p>
+      <p className="mt-1 text-[13px] leading-5 text-slate-400">{description}</p>
       <div className="mt-4">{children}</div>
     </div>
   );
@@ -2474,7 +2504,7 @@ function QuickActionButton({
       disabled={disabled}
       title={title}
       className={cx(
-        "rounded-[18px] border px-4 py-3 text-sm font-semibold",
+        "rounded-[18px] border px-4 py-2.5 text-[13px] font-semibold",
         disabled
           ? "cursor-not-allowed border-white/8 bg-white/5 text-slate-500"
           : "border-white/10 bg-white/5 text-white hover:bg-white/8",
@@ -2489,8 +2519,8 @@ function AttachmentRow({ attachment }: { attachment: HubAttachment }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
       <div>
-        <p className="text-sm font-semibold text-white">{attachment.label}</p>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="text-[13px] font-semibold text-white">{attachment.label}</p>
+        <p className="mt-1 text-[11px] text-slate-500">
           {attachment.kind} · {attachment.meta}
         </p>
       </div>
@@ -2512,7 +2542,7 @@ function AttachmentRow({ attachment }: { attachment: HubAttachment }) {
 
 function EmptyHint({ text }: { text: string }) {
   return (
-    <div className="rounded-[18px] border border-dashed border-white/8 bg-white/4 px-4 py-4 text-sm leading-6 text-slate-400">
+    <div className="rounded-[18px] border border-dashed border-white/8 bg-white/4 px-4 py-4 text-[13px] leading-5 text-slate-400">
       {text}
     </div>
   );
@@ -2521,8 +2551,8 @@ function EmptyHint({ text }: { text: string }) {
 function AuditTrailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
-      <p className="text-sm text-slate-400">{label}</p>
-      <p className="text-sm font-semibold text-white">{value}</p>
+      <p className="text-[13px] text-slate-400">{label}</p>
+      <p className="text-[13px] font-semibold text-white">{value}</p>
     </div>
   );
 }
