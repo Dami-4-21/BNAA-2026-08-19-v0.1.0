@@ -2254,6 +2254,7 @@ function DocumentContextPanel({
     ? "Le panneau de contexte repond tout de suite aux questions de version, diffusion, lecture et offline."
     : "Selectionnez un document dans la table pour ouvrir son contexte.";
   const lightMode = popup;
+  const denseMode = compact || popup;
 
   const content =
     !selectedHubDocument || !selectedDocument ? (
@@ -2262,8 +2263,8 @@ function DocumentContextPanel({
         detail={`Choisissez un document parmi les ${documentsCount} elements de la bibliotheque pour ouvrir sa fiche detail.`}
       />
     ) : (
-      <div className={cx("space-y-4", compact && "space-y-3")}>
-            <div className={cx("rounded-[22px] border", lightMode ? "border-stone-200 bg-stone-50" : "border-white/8 bg-white/4", compact ? "p-4" : "p-5")}>
+      <div className={cx("space-y-4", denseMode && "space-y-3")}>
+            <div className={cx("rounded-[22px] border", lightMode ? "border-stone-200 bg-stone-50" : "border-white/8 bg-white/4", denseMode ? "p-4" : "p-5")}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -2271,14 +2272,14 @@ function DocumentContextPanel({
                       className={cx(
                         "font-display font-semibold",
                         lightMode ? "text-stone-950" : "text-white",
-                        compact ? "text-[1.35rem] leading-8" : "text-xl",
+                        denseMode ? "text-[1.35rem] leading-8" : "text-xl",
                       )}
                     >
                       {selectedHubDocument.code}
                     </p>
                     <StatusBadge tone={selectedHubDocument.tone}>{selectedHubDocument.status}</StatusBadge>
                   </div>
-                  <p className={cx("leading-5", lightMode ? "text-stone-700" : "text-slate-200", compact ? "text-[12px]" : "text-[13px]")}>{selectedHubDocument.title}</p>
+                  <p className={cx("leading-5", lightMode ? "text-stone-700" : "text-slate-200", denseMode ? "text-[12px]" : "text-[13px]")}>{selectedHubDocument.title}</p>
                   <p className={cx("text-[13px]", lightMode ? "text-stone-500" : "text-slate-500")}>
                     {selectedHubDocument.documentTypeLabel} · {selectedHubDocument.sourceModule}
                   </p>
@@ -2292,41 +2293,55 @@ function DocumentContextPanel({
                 </div>
               </div>
 
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 {selectedHubDocument.quickBadges.slice(0, 4).map((badge) => (
                   <div
                     key={`${selectedHubDocument.id}-${badge.label}`}
                     className={cx(
                       "rounded-[16px] border",
                       lightMode ? "border-stone-200 bg-white" : "border-white/8 bg-white/4",
-                      compact ? "px-3 py-2.5" : "px-4 py-3",
+                      denseMode ? "px-3 py-2.5" : "px-4 py-3",
                     )}
                   >
                     <p className={cx("text-[9px] uppercase tracking-[0.14em]", lightMode ? "text-stone-500" : "text-slate-500")}>Reponse rapide</p>
-                    <p className={cx("mt-1 font-semibold", lightMode ? "text-stone-950" : "text-white", compact ? "text-[12px] leading-5" : "text-[13px]")}>{badge.label}</p>
+                    <p className={cx("mt-1 font-semibold", lightMode ? "text-stone-950" : "text-white", denseMode ? "text-[12px] leading-5" : "text-[13px]")}>{badge.label}</p>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              <QuickActionButton light={lightMode} label="Ouvrir" onClick={() => (selectedDocument.downloadUrl ? window.open(selectedDocument.downloadUrl, "_blank") : null)} disabled={!selectedDocument.downloadUrl} />
-              <QuickActionButton light={lightMode} label="Telecharger" onClick={() => (selectedDocument.downloadUrl ? window.open(selectedDocument.downloadUrl, "_blank") : null)} disabled={!selectedDocument.downloadUrl} />
-              <QuickActionButton light={lightMode} label="Distribuer" onClick={openDistribution} />
-              <QuickActionButton light={lightMode} label="Publier revision" onClick={openVersions} />
-              <QuickActionButton light={lightMode} label="Comparer" onClick={openCompare} disabled={selectedDocument.format !== "PDF"} />
-              <QuickActionButton
-                light={lightMode}
-                label={pendingAction === "mark-obsolete" ? "Mise a jour..." : "Marquer obsolete"}
-                onClick={() => (canMarkSelectedObsolete ? markObsolete(selectedDocument.id) : null)}
-                disabled={!canMarkSelectedObsolete}
-                title={markObsoleteHelper}
-              />
-            </div>
+            <div className={cx(lightMode ? "grid gap-3 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] xl:items-start" : "space-y-4")}>
+            <div className={cx("space-y-3", lightMode && "xl:space-y-3")}>
+              <div className={cx("rounded-[20px] border", lightMode ? "border-stone-200 bg-stone-50" : "border-white/8 bg-white/4", denseMode ? "p-3.5" : "p-4")}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className={cx("font-semibold", lightMode ? "text-stone-950" : "text-white", denseMode ? "text-[12px]" : "text-[13px]")}>Actions rapides</p>
+                    <p className={cx("mt-1", lightMode ? "text-stone-500" : "text-slate-400", denseMode ? "text-[12px] leading-5" : "text-[13px] leading-5")}>
+                      Ouvrez la bonne version ou faites avancer le workflow sans quitter la fiche.
+                    </p>
+                  </div>
+                  {lightMode ? <StatusBadge tone={nextDocumentAction.actionTone}>{nextDocumentAction.actionLabel}</StatusBadge> : null}
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  <QuickActionButton compact={denseMode} light={lightMode} label="Ouvrir" onClick={() => (selectedDocument.downloadUrl ? window.open(selectedDocument.downloadUrl, "_blank") : null)} disabled={!selectedDocument.downloadUrl} />
+                  <QuickActionButton compact={denseMode} light={lightMode} label="Telecharger" onClick={() => (selectedDocument.downloadUrl ? window.open(selectedDocument.downloadUrl, "_blank") : null)} disabled={!selectedDocument.downloadUrl} />
+                  <QuickActionButton compact={denseMode} light={lightMode} label="Distribuer" onClick={openDistribution} />
+                  <QuickActionButton compact={denseMode} light={lightMode} label="Publier revision" onClick={openVersions} />
+                  <QuickActionButton compact={denseMode} light={lightMode} label="Comparer" onClick={openCompare} disabled={selectedDocument.format !== "PDF"} />
+                  <QuickActionButton
+                    compact={denseMode}
+                    light={lightMode}
+                    label={pendingAction === "mark-obsolete" ? "Mise a jour..." : "Marquer obsolete"}
+                    onClick={() => (canMarkSelectedObsolete ? markObsolete(selectedDocument.id) : null)}
+                    disabled={!canMarkSelectedObsolete}
+                    title={markObsoleteHelper}
+                  />
+                </div>
+              </div>
 
-            <div className={cx("rounded-[20px] border", lightMode ? "border-stone-200 bg-stone-50" : "border-white/8 bg-white/4", compact ? "p-3.5" : "p-4")}>
-              <p className={cx("font-semibold", lightMode ? "text-stone-950" : "text-white", compact ? "text-[12px]" : "text-[13px]")}>Metadonnees</p>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className={cx("rounded-[20px] border", lightMode ? "border-stone-200 bg-stone-50" : "border-white/8 bg-white/4", denseMode ? "p-3.5" : "p-4")}>
+              <p className={cx("font-semibold", lightMode ? "text-stone-950" : "text-white", denseMode ? "text-[12px]" : "text-[13px]")}>Metadonnees</p>
+              <div className={cx(denseMode ? "mt-3 grid gap-2.5 sm:grid-cols-2" : "mt-4 grid gap-3 sm:grid-cols-2")}>
                 <Field
                   light={lightMode}
                   label="Titre"
@@ -2362,29 +2377,31 @@ function DocumentContextPanel({
                   }
                 />
               </div>
-              <button
-                onClick={() => (canSubmitMetadataUpdate ? void updateMetadata() : null)}
-                disabled={!canSubmitMetadataUpdate}
-                title={metadataActionHelper}
-                className={cx(
-                  "mt-4 inline-flex items-center gap-2 rounded-2xl font-semibold",
-                  compact ? "px-3.5 py-2 text-[12px]" : "px-4 py-2.5 text-[13px]",
-                  canSubmitMetadataUpdate
-                    ? lightMode
-                      ? "border border-black/10 bg-stone-950 text-white hover:bg-stone-800"
-                      : "border border-white/10 bg-white/5 text-white hover:bg-white/8"
-                    : lightMode
-                      ? "cursor-not-allowed border border-stone-200 bg-stone-100 text-stone-400"
-                      : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
-                )}
-              >
-                <CheckCheck className="size-4" />
-                {pendingAction === "update-metadata" ? "Mise a jour..." : "Mettre a jour les metadonnees"}
-              </button>
-              <p className={cx("mt-2 text-[11px] leading-5", lightMode ? "text-stone-500" : "text-slate-400")}>{metadataActionHelper}</p>
+              <div className={cx("flex flex-wrap items-center justify-between gap-3", denseMode ? "mt-3" : "mt-4")}>
+                <button
+                  onClick={() => (canSubmitMetadataUpdate ? void updateMetadata() : null)}
+                  disabled={!canSubmitMetadataUpdate}
+                  title={metadataActionHelper}
+                  className={cx(
+                    "inline-flex items-center gap-2 rounded-2xl font-semibold",
+                    denseMode ? "px-3.5 py-2 text-[12px]" : "px-4 py-2.5 text-[13px]",
+                    canSubmitMetadataUpdate
+                      ? lightMode
+                        ? "border border-black/10 bg-stone-950 text-white hover:bg-stone-800"
+                        : "border border-white/10 bg-white/5 text-white hover:bg-white/8"
+                      : lightMode
+                        ? "cursor-not-allowed border border-stone-200 bg-stone-100 text-stone-400"
+                        : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
+                  )}
+                >
+                  <CheckCheck className="size-4" />
+                  {pendingAction === "update-metadata" ? "Mise a jour..." : lightMode ? "Mettre a jour" : "Mettre a jour les metadonnees"}
+                </button>
+                <p className={cx("max-w-[20rem] text-[11px] leading-5", lightMode ? "text-stone-500" : "text-slate-400")}>{metadataActionHelper}</p>
+              </div>
             </div>
 
-            <DetailSection light={lightMode} title="Pieces jointes" description="Le parent document et ses elements relies restent visibles au meme endroit.">
+            <DetailSection compact={denseMode} light={lightMode} title="Pieces jointes" description="Le parent document et ses elements relies restent visibles au meme endroit.">
               {selectedHubDocument.attachments.length > 0 ? (
                 <div className="space-y-2">
                   {selectedHubDocument.attachments.map((attachment) => (
@@ -2396,7 +2413,7 @@ function DocumentContextPanel({
               )}
             </DetailSection>
 
-            <DetailSection light={lightMode} title="Preuves liees" description="Photos et preuves rattachees au document parent quand elles existent.">
+            <DetailSection compact={denseMode} light={lightMode} title="Preuves liees" description="Photos et preuves rattachees au document parent quand elles existent.">
               {selectedHubDocument.relatedPhotos.length > 0 ? (
                 <div className="space-y-2">
                   {selectedHubDocument.relatedPhotos.map((attachment) => (
@@ -2408,7 +2425,7 @@ function DocumentContextPanel({
               )}
             </DetailSection>
 
-            <DetailSection light={lightMode} title="Versions" description="Historique complet et comparaison de la revision en vigueur.">
+            <DetailSection compact={denseMode} light={lightMode} title={lightMode ? "Versions" : "Versions"} description={lightMode ? "Historique compact et comparaison de la revision en vigueur." : "Historique complet et comparaison de la revision en vigueur."}>
               <div className="space-y-2">
                 {selectedDocument.versions.slice().reverse().map((version) => (
                   <div key={`${selectedDocument.id}-${version.version}`} className={cx("rounded-[18px] border px-4 py-3", lightMode ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
@@ -2439,7 +2456,7 @@ function DocumentContextPanel({
                         lightMode
                           ? "border-black/10 bg-stone-950 text-white hover:bg-stone-800"
                           : "border-white/10 bg-white/5 text-white hover:bg-white/8",
-                        compact ? "px-3 py-1.5 text-[12px]" : "px-4 py-2 text-sm",
+                        denseMode ? "px-3 py-1.5 text-[12px]" : "px-4 py-2 text-sm",
                       )}
                     >
                       Comparer
@@ -2449,9 +2466,11 @@ function DocumentContextPanel({
               ) : null}
             </DetailSection>
 
-            <DetailSection light={lightMode} title="Diffusion" description="Audience, progression de lecture et relances depuis la meme fiche.">
+            </div>
+            <div className="space-y-3">
+            <DetailSection compact={denseMode} light={lightMode} title="Diffusion" description={lightMode ? "Version, progression de lecture et relances dans le meme bloc." : "Audience, progression de lecture et relances depuis la meme fiche."}>
               <div className="space-y-3">
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className={cx(lightMode ? "grid gap-2.5 sm:grid-cols-3" : "grid gap-3 sm:grid-cols-3")}>
                   <MiniStat light={lightMode} label="Audience" value={selectedDocument.recipients > 0 ? `${selectedDocument.recipients} cible(s)` : "A definir"} />
                   <MiniStat light={lightMode} label="Lecture" value={selectedDocument.recipients > 0 ? `${readRate}%` : "0%"} />
                   <MiniStat light={lightMode} label="Non lus" value={`${selectedHubDocument.unreadCount}`} />
@@ -2477,8 +2496,9 @@ function DocumentContextPanel({
               </div>
             </DetailSection>
 
-            <DetailSection light={lightMode} title="Offline" description="Suivi du cache mobile et dernier etat de synchronisation.">
-              <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
+            <DetailSection compact={denseMode} light={lightMode} title="Offline" description={lightMode ? "Etat du cache et derniere synchronisation." : "Suivi du cache mobile et dernier etat de synchronisation."}>
+              <div className={cx(lightMode ? "grid gap-2.5" : "grid gap-3 sm:grid-cols-2")}>
                 <MiniStat light={lightMode} label="Etat" value={selectedHubDocument.offlineLabel} />
                 <MiniStat light={lightMode} label="Derniere sync" value={timeAgo(selectedDocument.publishedAt)} />
               </div>
@@ -2490,14 +2510,14 @@ function DocumentContextPanel({
                   lightMode
                     ? "border-black/10 bg-stone-950 text-white hover:bg-stone-800"
                     : "border-white/10 bg-white/5 text-white hover:bg-white/8",
-                  compact ? "px-3 py-1.5 text-[12px]" : "px-4 py-2 text-sm",
+                  denseMode ? "px-3 py-1.5 text-[12px]" : "px-4 py-2 text-sm",
                 )}
               >
                 Gerer le cache
               </button>
             </DetailSection>
 
-            <DetailSection light={lightMode} title="Audit trail" description="Trace documentaire, diffusion et origine du flux.">
+            <DetailSection compact={denseMode} light={lightMode} title="Audit trail" description={lightMode ? "Publication, source et visibilite du flux." : "Trace documentaire, diffusion et origine du flux."}>
               <div className="space-y-2">
                 <AuditTrailRow light={lightMode} label="Publie par" value={`${selectedHubDocument.updatedBy} · ${formatDate(selectedHubDocument.updatedAt)}`} />
                 <AuditTrailRow light={lightMode} label="Source" value={selectedHubDocument.sourceModule} />
@@ -2505,14 +2525,18 @@ function DocumentContextPanel({
                 <AuditTrailRow light={lightMode} label="Priorite" value={selectedHubDocument.priority === "high" ? "Haute" : selectedHubDocument.priority === "medium" ? "Moyenne" : "Basse"} />
               </div>
             </DetailSection>
+            </div>
 
-            <DetailSection light={lightMode} title="Prochaine etape" description={nextDocumentAction.detail}>
+            <DetailSection compact={denseMode} light={lightMode} title="Prochaine etape" description={nextDocumentAction.detail}>
               <div className="space-y-3">
                 <div className={cx("rounded-[18px] border px-4 py-3", lightMode ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
-                  <p className={cx("text-sm font-semibold", lightMode ? "text-stone-950" : "text-white")}>{nextDocumentAction.title}</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className={cx("text-sm font-semibold", lightMode ? "text-stone-950" : "text-white")}>{nextDocumentAction.title}</p>
+                    {lightMode ? <StatusBadge tone={nextDocumentAction.actionTone}>{nextDocumentAction.actionLabel}</StatusBadge> : null}
+                  </div>
                   <p className={cx("mt-2 text-sm", lightMode ? "text-stone-500" : "text-slate-400")}>{nextDocumentAction.helper}</p>
                 </div>
-                <div className="space-y-2">
+                <div className={cx(lightMode ? "grid gap-2 md:grid-cols-2" : "space-y-2")}>
                   {workflowSteps.map((step) => (
                     <div key={step.step} className={cx("rounded-[18px] border px-4 py-3", lightMode ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
                       <div className="flex items-center justify-between gap-3">
@@ -2527,6 +2551,8 @@ function DocumentContextPanel({
                 </div>
               </div>
             </DetailSection>
+            </div>
+            </div>
       </div>
     );
 
@@ -2537,10 +2563,10 @@ function DocumentContextPanel({
         onClick={onClose}
       >
         <div
-          className="flex h-[min(760px,calc(100vh-4rem))] w-full max-w-[780px] flex-col overflow-hidden rounded-[20px] border border-black/10 bg-[#f7f3ea] shadow-[0_28px_90px_rgba(15,23,42,0.20)]"
+          className="flex h-[min(760px,calc(100vh-4rem))] w-full max-w-[860px] flex-col overflow-hidden rounded-[20px] border border-black/10 bg-[#f7f3ea] shadow-[0_28px_90px_rgba(15,23,42,0.20)]"
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex items-start justify-between gap-4 border-b border-black/10 px-6 py-5">
+          <div className="flex items-start justify-between gap-4 border-b border-black/10 px-5 py-4">
             <div>
               <p className="text-[16px] font-semibold text-stone-950">{panelTitle}</p>
               <p className="mt-2 max-w-[40rem] text-[12px] leading-5 text-stone-500">{panelDescription}</p>
@@ -2554,7 +2580,7 @@ function DocumentContextPanel({
               <X className="size-4" />
             </button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{content}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{content}</div>
         </div>
       </div>
     );

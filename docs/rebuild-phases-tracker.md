@@ -276,6 +276,7 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 - [x] Trim the expanded left navigation rail to keep Module 6 balanced after the context rail reduction.
 - [x] Replace the fixed selected-document rail with a popup context card triggered from the center library selection.
 - [x] Recenter the selected-document popup as a wider rectangular modal and invert its palette for a lighter document-review experience.
+- [x] Rebalance the centered document popup with tighter spacing, denser action groups, and a truer two-column internal layout so the rectangle feels less tall and more balanced.
 - [x] Add the new left navigation model:
 - [x] workflow views (`Tous les documents`, `Plans en vigueur`, `A diffuser`, `Diffusion en attente`, `Obsoletes`, `Offline chantier`, `Audit documentaire`)
 - [x] content views (`Plans & revisions`, `Rapports chantier`, `Photos & preuves`, `Finance & justificatifs`, `Qualite / NCR`, `Exports & PDF signes`)
