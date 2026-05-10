@@ -2969,85 +2969,95 @@ function DistributionTab({
   getRecipientAcknowledgeHelper: (recipient: Recipient) => string;
   acknowledgeRecipient: (recipientId: string) => void;
 }) {
+  const readProgress = Math.round(
+    (selectedDocument.readCount / Math.max(selectedDocument.recipients, 1)) * 100,
+  );
+
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+      <div className="grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
         <div className="space-y-4">
-          <StepHeading
-            title="1. Choisir la liste de diffusion"
-            description="Selectionnez d'abord le bon groupe pour envoyer seulement la revision valide aux bons destinataires."
-          />
-          <SelectField
-            label="Destinataires"
-            value={draftVersion.audience}
-            options={distributionOptions}
-            onChange={(value) =>
-              setDraftVersion((current) => ({ ...current, audience: value }))
-            }
-          />
+          <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+            <p className="text-sm font-semibold text-white">1. Choisir la liste de diffusion</p>
+            <p className="mt-1 text-sm leading-6 text-slate-300">
+              Selectionnez le bon groupe pour envoyer seulement la revision valide aux bons destinataires.
+            </p>
 
-          <div className="flex flex-wrap gap-2">
-            {distributionOptions.slice(0, 6).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() =>
-                  setDraftVersion((current) => ({ ...current, audience: option }))
+            <label className="mt-4 block">
+              <span className="text-xs uppercase tracking-[0.16em] text-slate-500">Destinataires</span>
+              <select
+                value={draftVersion.audience}
+                onChange={(event) =>
+                  setDraftVersion((current) => ({ ...current, audience: event.target.value }))
                 }
-                className={cx(
-                  "rounded-full border px-4 py-2 text-sm font-semibold",
-                  draftVersion.audience === option
-                    ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
-                    : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
-                )}
+                className="mt-3 w-full rounded-[18px] border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition hover:bg-black/25"
               >
-                {option}
-              </button>
-            ))}
+                {distributionOptions.map((option) => (
+                  <option key={`distribution-${option}`} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {distributionOptions.slice(0, 6).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() =>
+                    setDraftVersion((current) => ({ ...current, audience: option }))
+                  }
+                  className={cx(
+                    "rounded-full border px-3.5 py-2 text-[13px] font-semibold",
+                    draftVersion.audience === option
+                      ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
+                      : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
+                  )}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-white">
-                {selectedDocument.code} - suivi des lectures
-              </p>
+          <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-white">2. Lancer la diffusion</p>
+                <p className="mt-1 text-sm leading-6 text-slate-300">
+                  Envoyez la revision selectionnee, puis laissez le suivi de lecture confirmer sa bonne circulation.
+                </p>
+              </div>
               <StatusBadge tone="primary">
                 {selectedDocument.readCount}/{selectedDocument.recipients} lus
               </StatusBadge>
             </div>
-            <div className="mt-4">
-              <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-slate-500">
-                <span>Lectures confirmees</span>
-                <span>
-                  {Math.round(
-                    (selectedDocument.readCount / Math.max(selectedDocument.recipients, 1)) * 100,
-                  )}
-                  %
-                </span>
-              </div>
-              <ProgressBar
-                value={Math.round(
-                  (selectedDocument.readCount / Math.max(selectedDocument.recipients, 1)) * 100,
-                )}
-                tone="primary"
-              />
-            </div>
-          </div>
 
-          <StepHeading
-            title="2. Lancer la diffusion"
-            description="Envoyez la revision selectionnee, puis laissez le suivi de lecture confirmer sa bonne circulation."
-          />
-          <button
-            onClick={() => (canDistributeSelected ? distributeSelected() : null)}
-            disabled={!canDistributeSelected}
-            title={distributeActionHelper}
-            className={cx(
-              "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
-              canDistributeSelected
-                ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
-                : "cursor-not-allowed bg-slate-700 text-slate-400",
-            )}
+            <div className="mt-4 rounded-[20px] border border-white/8 bg-black/20 px-4 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-white">{selectedDocument.code} - suivi des lectures</p>
+                <span className="text-xs uppercase tracking-[0.14em] text-slate-500">{readProgress}%</span>
+              </div>
+              <div className="mt-3">
+                <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-slate-500">
+                  <span>Lectures confirmees</span>
+                  <span>{selectedDocument.readCount} confirmees</span>
+                </div>
+                <ProgressBar value={readProgress} tone="primary" />
+              </div>
+            </div>
+
+            <button
+              onClick={() => (canDistributeSelected ? distributeSelected() : null)}
+              disabled={!canDistributeSelected}
+              title={distributeActionHelper}
+              className={cx(
+                "mt-4 flex w-full items-center justify-center gap-2 rounded-[20px] px-4 py-3.5 text-sm font-semibold transition",
+                canDistributeSelected
+                  ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
+                  : "cursor-not-allowed bg-slate-700 text-slate-400",
+              )}
             >
               <Send className="size-4" />
               {pendingAction === "distribute"
@@ -3055,54 +3065,58 @@ function DistributionTab({
                 : canDistributeSelected
                   ? "Lancer la diffusion"
                   : "Diffusion indisponible"}
-          </button>
-          <p className="text-xs leading-5 text-slate-400">{distributeActionHelper}</p>
+            </button>
+            <p className="mt-3 text-xs leading-5 text-slate-400">{distributeActionHelper}</p>
+          </div>
         </div>
 
-        <div className="space-y-3">
-          <StepHeading
-            title="3. Suivre les lectures"
-            description="Reperez qui a deja accuse reception et relancez seulement les lectures encore attendues."
-          />
-          {recipients.map((recipient) => (
-            <div
-              key={recipient.id}
-              className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-white">{recipient.name}</p>
-                  <p className="mt-1 text-sm text-slate-400">{recipient.role}</p>
+        <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
+          <p className="text-sm font-semibold text-white">3. Suivre les lectures</p>
+          <p className="mt-1 text-sm leading-6 text-slate-300">
+            Reperez qui a deja accuse reception et relancez seulement les lectures encore attendues.
+          </p>
+
+          <div className="mt-4 space-y-3">
+            {recipients.map((recipient) => (
+              <div
+                key={recipient.id}
+                className="rounded-[20px] border border-white/8 bg-black/20 p-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">{recipient.name}</p>
+                    <p className="mt-1 text-sm text-slate-400">{recipient.role}</p>
+                  </div>
+                  <StatusBadge tone={toneByReadStatus[recipient.status] ?? "warning"}>
+                    {recipient.status}
+                  </StatusBadge>
                 </div>
-                <StatusBadge tone={toneByReadStatus[recipient.status] ?? "warning"}>
-                  {recipient.status}
-                </StatusBadge>
+                <p className="mt-3 text-sm text-slate-300">
+                  {recipient.acknowledgedAt
+                    ? `Accuse le ${recipient.acknowledgedAt}`
+                    : "Accuse non recu"}
+                </p>
+                {recipient.status !== "Lu" ? (
+                  <button
+                    onClick={() =>
+                      canAcknowledgeRecipient(recipient) ? acknowledgeRecipient(recipient.id) : null
+                    }
+                    disabled={!canAcknowledgeRecipient(recipient) || pendingAction === "acknowledge"}
+                    title={getRecipientAcknowledgeHelper(recipient)}
+                    className={cx(
+                      "mt-3 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm",
+                      canAcknowledgeRecipient(recipient) && pendingAction !== "acknowledge"
+                        ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
+                        : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
+                    )}
+                  >
+                    <CheckCheck className="size-4" />
+                    {pendingAction === "acknowledge" ? "Mise a jour..." : "Confirmer la lecture"}
+                  </button>
+                ) : null}
               </div>
-              <p className="mt-3 text-sm text-slate-300">
-                {recipient.acknowledgedAt
-                  ? `Accuse le ${recipient.acknowledgedAt}`
-                  : "Accuse non recu"}
-              </p>
-              {recipient.status !== "Lu" ? (
-                <button
-                  onClick={() =>
-                    canAcknowledgeRecipient(recipient) ? acknowledgeRecipient(recipient.id) : null
-                  }
-                  disabled={!canAcknowledgeRecipient(recipient) || pendingAction === "acknowledge"}
-                  title={getRecipientAcknowledgeHelper(recipient)}
-                  className={cx(
-                    "mt-3 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm",
-                    canAcknowledgeRecipient(recipient) && pendingAction !== "acknowledge"
-                      ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
-                      : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
-                  )}
-                >
-                  <CheckCheck className="size-4" />
-                  {pendingAction === "acknowledge" ? "Mise a jour..." : "Confirmer la lecture"}
-                </button>
-              ) : null}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </div>
