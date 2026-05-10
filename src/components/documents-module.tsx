@@ -1538,7 +1538,7 @@ function DocumentsModuleContent({
             <div
               className={cx(
                 "grid min-h-full",
-                isContextPanelOpen ? "xl:grid-cols-[minmax(0,1fr)_248px]" : "grid-cols-1",
+                isContextPanelOpen ? "xl:grid-cols-[minmax(0,1fr)_220px]" : "grid-cols-1",
               )}
             >
               <div className="min-w-0">
