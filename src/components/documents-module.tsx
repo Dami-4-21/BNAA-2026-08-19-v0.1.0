@@ -1553,7 +1553,7 @@ function DocumentsModuleContent({
                   setTreeFilter={setTreeFilter}
                 />
 
-                <div className="min-w-0 border-t border-white/8 xl:border-l xl:border-t-0">
+                <div className="min-w-0">
                   <LibraryTab
                     documents={filteredDocuments}
                     embedded
@@ -1890,7 +1890,7 @@ function DocumentsSidebar({
   return (
     <aside
       className={cx(
-        "flex h-full flex-col bg-black/[0.03]",
+        "flex h-full flex-col",
         collapsed ? "px-2 py-3" : "px-5 py-5",
       )}
     >
