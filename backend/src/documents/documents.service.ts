@@ -389,6 +389,8 @@ export class DocumentsService {
         ],
       );
 
+      await this.setCurrentStoredVersion(client, documentId, versionId);
+
       await client.query(
         `UPDATE documents
          SET status = 'active'::tenant_template."DocumentStatus",
@@ -1310,18 +1312,40 @@ export class DocumentsService {
          mime_type,
          version_note,
          is_current,
-         status,
+         status::text AS status,
          uploaded_by,
          uploaded_at
        FROM document_versions
        WHERE document_id = $1
-         AND is_current = true
-       ORDER BY uploaded_at DESC
+       ORDER BY
+         is_current DESC,
+         CASE
+           WHEN status = 'active'::tenant_template."DocumentVersionStatus" THEN 0
+           ELSE 1
+         END,
+         uploaded_at DESC
        LIMIT 1`,
       [documentId],
     );
 
     return result.rows[0] ?? null;
+  }
+
+  private async setCurrentStoredVersion(
+    client: PoolClient,
+    documentId: string,
+    currentVersionId: string,
+  ) {
+    await client.query(
+      `UPDATE document_versions
+       SET is_current = CASE WHEN id = $2 THEN true ELSE false END,
+           status = CASE
+             WHEN id = $2 THEN 'active'::tenant_template."DocumentVersionStatus"
+             ELSE 'pending'::tenant_template."DocumentVersionStatus"
+           END
+       WHERE document_id = $1`,
+      [documentId, currentVersionId],
+    );
   }
 
   private async listStoredDocuments(client: PoolClient, projectId: string) {

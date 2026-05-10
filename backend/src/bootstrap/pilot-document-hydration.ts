@@ -156,6 +156,17 @@ async function ensureSeededDocument(
     return;
   }
 
+  await client.query(
+    `UPDATE document_versions
+     SET is_current = CASE WHEN id = $2 THEN true ELSE false END,
+         status = CASE
+           WHEN id = $2 THEN 'active'::tenant_template."DocumentVersionStatus"
+           ELSE 'pending'::tenant_template."DocumentVersionStatus"
+         END
+     WHERE document_id = $1`,
+    [documentId, currentVersionId],
+  );
+
   for (const recipient of seed.recipients) {
     const recipientUserId = resolveTenantUserId(recipient.email, tenantUserByEmail);
     if (!recipientUserId) {
