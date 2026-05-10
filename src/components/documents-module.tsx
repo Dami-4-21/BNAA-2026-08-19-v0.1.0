@@ -2253,6 +2253,7 @@ function DocumentContextPanel({
   const panelDescription = selectedHubDocument
     ? "Le panneau de contexte repond tout de suite aux questions de version, diffusion, lecture et offline."
     : "Selectionnez un document dans la table pour ouvrir son contexte.";
+  const lightMode = popup;
 
   const content =
     !selectedHubDocument || !selectedDocument ? (
@@ -2262,13 +2263,14 @@ function DocumentContextPanel({
       />
     ) : (
       <div className={cx("space-y-4", compact && "space-y-3")}>
-            <div className={cx("rounded-[22px] border border-white/8 bg-white/4", compact ? "p-4" : "p-5")}>
+            <div className={cx("rounded-[22px] border", lightMode ? "border-stone-200 bg-stone-50" : "border-white/8 bg-white/4", compact ? "p-4" : "p-5")}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <p
                       className={cx(
-                        "font-display font-semibold text-white",
+                        "font-display font-semibold",
+                        lightMode ? "text-stone-950" : "text-white",
                         compact ? "text-[1.35rem] leading-8" : "text-xl",
                       )}
                     >
@@ -2276,8 +2278,8 @@ function DocumentContextPanel({
                     </p>
                     <StatusBadge tone={selectedHubDocument.tone}>{selectedHubDocument.status}</StatusBadge>
                   </div>
-                  <p className={cx("leading-5 text-slate-200", compact ? "text-[12px]" : "text-[13px]")}>{selectedHubDocument.title}</p>
-                  <p className="text-[13px] text-slate-500">
+                  <p className={cx("leading-5", lightMode ? "text-stone-700" : "text-slate-200", compact ? "text-[12px]" : "text-[13px]")}>{selectedHubDocument.title}</p>
+                  <p className={cx("text-[13px]", lightMode ? "text-stone-500" : "text-slate-500")}>
                     {selectedHubDocument.documentTypeLabel} · {selectedHubDocument.sourceModule}
                   </p>
                 </div>
@@ -2295,24 +2297,26 @@ function DocumentContextPanel({
                   <div
                     key={`${selectedHubDocument.id}-${badge.label}`}
                     className={cx(
-                      "rounded-[16px] border border-white/8 bg-white/4",
+                      "rounded-[16px] border",
+                      lightMode ? "border-stone-200 bg-white" : "border-white/8 bg-white/4",
                       compact ? "px-3 py-2.5" : "px-4 py-3",
                     )}
                   >
-                    <p className="text-[9px] uppercase tracking-[0.14em] text-slate-500">Reponse rapide</p>
-                    <p className={cx("mt-1 font-semibold text-white", compact ? "text-[12px] leading-5" : "text-[13px]")}>{badge.label}</p>
+                    <p className={cx("text-[9px] uppercase tracking-[0.14em]", lightMode ? "text-stone-500" : "text-slate-500")}>Reponse rapide</p>
+                    <p className={cx("mt-1 font-semibold", lightMode ? "text-stone-950" : "text-white", compact ? "text-[12px] leading-5" : "text-[13px]")}>{badge.label}</p>
                   </div>
                 ))}
               </div>
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">
-              <QuickActionButton label="Ouvrir" onClick={() => (selectedDocument.downloadUrl ? window.open(selectedDocument.downloadUrl, "_blank") : null)} disabled={!selectedDocument.downloadUrl} />
-              <QuickActionButton label="Telecharger" onClick={() => (selectedDocument.downloadUrl ? window.open(selectedDocument.downloadUrl, "_blank") : null)} disabled={!selectedDocument.downloadUrl} />
-              <QuickActionButton label="Distribuer" onClick={openDistribution} />
-              <QuickActionButton label="Publier revision" onClick={openVersions} />
-              <QuickActionButton label="Comparer" onClick={openCompare} disabled={selectedDocument.format !== "PDF"} />
+              <QuickActionButton light={lightMode} label="Ouvrir" onClick={() => (selectedDocument.downloadUrl ? window.open(selectedDocument.downloadUrl, "_blank") : null)} disabled={!selectedDocument.downloadUrl} />
+              <QuickActionButton light={lightMode} label="Telecharger" onClick={() => (selectedDocument.downloadUrl ? window.open(selectedDocument.downloadUrl, "_blank") : null)} disabled={!selectedDocument.downloadUrl} />
+              <QuickActionButton light={lightMode} label="Distribuer" onClick={openDistribution} />
+              <QuickActionButton light={lightMode} label="Publier revision" onClick={openVersions} />
+              <QuickActionButton light={lightMode} label="Comparer" onClick={openCompare} disabled={selectedDocument.format !== "PDF"} />
               <QuickActionButton
+                light={lightMode}
                 label={pendingAction === "mark-obsolete" ? "Mise a jour..." : "Marquer obsolete"}
                 onClick={() => (canMarkSelectedObsolete ? markObsolete(selectedDocument.id) : null)}
                 disabled={!canMarkSelectedObsolete}
@@ -2320,10 +2324,11 @@ function DocumentContextPanel({
               />
             </div>
 
-            <div className={cx("rounded-[20px] border border-white/8 bg-white/4", compact ? "p-3.5" : "p-4")}>
-              <p className={cx("font-semibold text-white", compact ? "text-[12px]" : "text-[13px]")}>Metadonnees</p>
+            <div className={cx("rounded-[20px] border", lightMode ? "border-stone-200 bg-stone-50" : "border-white/8 bg-white/4", compact ? "p-3.5" : "p-4")}>
+              <p className={cx("font-semibold", lightMode ? "text-stone-950" : "text-white", compact ? "text-[12px]" : "text-[13px]")}>Metadonnees</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <Field
+                  light={lightMode}
                   label="Titre"
                   value={metadataDraft.title}
                   onChange={(value) =>
@@ -2331,6 +2336,7 @@ function DocumentContextPanel({
                   }
                 />
                 <Field
+                  light={lightMode}
                   label="Discipline"
                   value={metadataDraft.discipline}
                   onChange={(value) =>
@@ -2338,6 +2344,7 @@ function DocumentContextPanel({
                   }
                 />
                 <SelectField
+                  light={lightMode}
                   label="Lot"
                   value={metadataDraft.lot}
                   options={projectLots}
@@ -2346,6 +2353,7 @@ function DocumentContextPanel({
                   }
                 />
                 <SelectField
+                  light={lightMode}
                   label="Phase"
                   value={metadataDraft.phase}
                   options={projectPhases}
@@ -2362,60 +2370,64 @@ function DocumentContextPanel({
                   "mt-4 inline-flex items-center gap-2 rounded-2xl font-semibold",
                   compact ? "px-3.5 py-2 text-[12px]" : "px-4 py-2.5 text-[13px]",
                   canSubmitMetadataUpdate
-                    ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
-                    : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
+                    ? lightMode
+                      ? "border border-black/10 bg-stone-950 text-white hover:bg-stone-800"
+                      : "border border-white/10 bg-white/5 text-white hover:bg-white/8"
+                    : lightMode
+                      ? "cursor-not-allowed border border-stone-200 bg-stone-100 text-stone-400"
+                      : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
                 )}
               >
                 <CheckCheck className="size-4" />
                 {pendingAction === "update-metadata" ? "Mise a jour..." : "Mettre a jour les metadonnees"}
               </button>
-              <p className="mt-2 text-[11px] leading-5 text-slate-400">{metadataActionHelper}</p>
+              <p className={cx("mt-2 text-[11px] leading-5", lightMode ? "text-stone-500" : "text-slate-400")}>{metadataActionHelper}</p>
             </div>
 
-            <DetailSection title="Pieces jointes" description="Le parent document et ses elements relies restent visibles au meme endroit.">
+            <DetailSection light={lightMode} title="Pieces jointes" description="Le parent document et ses elements relies restent visibles au meme endroit.">
               {selectedHubDocument.attachments.length > 0 ? (
                 <div className="space-y-2">
                   {selectedHubDocument.attachments.map((attachment) => (
-                    <AttachmentRow key={attachment.id} attachment={attachment} />
+                    <AttachmentRow key={attachment.id} attachment={attachment} light={lightMode} />
                   ))}
                 </div>
               ) : (
-                <EmptyHint text="Aucune piece jointe supplementaire exposee par la source actuelle." />
+                <EmptyHint text="Aucune piece jointe supplementaire exposee par la source actuelle." light={lightMode} />
               )}
             </DetailSection>
 
-            <DetailSection title="Preuves liees" description="Photos et preuves rattachees au document parent quand elles existent.">
+            <DetailSection light={lightMode} title="Preuves liees" description="Photos et preuves rattachees au document parent quand elles existent.">
               {selectedHubDocument.relatedPhotos.length > 0 ? (
                 <div className="space-y-2">
                   {selectedHubDocument.relatedPhotos.map((attachment) => (
-                    <AttachmentRow key={attachment.id} attachment={attachment} />
+                    <AttachmentRow key={attachment.id} attachment={attachment} light={lightMode} />
                   ))}
                 </div>
               ) : (
-                <EmptyHint text="Les preuves liees apparaitront ici a mesure que les autres modules alimentent le hub documentaire." />
+                <EmptyHint text="Les preuves liees apparaitront ici a mesure que les autres modules alimentent le hub documentaire." light={lightMode} />
               )}
             </DetailSection>
 
-            <DetailSection title="Versions" description="Historique complet et comparaison de la revision en vigueur.">
+            <DetailSection light={lightMode} title="Versions" description="Historique complet et comparaison de la revision en vigueur.">
               <div className="space-y-2">
                 {selectedDocument.versions.slice().reverse().map((version) => (
-                  <div key={`${selectedDocument.id}-${version.version}`} className="rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
+                  <div key={`${selectedDocument.id}-${version.version}`} className={cx("rounded-[18px] border px-4 py-3", lightMode ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
                     <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-white">{formatVersion(version.version)}</p>
+                      <p className={cx("text-sm font-semibold", lightMode ? "text-stone-950" : "text-white")}>{formatVersion(version.version)}</p>
                       <StatusBadge tone={version.status === "Courante" ? "success" : version.status === "Obsolete" ? "warning" : "primary"}>
                         {version.status}
                       </StatusBadge>
                     </div>
-                    <p className="mt-2 text-sm text-slate-400">Publie le {formatDate(version.publishedAt)}</p>
+                    <p className={cx("mt-2 text-sm", lightMode ? "text-stone-500" : "text-slate-400")}>Publie le {formatDate(version.publishedAt)}</p>
                   </div>
                 ))}
               </div>
               {selectedDocument.format === "PDF" ? (
-                <div className="mt-3 rounded-[18px] border border-white/8 bg-white/4 p-4">
+                <div className={cx("mt-3 rounded-[18px] border p-4", lightMode ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-white">Comparaison PDF</p>
-                      <p className="mt-1 text-sm text-slate-400">
+                      <p className={cx("text-sm font-semibold", lightMode ? "text-stone-950" : "text-white")}>Comparaison PDF</p>
+                      <p className={cx("mt-1 text-sm", lightMode ? "text-stone-500" : "text-slate-400")}>
                         Revision de reference : {selectedCompareVersion ? formatVersion(selectedCompareVersion) : formatVersion(selectedDocument.compareWith)}
                       </p>
                     </div>
@@ -2423,7 +2435,10 @@ function DocumentContextPanel({
                       type="button"
                       onClick={openCompare}
                       className={cx(
-                        "rounded-full border border-white/10 bg-white/5 font-semibold text-white hover:bg-white/8",
+                        "rounded-full border font-semibold",
+                        lightMode
+                          ? "border-black/10 bg-stone-950 text-white hover:bg-stone-800"
+                          : "border-white/10 bg-white/5 text-white hover:bg-white/8",
                         compact ? "px-3 py-1.5 text-[12px]" : "px-4 py-2 text-sm",
                       )}
                     >
@@ -2434,21 +2449,21 @@ function DocumentContextPanel({
               ) : null}
             </DetailSection>
 
-            <DetailSection title="Diffusion" description="Audience, progression de lecture et relances depuis la meme fiche.">
+            <DetailSection light={lightMode} title="Diffusion" description="Audience, progression de lecture et relances depuis la meme fiche.">
               <div className="space-y-3">
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <MiniStat label="Audience" value={selectedDocument.recipients > 0 ? `${selectedDocument.recipients} cible(s)` : "A definir"} />
-                  <MiniStat label="Lecture" value={selectedDocument.recipients > 0 ? `${readRate}%` : "0%"} />
-                  <MiniStat label="Non lus" value={`${selectedHubDocument.unreadCount}`} />
+                  <MiniStat light={lightMode} label="Audience" value={selectedDocument.recipients > 0 ? `${selectedDocument.recipients} cible(s)` : "A definir"} />
+                  <MiniStat light={lightMode} label="Lecture" value={selectedDocument.recipients > 0 ? `${readRate}%` : "0%"} />
+                  <MiniStat light={lightMode} label="Non lus" value={`${selectedHubDocument.unreadCount}`} />
                 </div>
                 <ProgressBar value={readRate} tone={selectedHubDocument.unreadCount > 0 ? "warning" : "success"} />
                 {recipientsForSelected.length > 0 ? (
                   <div className="space-y-2">
                     {recipientsForSelected.map((recipient) => (
-                      <div key={recipient.id} className="flex items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
+                      <div key={recipient.id} className={cx("flex items-center justify-between gap-3 rounded-[18px] border px-4 py-3", lightMode ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
                         <div>
-                          <p className="text-sm font-semibold text-white">{recipient.name}</p>
-                          <p className="mt-1 text-xs text-slate-500">{recipient.role}</p>
+                          <p className={cx("text-sm font-semibold", lightMode ? "text-stone-950" : "text-white")}>{recipient.name}</p>
+                          <p className={cx("mt-1 text-xs", lightMode ? "text-stone-500" : "text-slate-500")}>{recipient.role}</p>
                         </div>
                         <StatusBadge tone={recipient.status === "Lu" ? "success" : "warning"}>
                           {recipient.status}
@@ -2457,21 +2472,24 @@ function DocumentContextPanel({
                     ))}
                   </div>
                 ) : (
-                  <EmptyHint text="Aucune diffusion lancee pour cette revision." />
+                  <EmptyHint text="Aucune diffusion lancee pour cette revision." light={lightMode} />
                 )}
               </div>
             </DetailSection>
 
-            <DetailSection title="Offline" description="Suivi du cache mobile et dernier etat de synchronisation.">
+            <DetailSection light={lightMode} title="Offline" description="Suivi du cache mobile et dernier etat de synchronisation.">
               <div className="grid gap-3 sm:grid-cols-2">
-                <MiniStat label="Etat" value={selectedHubDocument.offlineLabel} />
-                <MiniStat label="Derniere sync" value={timeAgo(selectedDocument.publishedAt)} />
+                <MiniStat light={lightMode} label="Etat" value={selectedHubDocument.offlineLabel} />
+                <MiniStat light={lightMode} label="Derniere sync" value={timeAgo(selectedDocument.publishedAt)} />
               </div>
               <button
                 type="button"
                 onClick={openOffline}
                 className={cx(
-                  "mt-3 rounded-full border border-white/10 bg-white/5 font-semibold text-white hover:bg-white/8",
+                  "mt-3 rounded-full border font-semibold",
+                  lightMode
+                    ? "border-black/10 bg-stone-950 text-white hover:bg-stone-800"
+                    : "border-white/10 bg-white/5 text-white hover:bg-white/8",
                   compact ? "px-3 py-1.5 text-[12px]" : "px-4 py-2 text-sm",
                 )}
               >
@@ -2479,31 +2497,31 @@ function DocumentContextPanel({
               </button>
             </DetailSection>
 
-            <DetailSection title="Audit trail" description="Trace documentaire, diffusion et origine du flux.">
+            <DetailSection light={lightMode} title="Audit trail" description="Trace documentaire, diffusion et origine du flux.">
               <div className="space-y-2">
-                <AuditTrailRow label="Publie par" value={`${selectedHubDocument.updatedBy} · ${formatDate(selectedHubDocument.updatedAt)}`} />
-                <AuditTrailRow label="Source" value={selectedHubDocument.sourceModule} />
-                <AuditTrailRow label="Visibilite" value={selectedHubDocument.visibilityScope} />
-                <AuditTrailRow label="Priorite" value={selectedHubDocument.priority === "high" ? "Haute" : selectedHubDocument.priority === "medium" ? "Moyenne" : "Basse"} />
+                <AuditTrailRow light={lightMode} label="Publie par" value={`${selectedHubDocument.updatedBy} · ${formatDate(selectedHubDocument.updatedAt)}`} />
+                <AuditTrailRow light={lightMode} label="Source" value={selectedHubDocument.sourceModule} />
+                <AuditTrailRow light={lightMode} label="Visibilite" value={selectedHubDocument.visibilityScope} />
+                <AuditTrailRow light={lightMode} label="Priorite" value={selectedHubDocument.priority === "high" ? "Haute" : selectedHubDocument.priority === "medium" ? "Moyenne" : "Basse"} />
               </div>
             </DetailSection>
 
-            <DetailSection title="Prochaine etape" description={nextDocumentAction.detail}>
+            <DetailSection light={lightMode} title="Prochaine etape" description={nextDocumentAction.detail}>
               <div className="space-y-3">
-                <div className="rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
-                  <p className="text-sm font-semibold text-white">{nextDocumentAction.title}</p>
-                  <p className="mt-2 text-sm text-slate-400">{nextDocumentAction.helper}</p>
+                <div className={cx("rounded-[18px] border px-4 py-3", lightMode ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
+                  <p className={cx("text-sm font-semibold", lightMode ? "text-stone-950" : "text-white")}>{nextDocumentAction.title}</p>
+                  <p className={cx("mt-2 text-sm", lightMode ? "text-stone-500" : "text-slate-400")}>{nextDocumentAction.helper}</p>
                 </div>
                 <div className="space-y-2">
                   {workflowSteps.map((step) => (
-                    <div key={step.step} className="rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
+                    <div key={step.step} className={cx("rounded-[18px] border px-4 py-3", lightMode ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-semibold text-white">{step.step}</p>
+                        <p className={cx("text-sm font-semibold", lightMode ? "text-stone-950" : "text-white")}>{step.step}</p>
                         <StatusBadge tone={step.state === "done" ? "success" : step.state === "current" ? "primary" : "neutral"}>
                           {step.state === "done" ? "Pret" : step.state === "current" ? "En cours" : "A venir"}
                         </StatusBadge>
                       </div>
-                      <p className="mt-2 text-sm text-slate-400">{step.detail}</p>
+                      <p className={cx("mt-2 text-sm", lightMode ? "text-stone-500" : "text-slate-400")}>{step.detail}</p>
                     </div>
                   ))}
                 </div>
@@ -2515,28 +2533,28 @@ function DocumentContextPanel({
   if (popup) {
     return (
       <div
-        className="fixed inset-0 z-40 flex items-start justify-end bg-black/45 p-4 pt-24 backdrop-blur-sm"
+        className="fixed inset-0 z-40 flex items-center justify-center bg-black/35 p-6 backdrop-blur-sm"
         onClick={onClose}
       >
         <div
-          className="flex h-[min(820px,calc(100vh-7rem))] w-full max-w-[420px] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-stone-950 shadow-[0_32px_90px_rgba(15,23,42,0.42)]"
+          className="flex h-[min(760px,calc(100vh-4rem))] w-full max-w-[780px] flex-col overflow-hidden rounded-[20px] border border-black/10 bg-[#f7f3ea] shadow-[0_28px_90px_rgba(15,23,42,0.20)]"
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex items-start justify-between gap-4 border-b border-white/8 px-5 py-4">
+          <div className="flex items-start justify-between gap-4 border-b border-black/10 px-6 py-5">
             <div>
-              <p className="text-[15px] font-semibold text-white">{panelTitle}</p>
-              <p className="mt-2 text-[12px] leading-5 text-slate-400">{panelDescription}</p>
+              <p className="text-[16px] font-semibold text-stone-950">{panelTitle}</p>
+              <p className="mt-2 max-w-[40rem] text-[12px] leading-5 text-stone-500">{panelDescription}</p>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex size-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white transition hover:bg-white/8"
+              className="inline-flex size-9 items-center justify-center rounded-full border border-black/10 bg-white text-stone-950 transition hover:bg-stone-100"
               aria-label="Fermer la fiche document"
             >
               <X className="size-4" />
             </button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{content}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{content}</div>
         </div>
       </div>
     );
@@ -2609,19 +2627,27 @@ function WorkflowDrawer({
 
 function DetailSection({
   compact = false,
+  light = false,
   title,
   description,
   children,
 }: {
   compact?: boolean;
+  light?: boolean;
   title: string;
   description: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className={cx("rounded-[20px] border border-white/8 bg-white/4", compact ? "p-3.5" : "p-4")}>
-      <p className={cx("font-semibold text-white", compact ? "text-[12px]" : "text-[13px]")}>{title}</p>
-      <p className={cx("mt-1 text-slate-400", compact ? "text-[12px] leading-5" : "text-[13px] leading-5")}>
+    <div
+      className={cx(
+        "rounded-[20px] border",
+        light ? "border-stone-200 bg-stone-50" : "border-white/8 bg-white/4",
+        compact ? "p-3.5" : "p-4",
+      )}
+    >
+      <p className={cx("font-semibold", light ? "text-stone-950" : "text-white", compact ? "text-[12px]" : "text-[13px]")}>{title}</p>
+      <p className={cx("mt-1", light ? "text-stone-500" : "text-slate-400", compact ? "text-[12px] leading-5" : "text-[13px] leading-5")}>
         {description}
       </p>
       <div className={cx(compact ? "mt-3" : "mt-4")}>{children}</div>
@@ -2631,12 +2657,14 @@ function DetailSection({
 
 function QuickActionButton({
   compact = false,
+  light = false,
   label,
   onClick,
   disabled,
   title,
 }: {
   compact?: boolean;
+  light?: boolean;
   label: string;
   onClick: () => void;
   disabled?: boolean;
@@ -2652,8 +2680,12 @@ function QuickActionButton({
         "rounded-[18px] border font-semibold text-center leading-4 whitespace-normal",
         compact ? "min-h-[42px] px-3 py-2 text-[11px]" : "min-h-[46px] px-4 py-2.5 text-[13px]",
         disabled
-          ? "cursor-not-allowed border-white/8 bg-white/5 text-slate-500"
-          : "border-white/10 bg-white/5 text-white hover:bg-white/8",
+          ? light
+            ? "cursor-not-allowed border-stone-200 bg-stone-100 text-stone-400"
+            : "cursor-not-allowed border-white/8 bg-white/5 text-slate-500"
+          : light
+            ? "border-black/10 bg-stone-950 text-white hover:bg-stone-800"
+            : "border-white/10 bg-white/5 text-white hover:bg-white/8",
       )}
     >
       {label}
@@ -2661,12 +2693,12 @@ function QuickActionButton({
   );
 }
 
-function AttachmentRow({ attachment }: { attachment: HubAttachment }) {
+function AttachmentRow({ attachment, light = false }: { attachment: HubAttachment; light?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
+    <div className={cx("flex items-center justify-between gap-3 rounded-[18px] border px-4 py-3", light ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
       <div>
-        <p className="text-[13px] font-semibold text-white">{attachment.label}</p>
-        <p className="mt-1 text-[11px] text-slate-500">
+        <p className={cx("text-[13px] font-semibold", light ? "text-stone-950" : "text-white")}>{attachment.label}</p>
+        <p className={cx("mt-1 text-[11px]", light ? "text-stone-500" : "text-slate-500")}>
           {attachment.kind} · {attachment.meta}
         </p>
       </div>
@@ -2676,7 +2708,12 @@ function AttachmentRow({ attachment }: { attachment: HubAttachment }) {
           <a
             href={attachment.href}
             target="_blank"
-            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white hover:bg-white/8"
+            className={cx(
+              "rounded-full border px-3 py-1 text-xs font-semibold",
+              light
+                ? "border-black/10 bg-stone-950 text-white hover:bg-stone-800"
+                : "border-white/10 bg-white/5 text-white hover:bg-white/8",
+            )}
           >
             Ouvrir
           </a>
@@ -2686,19 +2723,19 @@ function AttachmentRow({ attachment }: { attachment: HubAttachment }) {
   );
 }
 
-function EmptyHint({ text }: { text: string }) {
+function EmptyHint({ text, light = false }: { text: string; light?: boolean }) {
   return (
-    <div className="rounded-[18px] border border-dashed border-white/8 bg-white/4 px-4 py-4 text-[13px] leading-5 text-slate-400">
+    <div className={cx("rounded-[18px] border border-dashed px-4 py-4 text-[13px] leading-5", light ? "border-stone-300 bg-stone-50 text-stone-500" : "border-white/8 bg-white/4 text-slate-400")}>
       {text}
     </div>
   );
 }
 
-function AuditTrailRow({ label, value }: { label: string; value: string }) {
+function AuditTrailRow({ label, value, light = false }: { label: string; value: string; light?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-white/4 px-4 py-3">
-      <p className="text-[13px] text-slate-400">{label}</p>
-      <p className="text-[13px] font-semibold text-white">{value}</p>
+    <div className={cx("flex items-center justify-between gap-3 rounded-[18px] border px-4 py-3", light ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
+      <p className={cx("text-[13px]", light ? "text-stone-500" : "text-slate-400")}>{label}</p>
+      <p className={cx("text-[13px] font-semibold", light ? "text-stone-950" : "text-white")}>{value}</p>
     </div>
   );
 }
@@ -3177,20 +3214,22 @@ function Field({
   label,
   value,
   onChange,
+  light = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  light?: boolean;
 }) {
   return (
-    <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-      <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+    <label className={cx("rounded-[22px] border p-4", light ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
+      <span className={cx("text-xs uppercase tracking-[0.16em]", light ? "text-stone-500" : "text-slate-500")}>
         {label}
       </span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-3 w-full bg-transparent text-white outline-none"
+        className={cx("mt-3 w-full bg-transparent outline-none", light ? "text-stone-950" : "text-white")}
       />
     </label>
   );
@@ -3201,21 +3240,28 @@ function SelectField({
   options,
   value,
   onChange,
+  light = false,
 }: {
   label: string;
   options: string[];
   value: string;
   onChange: (value: string) => void;
+  light?: boolean;
 }) {
   return (
-    <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-      <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
+    <label className={cx("rounded-[22px] border p-4", light ? "border-stone-200 bg-white" : "border-white/8 bg-white/4")}>
+      <span className={cx("text-xs uppercase tracking-[0.16em]", light ? "text-stone-500" : "text-slate-500")}>
         {label}
       </span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
+        className={cx(
+          "mt-3 w-full rounded-2xl border px-3 py-3 text-sm outline-none",
+          light
+            ? "border-stone-200 bg-stone-50 text-stone-950"
+            : "border-white/8 bg-black/20 text-white",
+        )}
       >
         {options.map((option) => (
           <option key={`${label}-${option}`} value={option}>
@@ -3242,11 +3288,11 @@ function StepHeading({
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+function MiniStat({ label, value, light = false }: { label: string; value: string; light?: boolean }) {
   return (
     <div>
-      <p className="text-xs uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-1 text-sm text-white">{value}</p>
+      <p className={cx("text-xs uppercase tracking-[0.14em]", light ? "text-stone-500" : "text-slate-500")}>{label}</p>
+      <p className={cx("mt-1 text-sm", light ? "text-stone-950" : "text-white")}>{value}</p>
     </div>
   );
 }
