@@ -10,6 +10,8 @@ import {
 } from "react";
 import {
   ArrowUpDown,
+  ChevronsLeft,
+  ChevronsRight,
   CheckCheck,
   CloudDownload,
   FileStack,
@@ -797,6 +799,7 @@ function DocumentsModuleContent({
   const [mutationError, setMutationError] = useState("");
   const [pendingAction, setPendingAction] = useState("");
   const [compareDrawerOpen, setCompareDrawerOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const deferredSearch = useDeferredValue(search);
 
@@ -1512,24 +1515,40 @@ function DocumentsModuleContent({
             ))}
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
-            <DocumentsSidebar
-              activeView={workspaceView}
-              currentUserRole={currentUserRole}
-              profile={roleViewProfile}
-              setActiveView={setWorkspaceView}
-              tree={projectData.tree}
-              treeFilter={treeFilter}
-              setTreeFilter={setTreeFilter}
-            />
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="overflow-hidden rounded-[28px] border border-white/8 bg-white/4">
+              <div
+                className={cx(
+                  "grid min-h-full",
+                  isSidebarOpen
+                    ? "xl:grid-cols-[320px_minmax(0,1fr)]"
+                    : "xl:grid-cols-[88px_minmax(0,1fr)]",
+                )}
+              >
+                <DocumentsSidebar
+                  activeView={workspaceView}
+                  collapsed={!isSidebarOpen}
+                  currentUserRole={currentUserRole}
+                  onToggle={() => setIsSidebarOpen((current) => !current)}
+                  profile={roleViewProfile}
+                  setActiveView={setWorkspaceView}
+                  tree={projectData.tree}
+                  treeFilter={treeFilter}
+                  setTreeFilter={setTreeFilter}
+                />
 
-            <LibraryTab
-              documents={filteredDocuments}
-              selectedDocumentId={effectiveSelectedDocumentId}
-              selectDocument={handleSelectDocument}
-              selectedDocumentIds={selectedDocumentIds}
-              toggleDocumentSelection={toggleDocumentSelection}
-            />
+                <div className="min-w-0 border-t border-white/8 xl:border-l xl:border-t-0">
+                  <LibraryTab
+                    documents={filteredDocuments}
+                    embedded
+                    selectedDocumentId={effectiveSelectedDocumentId}
+                    selectDocument={handleSelectDocument}
+                    selectedDocumentIds={selectedDocumentIds}
+                    toggleDocumentSelection={toggleDocumentSelection}
+                  />
+                </div>
+              </div>
+            </div>
 
             <DocumentContextPanel
               canMarkSelectedObsolete={canMarkSelectedObsolete}
@@ -1703,19 +1722,21 @@ function DocumentsModuleContent({
 
 function LibraryTab({
   documents,
+  embedded = false,
   selectedDocumentId,
   selectDocument,
   selectedDocumentIds,
   toggleDocumentSelection,
 }: {
   documents: HubDocument[];
+  embedded?: boolean;
   selectedDocumentId: string;
   selectDocument: (documentId: string) => void;
   selectedDocumentIds: string[];
   toggleDocumentSelection: (documentId: string) => void;
 }) {
   return (
-    <div className="rounded-[28px] border border-white/8 bg-white/4">
+    <div className={cx(embedded ? "h-full" : "rounded-[28px] border border-white/8 bg-white/4")}>
       <div className="border-b border-white/8 px-4 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -1831,7 +1852,9 @@ function LibraryTab({
 
 function DocumentsSidebar({
   activeView,
+  collapsed,
   currentUserRole,
+  onToggle,
   profile,
   setActiveView,
   tree,
@@ -1839,7 +1862,9 @@ function DocumentsSidebar({
   setTreeFilter,
 }: {
   activeView: DocumentWorkspaceView;
+  collapsed: boolean;
   currentUserRole: string;
+  onToggle: () => void;
   profile: ReturnType<typeof getViewProfile>;
   setActiveView: React.Dispatch<React.SetStateAction<DocumentWorkspaceView>>;
   tree: DocumentTreeRoot[];
@@ -1847,12 +1872,73 @@ function DocumentsSidebar({
   setTreeFilter: React.Dispatch<React.SetStateAction<WorkspaceTreeFilter>>;
 }) {
   return (
-    <div className="space-y-4">
-      <Panel
-        title="Vues documentaires"
-        description={`Navigation adaptee au role ${currentUserRole}.`}
-      >
-        <div className="space-y-5">
+    <aside
+      className={cx(
+        "flex h-full flex-col bg-black/[0.03]",
+        collapsed ? "px-3 py-4" : "px-5 py-5",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-white/8 pb-4">
+        <div className={cx("min-w-0", collapsed ? "space-y-2" : "space-y-1")}>
+          <p className="text-sm font-semibold text-white">
+            {collapsed ? "Vues" : "Vues documentaires"}
+          </p>
+          {!collapsed ? (
+            <p className="text-sm leading-6 text-slate-400">
+              Navigation adaptee au role {currentUserRole}.
+            </p>
+          ) : (
+            <StatusBadge tone="neutral">{workspaceViewLabels[activeView]}</StatusBadge>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="inline-flex size-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white transition hover:bg-white/10"
+          title={
+            collapsed
+              ? "Ouvrir la navigation documentaire"
+              : "Refermer la navigation documentaire"
+          }
+          aria-label={
+            collapsed
+              ? "Ouvrir la navigation documentaire"
+              : "Refermer la navigation documentaire"
+          }
+        >
+          {collapsed ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}
+        </button>
+      </div>
+
+      {collapsed ? (
+        <div className="mt-4 space-y-3">
+          <div className="rounded-[20px] border border-white/8 bg-white/4 px-3 py-3">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Vue active</p>
+            <p className="mt-2 text-sm font-semibold text-white">
+              {workspaceViewLabels[activeView]}
+            </p>
+          </div>
+          {treeFilter ? (
+            <div className="rounded-[20px] border border-white/8 bg-white/4 px-3 py-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                Classement
+              </p>
+              <p className="mt-2 text-sm font-semibold text-white">
+                {treeFilter.kind === "lot"
+                  ? "Lot"
+                  : treeFilter.kind === "phase"
+                    ? "Phase"
+                    : "Discipline"}
+              </p>
+              <p className="mt-1 text-sm text-slate-400">{treeFilter.value}</p>
+            </div>
+          ) : null}
+          <p className="px-1 text-xs leading-5 text-slate-500">
+            Ouvrez le rail pour changer de vue ou de classement.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-5 space-y-5">
           <SidebarGroup
             title="Workflow"
             views={profile.workflowViews}
@@ -1865,86 +1951,92 @@ function DocumentsSidebar({
             activeView={activeView}
             onSelect={setActiveView}
           />
-        </div>
-      </Panel>
 
-      <Panel
-        title="Classement du projet"
-        description="Naviguez par lot, phase et discipline comme dans un classement chantier."
-      >
-        <div className="space-y-3">
-          {tree.map((root) => (
-            <div
-              key={root.title}
-              className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-            >
-              <div className="flex items-center gap-3">
-                <FolderOpen className="size-4 text-slate-400" />
-                <button
-                  type="button"
-                  onClick={() => setTreeFilter({ kind: "discipline", value: root.title })}
-                  className={cx(
-                    "text-sm font-semibold",
-                    treeFilter?.kind === "discipline" && treeFilter.value === root.title
-                      ? "text-white"
-                      : "text-slate-300",
-                  )}
-                >
-                  {root.title}
-                </button>
+          <div className="rounded-[24px] border border-white/8 bg-white/4 p-4">
+            <div className="flex items-center gap-3">
+              <FolderOpen className="size-4 text-slate-400" />
+              <div>
+                <p className="text-sm font-semibold text-white">Classement du projet</p>
+                <p className="mt-1 text-sm leading-6 text-slate-400">
+                  Naviguez par lot, phase et discipline comme dans un classement chantier.
+                </p>
               </div>
-              <div className="mt-4 space-y-3">
-                {root.nodes.map((node) => (
-                  <div
-                    key={node.label}
-                    className="space-y-2 rounded-[18px] border border-white/8 bg-white/4 px-4 py-3"
-                  >
+            </div>
+            <div className="mt-4 space-y-3">
+              {tree.map((root) => (
+                <div
+                  key={root.title}
+                  className="rounded-[22px] border border-white/8 bg-white/4 p-4"
+                >
+                  <div className="flex items-center gap-3">
+                    <FolderOpen className="size-4 text-slate-400" />
                     <button
                       type="button"
-                      onClick={() => setTreeFilter({ kind: "lot", value: node.label })}
+                      onClick={() => setTreeFilter({ kind: "discipline", value: root.title })}
                       className={cx(
-                        "text-left text-sm font-medium",
-                        treeFilter?.kind === "lot" && treeFilter.value === node.label
+                        "text-sm font-semibold",
+                        treeFilter?.kind === "discipline" && treeFilter.value === root.title
                           ? "text-white"
                           : "text-slate-300",
                       )}
                     >
-                      {node.label}
+                      {root.title}
                     </button>
-                    <div className="flex flex-wrap gap-2">
-                      {node.phases.map((phase) => (
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {root.nodes.map((node) => (
+                      <div
+                        key={node.label}
+                        className="space-y-2 rounded-[18px] border border-white/8 bg-white/4 px-4 py-3"
+                      >
                         <button
-                          key={`${node.label}-${phase}`}
                           type="button"
-                          onClick={() => setTreeFilter({ kind: "phase", value: phase })}
+                          onClick={() => setTreeFilter({ kind: "lot", value: node.label })}
                           className={cx(
-                            "rounded-full border px-3 py-1 text-xs",
-                            treeFilter?.kind === "phase" && treeFilter.value === phase
-                              ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
-                              : "border-white/10 bg-white/5 text-slate-400",
+                            "text-left text-sm font-medium",
+                            treeFilter?.kind === "lot" && treeFilter.value === node.label
+                              ? "text-white"
+                              : "text-slate-300",
                           )}
                         >
-                          {phase}
+                          {node.label}
                         </button>
-                      ))}
-                    </div>
+                        <div className="flex flex-wrap gap-2">
+                          {node.phases.map((phase) => (
+                            <button
+                              key={`${node.label}-${phase}`}
+                              type="button"
+                              onClick={() => setTreeFilter({ kind: "phase", value: phase })}
+                              className={cx(
+                                "rounded-full border px-3 py-1 text-xs",
+                                treeFilter?.kind === "phase" && treeFilter.value === phase
+                                  ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
+                                  : "border-white/10 bg-white/5 text-slate-400",
+                              )}
+                            >
+                              {phase}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
+              {treeFilter ? (
+                <button
+                  type="button"
+                  onClick={() => setTreeFilter(null)}
+                  className="w-full rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
+                >
+                  Effacer le classement
+                </button>
+              ) : null}
             </div>
-          ))}
-          {treeFilter ? (
-            <button
-              type="button"
-              onClick={() => setTreeFilter(null)}
-              className="w-full rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/8"
-            >
-              Effacer le classement
-            </button>
-          ) : null}
+          </div>
         </div>
-      </Panel>
-    </div>
+      )}
+    </aside>
   );
 }
 
