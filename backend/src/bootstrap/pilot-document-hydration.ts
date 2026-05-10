@@ -146,22 +146,12 @@ async function ensureSeededDocument(
     `SELECT id
      FROM document_versions
      WHERE document_id = $1
-       AND is_current = true
      ORDER BY uploaded_at DESC
      LIMIT 1`,
     [documentId],
   );
 
-  const fallbackVersion = await client.query<{ id: string }>(
-    `SELECT id
-     FROM document_versions
-     WHERE document_id = $1
-     ORDER BY uploaded_at DESC
-     LIMIT 1`,
-    [documentId],
-  );
-
-  const currentVersionId = currentVersion.rows[0]?.id ?? fallbackVersion.rows[0]?.id;
+  const currentVersionId = currentVersion.rows[0]?.id;
   if (!currentVersionId) {
     return;
   }
