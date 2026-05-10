@@ -393,15 +393,58 @@ export type DocumentVersionRecord = DocumentsModuleBaseData["files"][number]["ve
   mimeType?: string;
 };
 
+export type DocumentHubTypeRecord =
+  | "audit"
+  | "export"
+  | "finance"
+  | "photo"
+  | "plan"
+  | "quality"
+  | "report";
+
+export type DocumentActionCapabilitiesRecord = {
+  acknowledge?: boolean;
+  compare?: boolean;
+  distribute?: boolean;
+  download?: boolean;
+  editMetadata?: boolean;
+  markObsolete?: boolean;
+  open?: boolean;
+  prepareOffline?: boolean;
+  publishVersion?: boolean;
+};
+
+export type DocumentAttachmentRecord = {
+  href?: string;
+  id: string;
+  kind: string;
+  label: string;
+  meta: string;
+  status: string;
+};
+
 export type DocumentFileRecord = Omit<
   DocumentsModuleBaseData["files"][number],
   "versions"
 > & {
+  actionCapabilities?: DocumentActionCapabilitiesRecord;
+  attachments?: DocumentAttachmentRecord[];
+  distributionState?: string;
+  documentType?: DocumentHubTypeRecord;
   downloadUrl?: string;
   fileName?: string;
   filePath?: string;
   mimeType?: string;
+  offlineState?: string;
+  parentDocumentId?: string | null;
+  priority?: "high" | "low" | "medium";
+  readState?: string;
+  relatedPhotos?: DocumentAttachmentRecord[];
+  sourceModule?: string;
+  sourceRecordId?: string | null;
+  visibilityScope?: string;
   versions: DocumentVersionRecord[];
+  zone?: string | null;
 };
 
 export type DocumentRecipientRecord = DocumentsModuleBaseData["recipients"][number] & {
@@ -416,6 +459,9 @@ export type DocumentsModuleRecord = Omit<DocumentsModuleBaseData, "files" | "rec
 };
 
 export type DocumentsModuleData = DocumentsModuleRecord & {
+  dimensions?: {
+    disciplines?: string[];
+  };
   distributionOptions: string[];
   projectMembers: ProjectMemberOption[];
   projectSetup: ProjectSetupRecord;

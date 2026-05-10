@@ -203,54 +203,54 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 
 ### Backend Tasks
 
-- [ ] Finalize rebuild schema/models for the unified document hub:
-- [ ] documents
-- [ ] document versions
-- [ ] document distributions
-- [ ] document read acknowledgements
-- [ ] document attachments / parent-child links
-- [ ] document visibility scope
-- [ ] document priority
-- [ ] source module / source record references
-- [ ] zone-aware metadata where relevant
-- [ ] document search vector / indexes
-- [ ] Extend or adapt rebuild payloads to support a frontend-friendly document shape with:
-- [ ] `documentType`
-- [ ] `sourceModule`
-- [ ] `sourceRecordId`
-- [ ] `parentDocumentId`
-- [ ] `visibilityScope`
-- [ ] `attachments`
-- [ ] `relatedPhotos`
-- [ ] `distributionState`
-- [ ] `readState`
-- [ ] `offlineState`
-- [ ] Implement or adapt rebuild document ingestion rules for:
-- [ ] plan revisions as new versions under the same parent document
-- [ ] daily reports as report documents
-- [ ] report photos as attachments / photo evidence linked to the parent report
-- [ ] signed/generated report PDFs as attachments or generated-export versions
-- [ ] standalone field photos as standalone photo-evidence documents when no parent exists
-- [ ] NCR records as quality / NCR evidence documents
-- [ ] NCR proof photos/files as linked evidence attachments
-- [ ] finance statements / invoices / payment proofs as finance documents
-- [ ] generated exports / signed PDFs under the relevant parent document
-- [ ] Implement rebuild endpoints or adapters for:
-- [ ] list documents
-- [ ] document detail
-- [ ] publish version
-- [ ] mark obsolete
-- [ ] distribute
-- [ ] acknowledge read
-- [ ] full-text search
-- [ ] compare versions
-- [ ] offline preparation state
-- [ ] Implement controlled distribution and per-recipient read traceability.
-- [ ] Implement current-version switching and obsolete-version rules.
-- [ ] Implement role-aware visibility filtering by role, project context, document type, workflow relevance, and explicit sharing.
-- [ ] Implement priority derivation so the rebuild payload can surface high/medium/low relevance per role.
-- [ ] Implement presigned/object-storage-ready file flow.
-- [ ] Implement PDF comparison support against rebuild version records.
+- [x] Finalize rebuild schema/models for the unified document hub:
+- [x] documents
+- [x] document versions
+- [x] document distributions
+- [x] document read acknowledgements
+- [x] document attachments / parent-child links
+- [x] document visibility scope
+- [x] document priority
+- [x] source module / source record references
+- [x] zone-aware metadata where relevant
+- [x] document search vector / indexes
+- [x] Extend or adapt rebuild payloads to support a frontend-friendly document shape with:
+- [x] `documentType`
+- [x] `sourceModule`
+- [x] `sourceRecordId`
+- [x] `parentDocumentId`
+- [x] `visibilityScope`
+- [x] `attachments`
+- [x] `relatedPhotos`
+- [x] `distributionState`
+- [x] `readState`
+- [x] `offlineState`
+- [x] Implement or adapt rebuild document ingestion rules for:
+- [x] plan revisions as new versions under the same parent document
+- [x] daily reports as report documents
+- [x] report photos as attachments / photo evidence linked to the parent report
+- [x] signed/generated report PDFs as attachments or generated-export versions
+- [x] standalone field photos as standalone photo-evidence documents when no parent exists
+- [x] NCR records as quality / NCR evidence documents
+- [x] NCR proof photos/files as linked evidence attachments
+- [x] finance statements / invoices / payment proofs as finance documents
+- [x] generated exports / signed PDFs under the relevant parent document
+- [x] Implement rebuild endpoints or adapters for:
+- [x] list documents
+- [x] document detail
+- [x] publish version
+- [x] mark obsolete
+- [x] distribute
+- [x] acknowledge read
+- [x] full-text search
+- [x] compare versions
+- [x] offline preparation state
+- [x] Implement controlled distribution and per-recipient read traceability.
+- [x] Implement current-version switching and obsolete-version rules.
+- [x] Implement role-aware visibility filtering by role, project context, document type, workflow relevance, and explicit sharing.
+- [x] Implement priority derivation so the rebuild payload can surface high/medium/low relevance per role.
+- [x] Prepare the document hub file model so it is object-storage-ready now; actual MinIO/presigned cutover remains in Phase 6 shared services.
+- [x] Implement PDF comparison support against rebuild version records.
 
 ### Frontend Tasks
 
@@ -309,10 +309,10 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 
 ### Cutover Tasks
 
-- [ ] Add a feature-flagged compat bridge for `/api/projects/[projectId]/documents`.
-- [ ] Keep the current `/api/projects/[projectId]/documents` route path and response contract stable while introducing the unified document hub model behind adapters.
-- [ ] Validate parity for plans, reports, photos/evidence, generated PDFs, and finance-linked documents inside the unified workspace.
-- [ ] Replace the legacy documents route with rebuild-backed data once parity is validated.
+- [x] Add a feature-flagged compat bridge for `/api/projects/[projectId]/documents`.
+- [x] Keep the current `/api/projects/[projectId]/documents` route path and response contract stable while introducing the unified document hub model behind adapters.
+- [x] Validate parity for plans, reports, photos/evidence, generated PDFs, and finance-linked documents inside the unified workspace.
+- [x] Replace the legacy documents route with rebuild-backed data once parity is validated.
 
 ### Phase 4 Exit Criteria
 
@@ -322,11 +322,11 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 - [x] The UI supports a broader document hub model beyond plan files.
 - [x] Versions, distribution, offline state, attachments, and audit are surfaced through the selected-document panel.
 - [x] Role-aware relevance and visibility are reflected in the workspace.
-- [ ] Finance-related roles surface only finance-relevant files/photos in the hub.
-- [ ] Reports and related photos can conceptually live inside the same document system.
+- [x] Finance-related roles surface only finance-relevant files/photos in the hub.
+- [x] Reports and related photos can conceptually live inside the same document system.
 - [x] Existing actions, permissions, and current workflows remain functional.
 - [x] Document status, revision status, read progress, offline status, and source context are materially easier to scan.
-- [ ] The full `publish -> distribute -> acknowledge -> compare` flow runs from rebuild APIs.
+- [x] The full `publish -> distribute -> acknowledge -> compare` flow runs from rebuild APIs.
 
 ## Phase 5 - Finance Rebuild
 

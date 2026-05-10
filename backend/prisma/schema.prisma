@@ -285,8 +285,21 @@ model Document {
   id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId    String             @map("project_id") @db.Uuid
   name         String             @db.VarChar(255)
+  code         String?            @db.VarChar(100)
+  lot          String?            @db.VarChar(120)
+  discipline   String?            @db.VarChar(120)
+  zone         String?            @db.VarChar(120)
   phase        DocumentPhase?
   docType      DocumentType?      @map("doc_type")
+  sourceModule String?            @map("source_module") @db.VarChar(50)
+  sourceRecordId String?          @map("source_record_id") @db.VarChar(120)
+  parentDocumentId String?        @map("parent_document_id") @db.Uuid
+  hubType      String?            @map("hub_type") @db.VarChar(50)
+  priority     String?            @db.VarChar(20)
+  visibilityScope Json            @default("[]") @map("visibility_scope")
+  offlineReady Boolean            @default(false) @map("offline_ready")
+  lastDistributedAt DateTime?     @map("last_distributed_at")
+  storageMode  String             @default("managed") @map("storage_mode") @db.VarChar(40)
   status       DocumentStatus     @default(active)
   createdBy    String             @map("created_by") @db.Uuid
   createdAt    DateTime           @default(now()) @map("created_at")
@@ -307,8 +320,10 @@ model DocumentVersion {
   versionLabel String                @map("version_label") @db.VarChar(20)
   fileUrl      String                @map("file_url")
   fileKey      String                @map("file_key")
+  fileName     String?               @map("file_name") @db.VarChar(255)
   fileSizeMb   Decimal?              @map("file_size_mb") @db.Decimal(8, 2)
   fileType     String?               @map("file_type") @db.VarChar(10)
+  mimeType     String?               @map("mime_type") @db.VarChar(120)
   versionNote  String?               @map("version_note")
   isCurrent    Boolean               @default(true) @map("is_current")
   status       DocumentVersionStatus @default(active)
@@ -327,6 +342,7 @@ model DocumentDistribution {
   documentId  String    @map("document_id") @db.Uuid
   versionId   String    @map("version_id") @db.Uuid
   recipientId String    @map("recipient_id") @db.Uuid
+  audience    String?   @db.VarChar(255)
   note        String?
   sentAt      DateTime  @default(now()) @map("sent_at")
   readAt      DateTime? @map("read_at")

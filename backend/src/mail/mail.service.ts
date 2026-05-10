@@ -200,6 +200,32 @@ export class MailService {
     });
   }
 
+  async sendDocumentDistributedEmail(input: {
+    documentCode: string;
+    documentTitle: string;
+    documentLink: string;
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+    revision: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `Document a lire - ${input.documentCode}`,
+      title: "Document diffuse",
+      intro: "Une nouvelle diffusion documentaire requiert votre lecture et votre accuse de reception.",
+      ctaLabel: "Ouvrir le document",
+      ctaPath: input.documentLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Reference : ${input.documentCode}`,
+        `Titre : ${input.documentTitle}`,
+        `Revision : ${input.revision}`,
+      ],
+    });
+  }
+
   private async sendEmail(input: {
     html: string;
     recipientEmail: string;

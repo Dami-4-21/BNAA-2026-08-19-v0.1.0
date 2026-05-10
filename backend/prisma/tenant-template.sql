@@ -241,8 +241,21 @@ CREATE TABLE IF NOT EXISTS __SCHEMA__.documents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID NOT NULL REFERENCES __SCHEMA__.projects(id),
   name VARCHAR(255) NOT NULL,
+  code VARCHAR(100),
+  lot VARCHAR(120),
+  discipline VARCHAR(120),
+  zone VARCHAR(120),
   phase __SCHEMA__."DocumentPhase",
   doc_type __SCHEMA__."DocumentType",
+  source_module VARCHAR(50),
+  source_record_id VARCHAR(120),
+  parent_document_id UUID,
+  hub_type VARCHAR(50),
+  priority VARCHAR(20),
+  visibility_scope JSONB NOT NULL DEFAULT '[]'::jsonb,
+  offline_ready BOOLEAN NOT NULL DEFAULT false,
+  last_distributed_at TIMESTAMP,
+  storage_mode VARCHAR(40) NOT NULL DEFAULT 'managed',
   status __SCHEMA__."DocumentStatus" NOT NULL DEFAULT 'active',
   created_by UUID NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -255,8 +268,10 @@ CREATE TABLE IF NOT EXISTS __SCHEMA__.document_versions (
   version_label VARCHAR(20) NOT NULL,
   file_url TEXT NOT NULL,
   file_key TEXT NOT NULL,
+  file_name VARCHAR(255),
   file_size_mb NUMERIC(8,2),
   file_type VARCHAR(10),
+  mime_type VARCHAR(120),
   version_note TEXT,
   is_current BOOLEAN NOT NULL DEFAULT true,
   status __SCHEMA__."DocumentVersionStatus" NOT NULL DEFAULT 'active',
@@ -269,6 +284,7 @@ CREATE TABLE IF NOT EXISTS __SCHEMA__.document_distributions (
   document_id UUID NOT NULL REFERENCES __SCHEMA__.documents(id),
   version_id UUID NOT NULL REFERENCES __SCHEMA__.document_versions(id),
   recipient_id UUID NOT NULL,
+  audience VARCHAR(255),
   note TEXT,
   sent_at TIMESTAMP NOT NULL DEFAULT NOW(),
   read_at TIMESTAMP
@@ -340,6 +356,28 @@ ALTER TABLE __SCHEMA__.daily_reports
 ALTER TABLE __SCHEMA__.ncr
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
 
+ALTER TABLE __SCHEMA__.documents
+  ADD COLUMN IF NOT EXISTS code VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS lot VARCHAR(120),
+  ADD COLUMN IF NOT EXISTS discipline VARCHAR(120),
+  ADD COLUMN IF NOT EXISTS zone VARCHAR(120),
+  ADD COLUMN IF NOT EXISTS source_module VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS source_record_id VARCHAR(120),
+  ADD COLUMN IF NOT EXISTS parent_document_id UUID,
+  ADD COLUMN IF NOT EXISTS hub_type VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS priority VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS visibility_scope JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS offline_ready BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS last_distributed_at TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS storage_mode VARCHAR(40) NOT NULL DEFAULT 'managed';
+
+ALTER TABLE __SCHEMA__.document_versions
+  ADD COLUMN IF NOT EXISTS file_name VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS mime_type VARCHAR(120);
+
+ALTER TABLE __SCHEMA__.document_distributions
+  ADD COLUMN IF NOT EXISTS audience VARCHAR(255);
+
 CREATE INDEX IF NOT EXISTS idx_reports_project_date
   ON __SCHEMA__.daily_reports(project_id, report_date DESC);
 
@@ -351,6 +389,9 @@ CREATE INDEX IF NOT EXISTS idx_photos_report
 
 CREATE INDEX IF NOT EXISTS idx_docs_project
   ON __SCHEMA__.documents(project_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_docs_source
+  ON __SCHEMA__.documents(project_id, source_module, source_record_id);
 
 CREATE INDEX IF NOT EXISTS idx_docs_fts
   ON __SCHEMA__.documents USING GIN(search_vector);
@@ -368,6 +409,10 @@ BEGIN
     to_tsvector(
       'french',
       COALESCE(NEW.name, '') || ' ' ||
+      COALESCE(NEW.code, '') || ' ' ||
+      COALESCE(NEW.lot, '') || ' ' ||
+      COALESCE(NEW.discipline, '') || ' ' ||
+      COALESCE(NEW.hub_type, '') || ' ' ||
       COALESCE(NEW.doc_type::text, '') || ' ' ||
       COALESCE(NEW.phase::text, '')
     );

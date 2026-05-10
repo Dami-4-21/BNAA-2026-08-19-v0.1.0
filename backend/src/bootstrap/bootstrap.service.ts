@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { v4 as uuidv4 } from "uuid";
 import * as bcrypt from "bcrypt";
 
+import { seedPilotDocumentHubData } from "@/bootstrap/pilot-document-hydration";
 import { seedPilotSiteData } from "@/bootstrap/pilot-site-hydration";
 import { PrismaService } from "@/database/prisma.service";
 import { TenantDatabaseService } from "@/database/tenant-database.service";
@@ -191,6 +192,7 @@ export class BootstrapService implements OnModuleInit {
         }
 
         await seedPilotSiteData(client, project.backendId, projectId, users);
+        await seedPilotDocumentHubData(client, project.backendId, projectId, users);
       }
     });
   }

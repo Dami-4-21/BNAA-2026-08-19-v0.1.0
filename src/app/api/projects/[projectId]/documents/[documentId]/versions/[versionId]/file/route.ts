@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { readUploadedFile } from "@/lib/backend/files";
 import { sessionCookieName } from "@/lib/backend/session";
 import { getDocumentVersionFile, isApiError } from "@/lib/backend/service";
+import { getRebuildAccessTokenFromRequest } from "@/lib/rebuild-auth";
+import {
+  downloadRebuildDocumentVersionFile,
+  shouldUseRebuildDocumentsBridge,
+} from "@/lib/rebuild-documents";
 
 export async function GET(
   request: NextRequest,
@@ -14,6 +19,31 @@ export async function GET(
 ) {
   try {
     const { projectId, documentId, versionId } = await params;
+
+    if (shouldUseRebuildDocumentsBridge()) {
+      try {
+        const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+        const asset = await downloadRebuildDocumentVersionFile(
+          rebuildAccessToken,
+          projectId,
+          documentId,
+          decodeURIComponent(versionId),
+        );
+
+        if (asset) {
+          return new NextResponse(new Uint8Array(asset.bytes), {
+            headers: {
+              "Cache-Control": "private, max-age=300",
+              "Content-Disposition": `attachment; filename="${asset.fileName}"`,
+              "Content-Type": asset.mimeType,
+            },
+          });
+        }
+      } catch (error) {
+        console.error("[documents bridge] version file fallback to legacy payload", error);
+      }
+    }
+
     const token = request.cookies.get(sessionCookieName)?.value ?? "";
     const asset = await getDocumentVersionFile(
       token,

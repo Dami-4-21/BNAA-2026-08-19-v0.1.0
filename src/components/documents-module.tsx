@@ -341,6 +341,10 @@ const sortLabels: Record<DocumentSortKey, string> = {
 };
 
 function getDocumentType(document: DocumentFile): DocumentHubType {
+  if (document.documentType) {
+    return document.documentType;
+  }
+
   const haystack = `${document.code} ${document.title} ${document.discipline} ${document.format}`.toLowerCase();
 
   if (["jpg", "jpeg", "png", "webp", "heic", "mp4"].includes(document.format.toLowerCase())) {
@@ -382,7 +386,11 @@ function getDocumentTypeLabel(documentType: DocumentHubType) {
   }
 }
 
-function getDocumentSourceLabel(documentType: DocumentHubType) {
+function getDocumentSourceLabel(documentType: DocumentHubType, sourceModule?: string) {
+  if (sourceModule?.trim()) {
+    return sourceModule;
+  }
+
   switch (documentType) {
     case "report":
     case "photo":
@@ -400,6 +408,10 @@ function getDocumentSourceLabel(documentType: DocumentHubType) {
 }
 
 function getDocumentPriority(document: DocumentFile, unreadCount: number, documentType: DocumentHubType) {
+  if (document.priority) {
+    return document.priority;
+  }
+
   if (document.status === "Obsolete") {
     return "low" as const;
   }
@@ -412,7 +424,11 @@ function getDocumentPriority(document: DocumentFile, unreadCount: number, docume
   return "medium" as const;
 }
 
-function getVisibilityScopeLabel(documentType: DocumentHubType, role: string) {
+function getVisibilityScopeLabel(documentType: DocumentHubType, role: string, visibilityScope?: string) {
+  if (visibilityScope?.trim()) {
+    return visibilityScope;
+  }
+
   if (role === "Super Admin" || role === "Admin") {
     return "Toutes les equipes";
   }
@@ -454,7 +470,10 @@ function buildHubDocument({
   const distributionTone: ActiveTone =
     document.recipients === 0 ? "warning" : unreadCount > 0 ? "primary" : "success";
 
-  const attachments: HubAttachment[] = document.fileName || document.downloadUrl
+  const attachments: HubAttachment[] =
+    document.attachments && document.attachments.length > 0
+      ? document.attachments
+      : document.fileName || document.downloadUrl
     ? [
         {
           id: `${document.id}-main`,
@@ -467,14 +486,17 @@ function buildHubDocument({
       ]
     : [];
 
-  const relatedPhotos: HubAttachment[] = documentType === "photo"
+  const relatedPhotos: HubAttachment[] =
+    document.relatedPhotos && document.relatedPhotos.length > 0
+      ? document.relatedPhotos
+      : documentType === "photo"
     ? [
         {
           id: `${document.id}-photo`,
           label: document.title,
           kind: "Preuve liee",
           status: "Liee",
-          meta: `Source ${getDocumentSourceLabel(documentType)}`,
+          meta: `Source ${getDocumentSourceLabel(documentType, document.sourceModule)}`,
           href: document.downloadUrl,
         },
       ]
@@ -514,11 +536,11 @@ function buildHubDocument({
     title: document.title,
     documentType,
     documentTypeLabel: getDocumentTypeLabel(documentType),
-    sourceModule: getDocumentSourceLabel(documentType),
+    sourceModule: getDocumentSourceLabel(documentType, document.sourceModule),
     lot: document.lot,
     phase: document.phase,
     discipline: document.discipline,
-    zone: null,
+    zone: document.zone ?? null,
     revision: document.revision,
     status: document.status,
     tone: document.tone,
@@ -527,10 +549,10 @@ function buildHubDocument({
     readLabel:
       document.recipients > 0 ? `${document.readCount}/${document.recipients} lus` : "Lecture non requise",
     readTone: document.recipients > 0 ? (unreadCount > 0 ? "warning" : "success") : "primary",
-    offlineLabel: isCached ? "Disponible hors connexion" : "Non synchronise",
+    offlineLabel: document.offlineState ?? (isCached ? "Disponible hors connexion" : "Non synchronise"),
     offlineTone: isCached ? "success" : "warning",
     priority: getDocumentPriority(document, unreadCount, documentType),
-    visibilityScope: getVisibilityScopeLabel(documentType, currentUserRole),
+    visibilityScope: getVisibilityScopeLabel(documentType, currentUserRole, document.visibilityScope),
     updatedAt: document.publishedAt,
     updatedBy: document.uploadedBy,
     recipients,

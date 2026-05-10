@@ -7,6 +7,21 @@ import {
   mutateDocumentsPayload,
   uploadDocumentVersion,
 } from "@/lib/backend/service";
+import { getRebuildAccessTokenFromRequest } from "@/lib/rebuild-auth";
+import {
+  buildRebuildDocumentsPayload,
+  mutateRebuildDocumentsPayload,
+  publishRebuildDocumentVersion,
+  shouldUseRebuildDocumentsBridge,
+} from "@/lib/rebuild-documents";
+
+const rebuildDocumentActions = new Set([
+  "acknowledge",
+  "distribute",
+  "mark-obsolete",
+  "toggle-offline",
+  "update-metadata",
+]);
 
 export async function GET(
   request: NextRequest,
@@ -15,6 +30,20 @@ export async function GET(
   try {
     const { projectId } = await params;
     const token = request.cookies.get(sessionCookieName)?.value ?? "";
+
+    if (shouldUseRebuildDocumentsBridge()) {
+      try {
+        const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+        const bridgedPayload = await buildRebuildDocumentsPayload(rebuildAccessToken, projectId);
+
+        if (bridgedPayload) {
+          return NextResponse.json(bridgedPayload);
+        }
+      } catch (error) {
+        console.error("[documents bridge] fallback to legacy payload", error);
+      }
+    }
+
     const payload = await getDocumentsPayload(token, projectId);
     return NextResponse.json(payload);
   } catch (error) {
@@ -43,6 +72,28 @@ export async function POST(
             return NextResponse.json({ error: "Fichier document manquant." }, { status: 400 });
           }
 
+          if (shouldUseRebuildDocumentsBridge()) {
+            try {
+              const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+              const bridgedPayload = await publishRebuildDocumentVersion(
+                rebuildAccessToken,
+                projectId,
+                {
+                  documentId: String(formData.get("documentId") ?? ""),
+                  file,
+                  format: String(formData.get("format") ?? ""),
+                  revision: String(formData.get("revision") ?? ""),
+                },
+              );
+
+              if (bridgedPayload) {
+                return NextResponse.json(bridgedPayload);
+              }
+            } catch (error) {
+              console.error("[documents bridge] publish fallback to legacy payload", error);
+            }
+          }
+
           const nextPayload = await uploadDocumentVersion(token, projectId, {
             documentId: String(formData.get("documentId") ?? ""),
             file,
@@ -56,6 +107,33 @@ export async function POST(
             action?: string;
             payload?: Record<string, unknown>;
           };
+
+          if (shouldUseRebuildDocumentsBridge() && rebuildDocumentActions.has(body.action ?? "")) {
+            try {
+              const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+              const bridgedPayload = await mutateRebuildDocumentsPayload(
+                rebuildAccessToken,
+                projectId,
+                body.action as
+                  | "acknowledge"
+                  | "distribute"
+                  | "mark-obsolete"
+                  | "toggle-offline"
+                  | "update-metadata",
+                {
+                  documentId: String(body.payload?.documentId ?? ""),
+                  ...body.payload,
+                },
+              );
+
+              if (bridgedPayload) {
+                return NextResponse.json(bridgedPayload);
+              }
+            } catch (error) {
+              console.error("[documents bridge] mutation fallback to legacy payload", error);
+            }
+          }
+
           const nextPayload = await mutateDocumentsPayload(
             token,
             projectId,
