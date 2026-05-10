@@ -1546,7 +1546,7 @@ function DocumentsModuleContent({
                   className={cx(
                     "grid min-h-full",
                     isSidebarOpen
-                      ? "xl:grid-cols-[336px_minmax(0,1fr)]"
+                      ? "xl:grid-cols-[304px_minmax(0,1fr)]"
                       : "xl:grid-cols-[72px_minmax(0,1fr)]",
                   )}
                 >
