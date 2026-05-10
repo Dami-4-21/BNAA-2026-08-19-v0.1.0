@@ -274,6 +274,7 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 - [x] Further slim the right context rail for denser desktop scanning while preserving the embedded panel workflow.
 - [x] Reduce the right context rail once more to keep the center library as the dominant desktop workspace.
 - [x] Trim the expanded left navigation rail to keep Module 6 balanced after the context rail reduction.
+- [x] Replace the fixed selected-document rail with a popup context card triggered from the center library selection.
 - [x] Add the new left navigation model:
 - [x] workflow views (`Tous les documents`, `Plans en vigueur`, `A diffuser`, `Diffusion en attente`, `Obsoletes`, `Offline chantier`, `Audit documentaire`)
 - [x] content views (`Plans & revisions`, `Rapports chantier`, `Photos & preuves`, `Finance & justificatifs`, `Qualite / NCR`, `Exports & PDF signes`)
