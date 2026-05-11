@@ -1732,7 +1732,7 @@ function FinanceModuleContent({
         </InlineNotice>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[236px_minmax(0,1fr)_288px]">
+      <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)_272px]">
         <FinanceSidebar
           activeEntryId={activeSection}
           entries={sidebarEntries}
@@ -1741,7 +1741,10 @@ function FinanceModuleContent({
         />
 
         <div className="space-y-4">
-          <section id="finance-section-overview" className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <section
+            id="finance-section-overview"
+            className="grid gap-4 xl:grid-cols-[minmax(0,1.24fr)_minmax(340px,0.96fr)]"
+          >
             <FinanceActionCenter
               activeFilter={queueFilter}
               actionCards={actionCenterCards}
@@ -1884,7 +1887,7 @@ function FinanceSidebar({
   const quickEntries = entries.filter((entry) => String(entry.id).startsWith("quick-"));
 
   return (
-    <Panel className="h-fit">
+    <Panel className="h-fit xl:sticky xl:top-24">
       <div className="space-y-5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
@@ -1966,17 +1969,18 @@ function FinanceActionCenter({
   return (
     <Panel
       title="Centre d'action"
-      description="Le cockpit met en avant les urgences finance avant la file complete pour limiter les changements de contexte."
+      description="Les urgences finance remontent ici en premier pour limiter les allers-retours dans la file active."
       action={<StatusBadge tone={financeActionCard.tone}>{toneLabel(financeActionCard.tone)}</StatusBadge>}
     >
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {actionCards.map((card) => (
+      <div className="grid gap-3 lg:grid-cols-2">
+        {actionCards.map((card, index) => (
           <button
             key={card.id}
             type="button"
             onClick={() => onCardSelect(card)}
             className={cx(
-              "rounded-[20px] border p-4 text-left transition-colors",
+              "flex h-full min-h-[148px] flex-col rounded-[20px] border p-4 text-left transition-colors",
+              index === actionCards.length - 1 ? "lg:col-span-2" : "",
               activeFilter === card.filter
                 ? "border-black bg-black text-white"
                 : "border-stone-200 bg-white text-stone-900 hover:bg-stone-50",
@@ -1987,21 +1991,30 @@ function FinanceActionCenter({
                 <p className={cx("text-xs uppercase tracking-[0.16em]", activeFilter === card.filter ? "text-white/65" : "text-stone-500")}>
                   {card.label}
                 </p>
-                <p className="mt-3 font-display text-3xl font-semibold">
+                <p className="mt-3 font-display text-2xl font-semibold">
                   {card.count}
                 </p>
               </div>
               <StatusBadge tone={card.tone}>{toneLabel(card.tone)}</StatusBadge>
             </div>
-            <p className={cx("mt-4 text-sm leading-6", activeFilter === card.filter ? "text-white/75" : "text-stone-600")}>
+            <p
+              className={cx(
+                "mt-4 flex-1 text-sm leading-6",
+                activeFilter === card.filter ? "text-white/75" : "text-stone-600",
+              )}
+            >
               {card.helper}
             </p>
+            <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold">
+              Voir la file
+              <ChevronRight className="size-4" />
+            </div>
           </button>
         ))}
       </div>
 
       <div className="mt-4 rounded-[22px] border border-stone-200 bg-stone-50 p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Prochaine action</p>
             <p className="mt-2 text-lg font-semibold text-stone-950">{financeActionCard.label}</p>
@@ -2070,7 +2083,7 @@ function FinanceDecompteComposer({
       title="Preparer le decompte du mois"
       description="Le DM reste le point de depart du circuit finance. Verifiez les montants avant de generer la facture."
     >
-      <div className="grid gap-4 xl:grid-cols-[1fr_0.92fr]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div className="space-y-4">
           <label className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
             <span className="text-xs uppercase tracking-[0.16em] text-stone-500">Periode de facturation</span>
@@ -2700,15 +2713,15 @@ function FinanceRightRail({
     <Panel
       title="Pilotage personnel"
       description="Vos actions, automatismes, alertes, TVA et rentabilite sont regroupes dans un seul rail finance."
-      className="h-fit"
+      className="h-fit xl:sticky xl:top-24"
     >
-      <div className="space-y-5">
+      <div className="space-y-4">
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-stone-950">Mes actions</p>
-              <p className="mt-1 text-sm text-stone-600">
-                Validations, relances et paiements a traiter en priorite.
+              <p className="mt-1 text-xs leading-5 text-stone-600">
+                Validations, relances et paiements prioritaires.
               </p>
             </div>
             <StatusBadge tone="primary">{myActions.length} actives</StatusBadge>
@@ -2719,13 +2732,13 @@ function FinanceRightRail({
                 key={item.label}
                 type="button"
                 onClick={item.onClick}
-                className="w-full rounded-[20px] border border-stone-200 bg-white p-4 text-left transition-colors hover:bg-stone-50"
+                className="w-full rounded-[18px] border border-stone-200 bg-white p-3 text-left transition-colors hover:bg-stone-50"
               >
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-stone-950">{item.label}</p>
                   <StatusBadge tone={item.tone}>{toneLabel(item.tone)}</StatusBadge>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-stone-600">{item.detail}</p>
+                <p className="mt-2 text-xs leading-5 text-stone-600">{item.detail}</p>
                 <p className="mt-3 text-sm font-semibold text-stone-900">{item.cta}</p>
               </button>
             ))}
@@ -2737,13 +2750,13 @@ function FinanceRightRail({
         <section className="space-y-3">
           <div>
             <p className="text-sm font-semibold text-stone-950">Automations preview</p>
-            <p className="mt-1 text-sm text-stone-600">
-              Le cockpit prepare deja les futurs automatismes finance.
+            <p className="mt-1 text-xs leading-5 text-stone-600">
+              Lecture rapide des automatismes prepares.
             </p>
           </div>
           <div className="space-y-3">
             {automations.map((automation) => (
-              <div key={automation.label} className="rounded-[18px] border border-stone-200 bg-stone-50 p-4">
+              <div key={automation.label} className="rounded-[18px] border border-stone-200 bg-stone-50 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-stone-950">{automation.label}</p>
                   <StatusBadge tone={automation.tone}>{automation.state}</StatusBadge>
@@ -2758,18 +2771,18 @@ function FinanceRightRail({
         <section className="space-y-3">
           <div>
             <p className="text-sm font-semibold text-stone-950">Alertes</p>
-            <p className="mt-1 text-sm text-stone-600">
+            <p className="mt-1 text-xs leading-5 text-stone-600">
               Les exceptions sont isolees pour accelerer les arbitrages.
             </p>
           </div>
           <div className="space-y-3">
             {alerts.map((alert) => (
-              <div key={alert.label} className="rounded-[18px] border border-stone-200 bg-white p-4">
+              <div key={alert.label} className="rounded-[18px] border border-stone-200 bg-white p-3">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className={cx("size-4", alert.tone === "danger" ? "text-rose-500" : "text-amber-500")} />
                   <p className="text-sm font-semibold text-stone-950">{alert.label}</p>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-stone-600">{alert.detail}</p>
+                <p className="mt-2 text-xs leading-5 text-stone-600">{alert.detail}</p>
               </div>
             ))}
           </div>
@@ -2777,10 +2790,10 @@ function FinanceRightRail({
 
         <div className="border-t border-stone-200" />
 
-        <section className="space-y-4">
-          <div className="rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+        <section className="grid gap-3">
+          <div className="rounded-[18px] border border-stone-200 bg-stone-50 p-3">
             <p className="text-sm font-semibold text-stone-950">TVA mini summary</p>
-            <div className="mt-4 space-y-3 text-sm">
+            <div className="mt-3 space-y-2 text-sm">
               <MiniStat label="Collectee" value={formatCurrency(vatSummary.collectedTva)} />
               <MiniStat label="Declaree" value={formatCurrency(vatSummary.declaredTva)} />
               <MiniStat label="Ecart" value={formatCurrency(vatSummary.variance)} />
@@ -2788,9 +2801,9 @@ function FinanceRightRail({
             </div>
           </div>
 
-          <div className="rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+          <div className="rounded-[18px] border border-stone-200 bg-stone-50 p-3">
             <p className="text-sm font-semibold text-stone-950">Rentabilite mini summary</p>
-            <div className="mt-4 space-y-3 text-sm">
+            <div className="mt-3 space-y-2 text-sm">
               <MiniStat label="Budget vs reel" value={formatCurrency(profitabilitySummary.gap)} />
               <MiniStat label="Tendance" value={profitabilitySummary.trend} />
               <MiniStat label="Risque" value={profitabilitySummary.risk} />
