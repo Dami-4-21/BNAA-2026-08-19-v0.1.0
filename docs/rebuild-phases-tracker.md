@@ -380,6 +380,7 @@ Goal: rebuild the `Finance` domain on the new backend and frontend stack while p
 - [x] Polish the live finance action cards and billing queue density so the cockpit scans faster without changing structure or finance workflows.
 - [x] Remove the live finance navigation side panel to free more horizontal space for the cockpit while preserving in-page focus actions and deep-link section behavior.
 - [x] Stack the live monthly DM card under the action center so the cockpit reads top-to-bottom before the billing queue.
+- [x] Fix finance section deep-link restore, visible queue filter parity, billing queue project-label clarity, and lightweight lower-section jump navigation without changing the cockpit layout.
 - [ ] Rebuild finance overview, statement, invoice, and payment screens on rebuild APIs.
 - [ ] Keep finance documents discoverable and traceable from the unified document hub without exposing unrelated technical/site files to finance roles.
 - [ ] Rebuild the finance step flow:

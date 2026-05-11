@@ -178,6 +178,7 @@ const allManualInvoiceStatuses = [
 
 const queueFilters: Array<{ key: QueueFilter; label: string }> = [
   { key: "all", label: "Tous" },
+  { key: "collectible", label: "A encaisser" },
   { key: "draft", label: "Brouillon" },
   { key: "sent", label: "Envoyee" },
   { key: "project-validation", label: "Validation projet" },
@@ -185,6 +186,16 @@ const queueFilters: Array<{ key: QueueFilter; label: string }> = [
   { key: "partial", label: "Partiel" },
   { key: "overdue", label: "Retard" },
   { key: "disputed", label: "Litigieuse" },
+];
+
+const sectionJumpLinks: Array<{ id: FinanceSectionId; label: string }> = [
+  { id: "billing", label: "Facturation" },
+  { id: "treasury", label: "Tresorerie" },
+  { id: "collections", label: "Encaissements" },
+  { id: "vat", label: "TVA" },
+  { id: "profitability", label: "Rentabilite" },
+  { id: "documents", label: "Documents" },
+  { id: "archives", label: "Archives" },
 ];
 
 const metricIcons = [Wallet, Receipt, CircleDollarSign, BadgePercent, AlertTriangle];
@@ -590,6 +601,7 @@ function FinanceModuleContent({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<FinanceTab>("dm");
+  const [activeSection, setActiveSection] = useState<FinanceSectionId>("overview");
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("all");
   const [overview, setOverview] = useState(projectData.overview);
   const [invoices, setInvoices] = useState<InvoiceItem[]>(projectData.invoices);
@@ -1236,6 +1248,7 @@ function FinanceModuleContent({
 
   useEffect(() => {
     const tab = searchParams.get("tab");
+    const section = searchParams.get("section");
     const invoiceId = searchParams.get("invoice");
     const nextInvoice =
       invoiceId && invoicesRef.current.some((invoice) => invoice.id === invoiceId)
@@ -1243,16 +1256,24 @@ function FinanceModuleContent({
         : undefined;
 
     startTransition(() => {
-      if (tab && ["dm", "invoices", "vat", "cashflow"].includes(tab)) {
-        const mappedTab = tab as FinanceTab;
-        const mappedSection = mapTabToSection(mappedTab);
-        setActiveTab(mappedTab);
+      const mappedTab = isFinanceTab(tab) ? tab : null;
+      const mappedSection = isFinanceSection(section)
+        ? section
+        : mappedTab
+          ? mapTabToSection(mappedTab)
+          : null;
+
+      if (mappedSection) {
+        setActiveTab(mappedTab ?? mapSectionToTab(mappedSection));
+        setActiveSection(mappedSection);
         requestAnimationFrame(() => {
           document.getElementById(`finance-section-${mappedSection}`)?.scrollIntoView({
             behavior: "smooth",
             block: "start",
           });
         });
+      } else if (mappedTab) {
+        setActiveTab(mappedTab);
       }
 
       if (invoiceId && nextInvoice) {
@@ -1265,9 +1286,19 @@ function FinanceModuleContent({
     });
   }, [searchParams]);
 
-  function replaceModuleUrl(nextTab: FinanceTab, invoiceId?: string) {
+  function replaceModuleUrl(
+    nextTab: FinanceTab,
+    invoiceId?: string,
+    nextSection?: FinanceSectionId,
+  ) {
     const params = new URLSearchParams(searchParams.toString());
+    const resolvedSection = nextSection ?? activeSection;
     params.set("tab", nextTab);
+    if (resolvedSection && resolvedSection !== mapTabToSection(nextTab)) {
+      params.set("section", resolvedSection);
+    } else {
+      params.delete("section");
+    }
     if (invoiceId) {
       params.set("invoice", invoiceId);
     } else {
@@ -1282,7 +1313,8 @@ function FinanceModuleContent({
   function focusSection(section: FinanceSectionId, tab?: FinanceTab) {
     const nextTab = tab ?? mapSectionToTab(section);
     setActiveTab(nextTab);
-    replaceModuleUrl(nextTab, drawerOpen ? selectedInvoice?.id : undefined);
+    setActiveSection(section);
+    replaceModuleUrl(nextTab, drawerOpen ? selectedInvoice?.id : undefined, section);
 
     requestAnimationFrame(() => {
       document.getElementById(`finance-section-${section}`)?.scrollIntoView({
@@ -1349,7 +1381,7 @@ function FinanceModuleContent({
       if (nextData.invoices[0]) {
         setStatusDraft(nextData.invoices[0].status);
       }
-      openInvoiceDrawer(nextInvoiceId, "summary");
+      openInvoiceDrawer(nextInvoiceId, "summary", "overview");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Generation impossible.");
     }
@@ -1407,7 +1439,11 @@ function FinanceModuleContent({
     }
   }
 
-  function openInvoiceDrawer(invoiceId: string, nextDrawerTab: DrawerTab = "summary") {
+  function openInvoiceDrawer(
+    invoiceId: string,
+    nextDrawerTab: DrawerTab = "summary",
+    originSection: FinanceSectionId = activeSection,
+  ) {
     const nextInvoice = invoices.find((invoice) => invoice.id === invoiceId);
     setSelectedInvoiceId(invoiceId);
     if (nextInvoice) {
@@ -1416,12 +1452,13 @@ function FinanceModuleContent({
     setDrawerTab(nextDrawerTab);
     setDrawerOpen(true);
     setActiveTab("invoices");
-    replaceModuleUrl("invoices", invoiceId);
+    setActiveSection(originSection);
+    replaceModuleUrl("invoices", invoiceId, originSection);
   }
 
   function closeInvoiceDrawer() {
     setDrawerOpen(false);
-    replaceModuleUrl(activeTab);
+    replaceModuleUrl(activeTab, undefined, activeSection);
   }
 
   function handleTopPaymentAction() {
@@ -1429,11 +1466,11 @@ function FinanceModuleContent({
       return;
     }
 
-    openInvoiceDrawer(nextPaymentInvoice.id, "payments");
+    openInvoiceDrawer(nextPaymentInvoice.id, "payments", "collections");
   }
 
   function handleSelectInvoice(invoiceId: string) {
-    openInvoiceDrawer(invoiceId, "summary");
+    openInvoiceDrawer(invoiceId, "summary", "billing");
   }
 
   function downloadInvoicePdf(invoice: InvoiceItem) {
@@ -1483,7 +1520,7 @@ function FinanceModuleContent({
           : {
               action: () => {
                 if (selectedInvoice.id) {
-                  openInvoiceDrawer(selectedInvoice.id, "payments");
+                  openInvoiceDrawer(selectedInvoice.id, "payments", "collections");
                 }
               },
               canRun: true,
@@ -1662,6 +1699,27 @@ function FinanceModuleContent({
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_248px]">
         <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 rounded-[18px] border border-stone-200 bg-white px-3.5 py-3">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+              Aller a
+            </span>
+            {sectionJumpLinks.map((link) => (
+              <button
+                key={link.id}
+                type="button"
+                onClick={() => focusSection(link.id)}
+                className={cx(
+                  "rounded-full border px-3 py-1.5 text-xs font-semibold text-stone-700 transition-colors",
+                  activeSection === link.id
+                    ? "border-black bg-black text-white"
+                    : "border-stone-200 bg-stone-50 hover:bg-stone-100",
+                )}
+              >
+                {link.label}
+              </button>
+            ))}
+          </div>
+
           <section
             id="finance-section-overview"
             className="space-y-4"
@@ -1694,7 +1752,7 @@ function FinanceModuleContent({
               activeFilter={queueFilter}
               invoices={filteredInvoices}
               onAction={(invoice, nextTab) => {
-                openInvoiceDrawer(invoice.id, nextTab);
+                openInvoiceDrawer(invoice.id, nextTab, "billing");
               }}
               onFilterChange={setQueueFilter}
               onRowClick={handleSelectInvoice}
@@ -1747,7 +1805,7 @@ function FinanceModuleContent({
           <section id="finance-section-archives">
             <FinanceArchivesSection
               invoices={queueRecords.filter((invoice) => invoice.displayStatus === "Payee" || invoice.status === "Litigieuse")}
-              onSelectInvoice={(invoiceId) => openInvoiceDrawer(invoiceId, "workflow")}
+              onSelectInvoice={(invoiceId) => openInvoiceDrawer(invoiceId, "workflow", "archives")}
             />
           </section>
         </div>
@@ -2203,7 +2261,6 @@ function FinanceBillingQueue({
                       <td className="px-3.5 py-3.5">
                         <div className="space-y-1">
                           <p className="text-sm font-semibold text-stone-950">{invoice.project}</p>
-                          <p className="text-xs text-stone-500">{invoice.projectId}</p>
                         </div>
                       </td>
                       <td className="px-3.5 py-3.5">
@@ -3061,6 +3118,23 @@ function CompactSummaryCard({
       </div>
       <p className="mt-2 text-base font-semibold text-stone-950">{value}</p>
     </div>
+  );
+}
+
+function isFinanceTab(value: string | null): value is FinanceTab {
+  return value === "dm" || value === "invoices" || value === "vat" || value === "cashflow";
+}
+
+function isFinanceSection(value: string | null): value is FinanceSectionId {
+  return (
+    value === "overview" ||
+    value === "billing" ||
+    value === "collections" ||
+    value === "treasury" ||
+    value === "vat" ||
+    value === "profitability" ||
+    value === "documents" ||
+    value === "archives"
   );
 }
 
