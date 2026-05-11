@@ -1,47 +1,66 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import {
-  startTransition,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ArrowRight,
   BadgePercent,
   CheckCheck,
+  ChevronRight,
   CircleDollarSign,
+  FileBadge2,
   FileText,
+  FolderKanban,
   Landmark,
   Receipt,
+  Search,
   Send,
   Wallet,
+  X,
 } from "lucide-react";
 
+import { useWorkspace } from "@/components/workspace-context";
 import {
+  EmptyStateCard,
   InlineNotice,
   LoadingStateCard,
   MetricCard,
   Panel,
   ProgressBar,
   SectionHeading,
-  SimpleBarChart,
   StatusBadge,
-  type Tone,
   cx,
+  type Tone,
 } from "@/components/ui";
-import { formatCurrency, formatDate } from "@/lib/format";
-import {
-  financeVatRegimes,
-} from "@/lib/mock-data";
 import { apiFetch } from "@/lib/api";
 import type { FinanceModuleData as FinancePayload } from "@/lib/backend/types";
-import { useWorkspace } from "@/components/workspace-context";
+import { formatCompact, formatCurrency, formatDate, timeAgo } from "@/lib/format";
+import { financeVatRegimes } from "@/lib/mock-data";
 
 type FinanceTab = "dm" | "invoices" | "vat" | "cashflow";
-type ActiveTone = "primary" | "success" | "warning" | "danger";
+type FinanceTone = "primary" | "success" | "warning" | "danger";
+type FinanceSectionId =
+  | "overview"
+  | "billing"
+  | "collections"
+  | "treasury"
+  | "vat"
+  | "profitability"
+  | "documents"
+  | "archives";
+type QueueFilter =
+  | "all"
+  | "collectible"
+  | "draft"
+  | "sent"
+  | "project-validation"
+  | "client-validation"
+  | "partial"
+  | "overdue"
+  | "disputed"
+  | "paid";
+type DrawerTab = "summary" | "workflow" | "payments" | "documents";
 
 type InvoiceItem = {
   id: string;
@@ -56,7 +75,7 @@ type InvoiceItem = {
   dueDate: string;
   paidAt: string;
   status: string;
-  tone: ActiveTone;
+  tone: FinanceTone;
   retentionAmount: number;
   advanceDeduction: number;
   sourceProgress: number;
@@ -101,9 +120,52 @@ type FinanceWorkflowStep = {
   badge: string;
   detail: string;
   state: "blocked" | "current" | "done" | "pending";
-  targetTab: FinanceTab;
   title: string;
   tone: Tone;
+};
+
+type QueueRecord = InvoiceItem & {
+  coverage: number;
+  displayStatus: string;
+  isOverdue: boolean;
+  isPartial: boolean;
+  overdueDays: number;
+  paidAmount: number;
+  remainingAmount: number;
+};
+
+type DrawerAction = {
+  canRun: boolean;
+  helper: string;
+  label: string;
+};
+
+type ActionCenterCard = {
+  count: number;
+  helper: string;
+  id: string;
+  label: string;
+  section: FinanceSectionId;
+  tone: Tone;
+  filter?: QueueFilter;
+};
+
+type FinanceSidebarEntry = {
+  count?: number;
+  id: FinanceSectionId | `quick-${string}`;
+  label: string;
+  section: FinanceSectionId;
+  tab?: FinanceTab;
+  filter?: QueueFilter;
+};
+
+type LinkedFinanceDocument = {
+  actionLabel: string;
+  description: string;
+  id: string;
+  kind: string;
+  status: string;
+  url?: string;
 };
 
 const allManualInvoiceStatuses = [
@@ -115,30 +177,18 @@ const allManualInvoiceStatuses = [
   "Litigieuse",
 ] as const;
 
-const tabs: Array<{ key: FinanceTab; label: string; helper: string }> = [
-  {
-    key: "dm",
-    label: "Decompte",
-    helper: "Preparation du mois",
-  },
-  {
-    key: "invoices",
-    label: "Validation",
-    helper: "Envoi, circuit et PDF",
-  },
-  {
-    key: "vat",
-    label: "TVA",
-    helper: "Regime et declaration",
-  },
-  {
-    key: "cashflow",
-    label: "Paiement",
-    helper: "Encaissement et tresorerie",
-  },
+const queueFilters: Array<{ key: QueueFilter; label: string }> = [
+  { key: "all", label: "Tous" },
+  { key: "draft", label: "Brouillon" },
+  { key: "sent", label: "Envoyee" },
+  { key: "project-validation", label: "Validation projet" },
+  { key: "client-validation", label: "Validation client" },
+  { key: "partial", label: "Partiel" },
+  { key: "overdue", label: "Retard" },
+  { key: "disputed", label: "Litigieuse" },
 ];
 
-const metricIcons = [Wallet, Receipt, CircleDollarSign, BadgePercent];
+const metricIcons = [Wallet, Receipt, CircleDollarSign, BadgePercent, AlertTriangle];
 
 function openPdf(url?: string) {
   if (!url || typeof window === "undefined") {
@@ -182,6 +232,127 @@ function toneLabel(tone: Tone) {
   }
 }
 
+function getNow() {
+  return new Date();
+}
+
+function getInvoicePaidAmount(invoiceId: string, payments: PaymentItem[]) {
+  return payments
+    .filter((payment) => payment.invoiceId === invoiceId)
+    .reduce((sum, payment) => sum + payment.amount, 0);
+}
+
+function getInvoiceCoverage(invoice: InvoiceItem, payments: PaymentItem[]) {
+  const paidAmount =
+    invoice.status === "Payee" ? invoice.amountTtc : getInvoicePaidAmount(invoice.id, payments);
+  return Math.round((paidAmount / Math.max(invoice.amountTtc, 1)) * 100);
+}
+
+function getInvoiceRemainingAmount(invoice: InvoiceItem, payments: PaymentItem[]) {
+  const paidAmount =
+    invoice.status === "Payee" ? invoice.amountTtc : getInvoicePaidAmount(invoice.id, payments);
+  return Math.max(invoice.amountTtc - paidAmount, 0);
+}
+
+function getInvoiceOverdueDays(invoice: InvoiceItem, remainingAmount: number, now: Date) {
+  if (!remainingAmount) {
+    return 0;
+  }
+
+  const dueDate = new Date(invoice.dueDate);
+  if (Number.isNaN(dueDate.getTime())) {
+    return 0;
+  }
+
+  const delta = now.getTime() - dueDate.getTime();
+  if (delta <= 0) {
+    return 0;
+  }
+
+  return Math.floor(delta / (1000 * 60 * 60 * 24));
+}
+
+function getInvoiceDisplayStatus(
+  invoice: InvoiceItem,
+  coverage: number,
+  overdueDays: number,
+) {
+  if (invoice.status === "Litigieuse") {
+    return "Litigieuse";
+  }
+
+  if (coverage >= 100 || invoice.status === "Payee") {
+    return "Payee";
+  }
+
+  if (invoice.validatedByMo && overdueDays > 0) {
+    return "En retard";
+  }
+
+  if (coverage > 0) {
+    return "Partiel";
+  }
+
+  if (invoice.validatedByMo) {
+    return "Validee";
+  }
+
+  if (invoice.validatedByMoe) {
+    return "Validation client";
+  }
+
+  if (invoice.status === "Envoyee" || invoice.status === "Validation MO") {
+    return "Validation projet";
+  }
+
+  return "Brouillon";
+}
+
+function getQueueStatusTone(status: string): Tone {
+  switch (status) {
+    case "Payee":
+    case "Validee":
+      return "success";
+    case "En retard":
+    case "Litigieuse":
+      return "danger";
+    case "Validation projet":
+    case "Validation client":
+    case "Partiel":
+      return "warning";
+    case "Envoyee":
+      return "primary";
+    default:
+      return "neutral";
+  }
+}
+
+function matchesQueueFilter(record: QueueRecord, filter: QueueFilter) {
+  switch (filter) {
+    case "collectible":
+      return record.validatedByMo && record.remainingAmount > 0 && record.status !== "Payee";
+    case "draft":
+      return record.status === "Brouillon";
+    case "sent":
+      return record.status === "Envoyee";
+    case "project-validation":
+      return record.status !== "Brouillon" && !record.validatedByMoe;
+    case "client-validation":
+      return record.validatedByMoe && !record.validatedByMo;
+    case "partial":
+      return record.isPartial;
+    case "overdue":
+      return record.isOverdue;
+    case "disputed":
+      return record.status === "Litigieuse";
+    case "paid":
+      return record.displayStatus === "Payee";
+    case "all":
+    default:
+      return true;
+  }
+}
+
 function buildFinanceWorkflowSteps({
   invoice,
   paymentCoverage,
@@ -199,7 +370,6 @@ function buildFinanceWorkflowSteps({
         badge: "A lancer",
         detail: "Le decompte du mois doit etre prepare avant toute facture.",
         state: "current",
-        targetTab: "dm",
         title: "1. Preparer le decompte",
         tone: "primary",
       },
@@ -207,33 +377,29 @@ function buildFinanceWorkflowSteps({
         badge: "Attente",
         detail: "La facture sera envoyee une fois le decompte genere.",
         state: "pending",
-        targetTab: "invoices",
         title: "2. Envoyer",
-        tone: "neutral" as ActiveTone,
+        tone: "neutral",
       },
       {
         badge: "Attente",
         detail: `La validation projet sera demandee a ${projectApproverName}.`,
         state: "pending",
-        targetTab: "invoices",
         title: "3. Validation projet",
-        tone: "neutral" as ActiveTone,
+        tone: "neutral",
       },
       {
         badge: "Attente",
         detail: `La validation client sera ensuite demandee a ${clientApproverName}.`,
         state: "pending",
-        targetTab: "invoices",
         title: "4. Validation client",
-        tone: "neutral" as ActiveTone,
+        tone: "neutral",
       },
       {
         badge: "Attente",
         detail: "Le paiement pourra etre saisi uniquement apres les validations.",
         state: "pending",
-        targetTab: "cashflow",
         title: "5. Paiement recu",
-        tone: "neutral" as ActiveTone,
+        tone: "neutral",
       },
     ];
   }
@@ -248,7 +414,6 @@ function buildFinanceWorkflowSteps({
       badge: "Pret",
       detail: `${invoice.invoiceNumber} a ete prepare depuis l'avancement du projet.`,
       state: "done",
-      targetTab: "dm",
       title: "1. Preparer le decompte",
       tone: "success",
     },
@@ -258,7 +423,6 @@ function buildFinanceWorkflowSteps({
         ? "La facture est sortie du brouillon et le PDF peut etre partage ou regenere."
         : "Le PDF doit etre genere puis envoye pour lancer le circuit de validation.",
       state: sent ? "done" : "current",
-      targetTab: "invoices",
       title: "2. Envoyer",
       tone: sent ? "success" : "primary",
     },
@@ -270,7 +434,6 @@ function buildFinanceWorkflowSteps({
           ? `En attente de la validation projet par ${projectApproverName}.`
           : "La validation projet se debloque seulement apres l'envoi de la facture.",
       state: projectValidated ? "done" : sent ? "current" : "blocked",
-      targetTab: "invoices",
       title: "3. Validation projet",
       tone: projectValidated ? "success" : sent ? "warning" : "neutral",
     },
@@ -282,7 +445,6 @@ function buildFinanceWorkflowSteps({
           ? `En attente de la validation client par ${clientApproverName}.`
           : "La validation client s'ouvre une fois la validation projet terminee.",
       state: clientValidated ? "done" : projectValidated ? "current" : "blocked",
-      targetTab: "invoices",
       title: "4. Validation client",
       tone: clientValidated ? "success" : projectValidated ? "warning" : "neutral",
     },
@@ -294,7 +456,6 @@ function buildFinanceWorkflowSteps({
           ? "Le paiement peut maintenant etre saisi ou complete jusqu'au reglement total."
           : "Le paiement reste indisponible tant que la validation client n'est pas terminee.",
       state: paid ? "done" : clientValidated ? "current" : "blocked",
-      targetTab: "cashflow",
       title: "5. Paiement recu",
       tone: paid ? "success" : clientValidated ? "primary" : "neutral",
     },
@@ -302,7 +463,13 @@ function buildFinanceWorkflowSteps({
 }
 
 export function FinanceModule() {
-  const { activeProject, can, currentUser } = useWorkspace();
+  const {
+    activeProject,
+    availableProjects,
+    can,
+    currentUser,
+    setActiveProjectId,
+  } = useWorkspace();
   const [projectData, setProjectData] = useState<FinancePayload | null>(null);
   const [error, setError] = useState("");
   const canCreateInvoice = can("finance.invoice.create");
@@ -367,47 +534,75 @@ export function FinanceModule() {
   return (
     <FinanceModuleContent
       key={activeProject.id}
+      activeProject={activeProject}
       activeProjectId={activeProject.id}
+      availableProjects={availableProjects}
       canCreateInvoice={canCreateInvoice}
       canRecordPayment={canRecordPayment}
       canSendInvoice={canSendInvoice}
-      currentUserId={currentUser.id}
       canValidateInvoice={canValidateInvoice}
+      currentUserId={currentUser.id}
       currentUserRole={currentUser.role}
       projectData={projectData}
+      setActiveProjectId={setActiveProjectId}
     />
   );
 }
 
 function FinanceModuleContent({
+  activeProject,
   activeProjectId,
+  availableProjects,
   canCreateInvoice,
   canRecordPayment,
   canSendInvoice,
-  currentUserId,
   canValidateInvoice,
+  currentUserId,
   currentUserRole,
   projectData,
+  setActiveProjectId,
 }: {
+  activeProject: {
+    id: string;
+    name: string;
+    code: string;
+    client: string;
+    location: string;
+    budgetTnd: number;
+    spentTnd: number;
+    invoicesDue: number;
+  };
   activeProjectId: string;
+  availableProjects: Array<{
+    id: string;
+    name: string;
+    code: string;
+  }>;
   canCreateInvoice: boolean;
   canRecordPayment: boolean;
   canSendInvoice: boolean;
-  currentUserId: string;
   canValidateInvoice: boolean;
+  currentUserId: string;
   currentUserRole: string;
   projectData: FinancePayload;
+  setActiveProjectId: (projectId: string) => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<FinanceTab>("dm");
+  const [activeSection, setActiveSection] = useState<FinanceSectionId>("overview");
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>("all");
   const [overview, setOverview] = useState(projectData.overview);
   const [invoices, setInvoices] = useState<InvoiceItem[]>(projectData.invoices);
   const [payments, setPayments] = useState<PaymentItem[]>(projectData.payments);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState(
     projectData.invoices[0]?.id ?? "",
   );
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("summary");
+  const [searchValue, setSearchValue] = useState("");
+  const [periodFilter, setPeriodFilter] = useState("all");
   const [vatRegime, setVatRegime] = useState(
     financeVatRegimes.find((regime) => regime.id === projectData.defaultVatRegimeId) ??
       financeVatRegimes[0],
@@ -464,14 +659,92 @@ function FinanceModuleContent({
         : (["Brouillon", "Envoyee", "Litigieuse"] as string[]),
     [currentUserRole],
   );
+
+  const now = useMemo(() => getNow(), []);
+
+  const queueRecords = useMemo<QueueRecord[]>(
+    () =>
+      invoices.map((invoice) => {
+        const paidAmount = getInvoicePaidAmount(invoice.id, payments);
+        const coverage = getInvoiceCoverage(invoice, payments);
+        const remainingAmount = getInvoiceRemainingAmount(invoice, payments);
+        const overdueDays = getInvoiceOverdueDays(invoice, remainingAmount, now);
+
+        return {
+          ...invoice,
+          coverage,
+          displayStatus: getInvoiceDisplayStatus(invoice, coverage, overdueDays),
+          isOverdue: overdueDays > 0,
+          isPartial: paidAmount > 0 && coverage < 100,
+          overdueDays,
+          paidAmount,
+          remainingAmount,
+        };
+      }),
+    [invoices, now, payments],
+  );
+
+  const draftInvoices = useMemo(
+    () => queueRecords.filter((invoice) => invoice.status === "Brouillon"),
+    [queueRecords],
+  );
+
+  const projectValidationInvoices = useMemo(
+    () =>
+      queueRecords.filter(
+        (invoice) => invoice.status !== "Brouillon" && !invoice.validatedByMoe,
+      ),
+    [queueRecords],
+  );
+
+  const clientValidationInvoices = useMemo(
+    () => queueRecords.filter((invoice) => invoice.validatedByMoe && !invoice.validatedByMo),
+    [queueRecords],
+  );
+
+  const collectibleInvoices = useMemo(
+    () =>
+      queueRecords.filter(
+        (invoice) =>
+          invoice.validatedByMo && invoice.remainingAmount > 0 && invoice.status !== "Payee",
+      ),
+    [queueRecords],
+  );
+
+  const overdueInvoices = useMemo(
+    () => queueRecords.filter((invoice) => invoice.isOverdue),
+    [queueRecords],
+  );
+
+  const overdueCollectibleInvoices = useMemo(
+    () =>
+      collectibleInvoices.filter(
+        (invoice) => invoice.isOverdue || invoice.displayStatus === "En retard",
+      ),
+    [collectibleInvoices],
+  );
+
+  const hasCurrentPeriodCycle = useMemo(
+    () => queueRecords.some((invoice) => invoice.periodMonth === dmDraft.periodMonth),
+    [dmDraft.periodMonth, queueRecords],
+  );
+
   const selectedInvoice =
     invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? invoices[0];
+  const selectedQueueRecord =
+    queueRecords.find((invoice) => invoice.id === selectedInvoice?.id) ?? null;
   const paymentDraftInvoiceRef = useRef("");
+
+  const projectApproverName = workflowOwners.projectManagerId?.name ?? "le chef de projet";
+  const clientApproverName = workflowOwners.clientApproverId?.name ?? "le maitre d'ouvrage";
+  const financeLeadName = workflowOwners.financeLeadId?.name ?? "le referent finance";
+
   const selectedStatusValue = manualStatusOptions.includes(statusDraft)
     ? statusDraft
     : (manualStatusOptions[0] ?? statusDraft);
   const canApplyStatusUpdate =
     canManageManualStatus && manualStatusOptions.includes(selectedStatusValue) && !pendingAction;
+
   const canRegisterPaymentForSelectedInvoice = Boolean(
     canRecordPayment &&
       selectedInvoice &&
@@ -479,17 +752,17 @@ function FinanceModuleContent({
       selectedInvoice.status !== "Payee" &&
       !pendingAction,
   );
-  const projectApproverName = workflowOwners.projectManagerId?.name ?? "le chef de projet";
-  const clientApproverName = workflowOwners.clientApproverId?.name ?? "le maitre d'ouvrage";
-  const financeLeadName = workflowOwners.financeLeadId?.name ?? "le referent finance";
+
   const createInvoiceHelper = canCreateInvoice
     ? "Preparez d'abord le decompte mensuel. La facture sera creee sans ressaisie."
     : "Votre role peut consulter la finance, mais pas creer de facture.";
+
   const statusActionHelper = !canManageManualStatus
     ? `Seul ${financeLeadName} peut ajuster le statut manuel.`
     : !selectedInvoice
       ? "Selectionnez une facture pour mettre a jour son statut."
       : "Utilisez ce champ seulement pour brouillon, envoi ou litige. Les validations restent pilotees par le circuit.";
+
   const sendInvoiceHelper = canSendInvoice
     ? !selectedInvoice
       ? "Selectionnez une facture pour lancer son envoi."
@@ -497,6 +770,7 @@ function FinanceModuleContent({
         ? "Genere le PDF et lance le circuit d'envoi de la facture selectionnee."
         : "Regenerer le PDF si besoin sans perdre l'historique de validation."
     : "Votre role ne peut pas generer ni envoyer les factures.";
+
   const paymentActionHelper = !canRecordPayment
     ? "Votre role ne peut pas enregistrer les paiements."
     : !selectedInvoice
@@ -506,17 +780,8 @@ function FinanceModuleContent({
       : selectedInvoice.validatedByMo
         ? "Le paiement peut etre saisi des que l'encaissement est confirme par la comptabilite."
         : `Le paiement restera bloque jusqu'a la validation client par ${clientApproverName}.`;
-  const paymentCoverage = selectedInvoice
-    ? Math.round(
-        ((selectedInvoice.status === "Payee"
-          ? selectedInvoice.amountTtc
-          : payments
-              .filter((payment) => payment.invoiceId === selectedInvoice.id)
-              .reduce((sum, payment) => sum + payment.amount, 0)) /
-          Math.max(selectedInvoice.amountTtc, 1)) *
-          100,
-      )
-    : 0;
+
+  const paymentCoverage = selectedQueueRecord?.coverage ?? 0;
   const workflowSteps = useMemo(
     () =>
       buildFinanceWorkflowSteps({
@@ -527,10 +792,6 @@ function FinanceModuleContent({
       }),
     [clientApproverName, paymentCoverage, projectApproverName, selectedInvoice],
   );
-  const currentWorkflowStep =
-    workflowSteps.find((step) => step.state === "current") ??
-    workflowSteps.find((step) => step.state === "blocked") ??
-    workflowSteps[0];
 
   useEffect(() => {
     if (!selectedInvoice) {
@@ -543,10 +804,7 @@ function FinanceModuleContent({
     }
 
     paymentDraftInvoiceRef.current = selectedInvoice.id;
-    const paidAmount = payments
-      .filter((payment) => payment.invoiceId === selectedInvoice.id)
-      .reduce((total, payment) => total + payment.amount, 0);
-    const remainingAmount = Math.max(selectedInvoice.amountTtc - paidAmount, 0);
+    const remainingAmount = getInvoiceRemainingAmount(selectedInvoice, payments);
 
     setPaymentDraft((current) => ({
       amount: remainingAmount > 0 ? String(remainingAmount) : "",
@@ -555,7 +813,7 @@ function FinanceModuleContent({
     }));
   }, [payments, selectedInvoice]);
 
-  const validationAction = useMemo(() => {
+  const validationAction = useMemo<DrawerAction>(() => {
     if (!selectedInvoice) {
       return {
         canRun: false,
@@ -577,6 +835,7 @@ function FinanceModuleContent({
         (workflowOwners.clientApproverId?.id
           ? workflowOwners.clientApproverId.id === currentUserId
           : currentUserRole === "Maitre d'ouvrage"));
+
     if (!selectedInvoice.validatedByMoe) {
       return {
         canRun: projectApprover,
@@ -612,47 +871,446 @@ function FinanceModuleContent({
     workflowOwners.clientApproverId,
     workflowOwners.projectManagerId,
   ]);
-  const financeActionCard = !selectedInvoice
-    ? {
-        action: () => (canCreateInvoice ? selectTab("dm") : null),
-        canRun: canCreateInvoice && !pendingAction,
-        helper: createInvoiceHelper,
-        label: "Preparer le decompte",
-        tone: "primary" as Tone,
+
+  const topMetrics = useMemo<
+    Array<{ helper: string; label: string; tone: Tone; value: string }>
+  >(() => {
+    const overdueAmount = overdueInvoices.reduce(
+      (sum, invoice) => sum + invoice.remainingAmount,
+      0,
+    );
+
+    return [
+      ...overview.kpis,
+      {
+        helper:
+          overdueAmount > 0
+            ? `${formatCompact(overdueAmount)} TND restent a encaisser hors echeance.`
+            : "Aucun encaissement en retard sur le projet actif.",
+        label: "Encaissement en retard",
+        tone: overdueAmount > 0 ? "danger" : "success",
+        value: formatCurrency(overdueAmount),
+      },
+    ];
+  }, [overdueInvoices, overview.kpis]);
+
+  const periodOptions = useMemo(() => {
+    const values = new Set<string>();
+    values.add(dmDraft.periodMonth);
+    invoices.forEach((invoice) => values.add(invoice.periodMonth));
+    return Array.from(values);
+  }, [dmDraft.periodMonth, invoices]);
+
+  const filteredInvoices = useMemo(() => {
+    const query = searchValue.trim().toLowerCase();
+
+    return queueRecords.filter((invoice) => {
+      if (periodFilter !== "all" && invoice.periodMonth !== periodFilter) {
+        return false;
       }
-    : !selectedInvoice.status || selectedInvoice.status === "Brouillon"
-      ? {
-          action: () => (canSendInvoice ? sendInvoice(selectedInvoice.id) : null),
-          canRun: canSendInvoice && !pendingAction,
-          helper: sendInvoiceHelper,
-          label: "Envoyer la facture",
-          tone: "primary" as Tone,
-        }
-      : !selectedInvoice.validatedByMoe || !selectedInvoice.validatedByMo
-        ? {
-            action: () =>
-              validationAction.canRun ? validateInvoice(selectedInvoice.id) : null,
-            canRun: validationAction.canRun && !pendingAction,
-            helper: validationAction.helper,
-            label: validationAction.label,
-            tone: validationAction.canRun ? ("warning" as Tone) : ("neutral" as Tone),
-          }
-        : selectedInvoice.status !== "Payee"
-          ? {
-              action: () =>
-                canRegisterPaymentForSelectedInvoice ? registerPayment(selectedInvoice.id) : null,
-              canRun: canRegisterPaymentForSelectedInvoice && !pendingAction,
-              helper: paymentActionHelper,
-              label: "Enregistrer le paiement recu",
-              tone: canRegisterPaymentForSelectedInvoice ? ("success" as Tone) : ("neutral" as Tone),
-            }
-          : {
-              action: () => selectTab("cashflow", selectedInvoice.id),
-              canRun: true,
-              helper: "La facture est cloturee. Ouvrez le suivi de tresorerie pour l'historique.",
-              label: "Voir le paiement",
-              tone: "success" as Tone,
-            };
+
+      if (!matchesQueueFilter(invoice, queueFilter)) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      const paymentReferences = payments
+        .filter((payment) => payment.invoiceId === invoice.id)
+        .map((payment) => payment.reference.toLowerCase());
+
+      return [
+        invoice.invoiceNumber,
+        invoice.project,
+        invoice.status,
+        invoice.displayStatus,
+        invoice.periodMonth,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query) || paymentReferences.some((reference) => reference.includes(query));
+    });
+  }, [payments, periodFilter, queueFilter, queueRecords, searchValue]);
+
+  const actionCenterCards = useMemo<ActionCenterCard[]>(() => {
+    const dmCount = hasCurrentPeriodCycle ? 0 : 1;
+    const draftCount = draftInvoices.length;
+    const projectValidationCount = projectValidationInvoices.length;
+    const clientValidationCount = clientValidationInvoices.length;
+    const paymentsToChase = overdueCollectibleInvoices.length;
+
+    return [
+      {
+        count: dmCount,
+        helper:
+          dmCount > 0
+            ? "Le cycle mensuel n'est pas encore lance pour la periode selectionnee."
+            : "Le cycle de la periode selectionnee est deja lance et visible dans la file active.",
+        id: "dm",
+        label: "DM a preparer",
+        section: "overview",
+        tone: dmCount > 0 ? "primary" : "success",
+      },
+      {
+        count: draftCount,
+        helper:
+          draftCount > 0
+            ? `${draftCount} facture(s) restent en brouillon avant envoi.`
+            : "Aucune facture en brouillon n'attend un envoi.",
+        id: "send",
+        label: "Factures a envoyer",
+        section: "billing",
+        tone: draftCount > 0 ? "warning" : "neutral",
+        filter: "draft",
+      },
+      {
+        count: projectValidationCount,
+        helper:
+          projectValidationCount > 0
+            ? `Demandes en attente cote ${projectApproverName}.`
+            : "Aucune validation projet n'est en attente.",
+        id: "project-validation",
+        label: "Validations projet en attente",
+        section: "billing",
+        tone: projectValidationCount > 0 ? "warning" : "neutral",
+        filter: "project-validation",
+      },
+      {
+        count: clientValidationCount,
+        helper:
+          clientValidationCount > 0
+            ? `Demandes en attente cote ${clientApproverName}.`
+            : "Aucune validation client n'est en attente.",
+        id: "client-validation",
+        label: "Validations client en attente",
+        section: "billing",
+        tone: clientValidationCount > 0 ? "warning" : "neutral",
+        filter: "client-validation",
+      },
+      {
+        count: paymentsToChase,
+        helper:
+          paymentsToChase > 0
+            ? "Factures validees avec encaissement en retard a relancer."
+            : "Aucune relance d'encaissement urgente n'est en attente.",
+        id: "collections",
+        label: "Paiements a relancer",
+        section: "collections",
+        tone: paymentsToChase > 0 ? "danger" : "neutral",
+        filter: "overdue",
+      },
+    ];
+  }, [
+    clientApproverName,
+    clientValidationInvoices.length,
+    draftInvoices.length,
+    hasCurrentPeriodCycle,
+    overdueCollectibleInvoices.length,
+    projectApproverName,
+    projectValidationInvoices.length,
+  ]);
+
+  const agingBuckets = useMemo(() => {
+    const buckets = {
+      current: 0,
+      d1to30: 0,
+      d31to60: 0,
+      d60plus: 0,
+    };
+
+    queueRecords.forEach((invoice) => {
+      if (!invoice.remainingAmount) {
+        return;
+      }
+
+      if (!invoice.overdueDays) {
+        buckets.current += invoice.remainingAmount;
+        return;
+      }
+
+      if (invoice.overdueDays <= 30) {
+        buckets.d1to30 += invoice.remainingAmount;
+        return;
+      }
+
+      if (invoice.overdueDays <= 60) {
+        buckets.d31to60 += invoice.remainingAmount;
+        return;
+      }
+
+      buckets.d60plus += invoice.remainingAmount;
+    });
+
+    return [
+      { key: "current", label: "Courant", value: buckets.current, tone: "primary" as Tone },
+      { key: "1-30", label: "1-30 jours", value: buckets.d1to30, tone: "warning" as Tone },
+      { key: "31-60", label: "31-60 jours", value: buckets.d31to60, tone: "warning" as Tone },
+      { key: "60+", label: "60+ jours", value: buckets.d60plus, tone: "danger" as Tone },
+    ];
+  }, [queueRecords]);
+
+  const collectionsSummary = useMemo(() => {
+    const totalInvoiced = invoices.reduce((sum, invoice) => sum + invoice.amountTtc, 0);
+    const totalPaid = payments.reduce((sum, payment) => sum + payment.amount, 0);
+    const totalRemaining = queueRecords.reduce((sum, invoice) => sum + invoice.remainingAmount, 0);
+
+    return {
+      totalInvoiced,
+      totalPaid,
+      totalRemaining,
+    };
+  }, [invoices, payments, queueRecords]);
+
+  const treasurySummary = useMemo(() => {
+    const planned = cashflowData.reduce((sum, item) => sum + item.plannedReceipts, 0);
+    const actual = cashflowData.reduce((sum, item) => sum + item.actualReceipts, 0);
+    const costs = cashflowData.reduce((sum, item) => sum + item.actualCosts, 0);
+    const delta = actual - costs;
+    return { planned, actual, costs, delta };
+  }, [cashflowData]);
+
+  const chartData = useMemo(
+    () =>
+      cashflowData.map((item) => ({
+        actual: item.actualReceipts,
+        costs: item.actualCosts,
+        label: item.label,
+        planned: item.plannedReceipts,
+      })),
+    [cashflowData],
+  );
+
+  const profitabilitySummary = useMemo(() => {
+    const budget = activeProject.budgetTnd;
+    const realCosts = activeProject.spentTnd;
+    const gap = budget - realCosts;
+    const spentRatio = budget > 0 ? Math.round((realCosts / budget) * 100) : 0;
+    const risk =
+      spentRatio >= 95 ? "Risque eleve" : spentRatio >= 80 ? "Sous tension" : "Sous controle";
+
+    return {
+      budget,
+      gap,
+      realCosts,
+      risk,
+      spentRatio,
+      trend: treasurySummary.delta >= 0 ? "Positive" : "A surveiller",
+    };
+  }, [activeProject.budgetTnd, activeProject.spentTnd, treasurySummary.delta]);
+
+  const linkedDocuments = useMemo<LinkedFinanceDocument[]>(() => {
+    const invoice = selectedInvoice;
+    const invoicePayments = invoice
+      ? payments.filter((payment) => payment.invoiceId === invoice.id)
+      : [];
+
+    return [
+      {
+        actionLabel: invoice?.pdfUrl ? "Ouvrir le PDF" : "A generer",
+        description: invoice?.pdfUrl
+          ? "Facture PDF disponible pour partage et audit."
+          : "Le PDF sera disponible apres l'envoi de la facture.",
+        id: "invoice-pdf",
+        kind: "Facture PDF",
+        status: invoice?.pdfUrl ? "Disponible" : "En attente",
+        url: invoice?.pdfUrl,
+      },
+      {
+        actionLabel: invoice?.pdfUrl ? "Voir le DM" : "A preparer",
+        description:
+          "Le decompte mensuel reste la base de calcul et la trace de l'avancement facture.",
+        id: "dm-pdf",
+        kind: "DM PDF",
+        status: invoice ? "Genere avec la facture" : "A lancer",
+        url: invoice?.pdfUrl,
+      },
+      {
+        actionLabel: invoicePayments.length > 0 ? "Voir les references" : "En attente",
+        description:
+          "Justificatifs de paiement relies a l'encaissement en cours ou complet.",
+        id: "payment-proof",
+        kind: "Justificatifs paiement",
+        status:
+          invoicePayments.length > 0
+            ? `${invoicePayments.length} preuve(s)`
+            : "Aucune preuve",
+      },
+      {
+        actionLabel: "Ouvrir Module 6",
+        description:
+          "Rapports signes et preuves relies au decompte pour la piste d'audit finance.",
+        id: "linked-reports",
+        kind: "Rapports signes",
+        status: selectedInvoice ? `${selectedInvoice.sourceProgress}% d'avancement` : "A definir",
+      },
+    ];
+  }, [payments, selectedInvoice]);
+
+  const myActions = (() => {
+    const items: Array<{
+      cta: string;
+      detail: string;
+      label: string;
+      onClick: () => void;
+      tone: Tone;
+    }> = [];
+
+    const projectValidations = projectValidationInvoices.length;
+    const clientValidations = clientValidationInvoices.length;
+    const myPayments = collectibleInvoices.length;
+    const myOverdues = overdueInvoices.length;
+
+    if (["Chef de projet", "Super Admin"].includes(currentUserRole) && projectValidations > 0) {
+      items.push({
+        cta: "Ouvrir les validations",
+        detail: `${projectValidations} facture(s) attendent une validation projet.`,
+        label: "Mes validations projet",
+        onClick: () => {
+          setQueueFilter("project-validation");
+          focusSection("billing", "invoices");
+        },
+        tone: "warning",
+      });
+    }
+
+    if (["Maitre d'ouvrage", "Super Admin"].includes(currentUserRole) && clientValidations > 0) {
+      items.push({
+        cta: "Voir la file client",
+        detail: `${clientValidations} validation(s) client restent a traiter.`,
+        label: "Mes validations client",
+        onClick: () => {
+          setQueueFilter("client-validation");
+          focusSection("billing", "invoices");
+        },
+        tone: "warning",
+      });
+    }
+
+    if (["Comptable", "Super Admin"].includes(currentUserRole) && myPayments > 0) {
+      items.push({
+        cta: "Ouvrir les encaissements",
+        detail: `${myPayments} facture(s) peuvent recevoir un paiement.`,
+        label: "Mes paiements",
+        onClick: () => {
+          setQueueFilter("collectible");
+          focusSection("collections", "cashflow");
+        },
+        tone: "primary",
+      });
+    }
+
+    if (myOverdues > 0) {
+      items.push({
+        cta: "Relancer maintenant",
+        detail: `${myOverdues} facture(s) depassent l'echeance contractuelle.`,
+        label: "Mes retards",
+        onClick: () => {
+          setQueueFilter("overdue");
+          focusSection("collections", "cashflow");
+        },
+        tone: "danger",
+      });
+    }
+
+    if (!items.length) {
+      items.push({
+        cta: "Rester en veille",
+        detail: "Aucune action personnelle urgente n'est detectee pour le moment.",
+        label: "Mes actions",
+        onClick: () => focusSection("overview", "dm"),
+        tone: "success",
+      });
+    }
+
+    return items.slice(0, 3);
+  })();
+
+  const sidebarEntries = useMemo<FinanceSidebarEntry[]>(() => {
+    const projectValidations = projectValidationInvoices.length;
+    const clientValidations = clientValidationInvoices.length;
+    const paymentItems = collectibleInvoices.length;
+    const overdues = overdueInvoices.length;
+
+    return [
+      { id: "overview", label: "Vue generale", section: "overview", tab: "dm" },
+      { id: "billing", label: "Facturation", section: "billing", tab: "invoices" },
+      { id: "collections", label: "Encaissements", section: "collections", tab: "cashflow" },
+      { id: "treasury", label: "Tresorerie", section: "treasury", tab: "cashflow" },
+      { id: "vat", label: "TVA & declarations", section: "vat", tab: "vat" },
+      { id: "profitability", label: "Rentabilite", section: "profitability", tab: "cashflow" },
+      { id: "documents", label: "Documents lies", section: "documents", tab: "invoices" },
+      { id: "archives", label: "Archives", section: "archives", tab: "invoices", filter: "paid" },
+      {
+        id: "quick-validations",
+        label: "Mes validations",
+        section: "billing",
+        tab: "invoices",
+        filter:
+          currentUserRole === "Maitre d'ouvrage"
+            ? "client-validation"
+            : "project-validation",
+        count: currentUserRole === "Maitre d'ouvrage" ? clientValidations : projectValidations,
+      },
+      {
+        id: "quick-payments",
+        label: "Mes paiements",
+        section: "collections",
+        tab: "cashflow",
+        filter: "collectible",
+        count: paymentItems,
+      },
+      {
+        id: "quick-overdue",
+        label: "Mes retards",
+        section: "collections",
+        tab: "cashflow",
+        filter: "overdue",
+        count: overdues,
+      },
+    ];
+  }, [
+    clientValidationInvoices.length,
+    collectibleInvoices.length,
+    currentUserRole,
+    overdueInvoices.length,
+    projectValidationInvoices.length,
+  ]);
+
+  const nextPaymentInvoice = useMemo(
+    () => overdueCollectibleInvoices[0] ?? collectibleInvoices[0] ?? null,
+    [collectibleInvoices, overdueCollectibleInvoices],
+  );
+
+  useEffect(() => {
+    invoicesRef.current = invoices;
+  }, [invoices]);
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    const invoiceId = searchParams.get("invoice");
+    const nextInvoice =
+      invoiceId && invoicesRef.current.some((invoice) => invoice.id === invoiceId)
+        ? invoicesRef.current.find((invoice) => invoice.id === invoiceId)
+        : undefined;
+
+    startTransition(() => {
+      if (tab && ["dm", "invoices", "vat", "cashflow"].includes(tab)) {
+        const mappedTab = tab as FinanceTab;
+        setActiveTab(mappedTab);
+        setActiveSection(mapTabToSection(mappedTab));
+      }
+
+      if (invoiceId && nextInvoice) {
+        setSelectedInvoiceId(invoiceId);
+        setStatusDraft(nextInvoice.status);
+        setDrawerOpen(true);
+      } else {
+        setDrawerOpen(false);
+      }
+    });
+  }, [searchParams]);
 
   function replaceModuleUrl(nextTab: FinanceTab, invoiceId?: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -668,39 +1326,27 @@ function FinanceModuleContent({
     router.replace(nextUrl, { scroll: false });
   }
 
-  function selectTab(nextTab: FinanceTab, invoiceId?: string) {
-    setActiveTab(nextTab);
-    replaceModuleUrl(
-      nextTab,
-      nextTab === "invoices" || nextTab === "vat" || nextTab === "cashflow"
-        ? (invoiceId ?? selectedInvoice?.id)
-        : undefined,
-    );
+  function focusSection(section: FinanceSectionId, tab?: FinanceTab) {
+    setActiveSection(section);
+    if (tab) {
+      setActiveTab(tab);
+      replaceModuleUrl(tab, drawerOpen ? selectedInvoice?.id : undefined);
+    }
+
+    requestAnimationFrame(() => {
+      document.getElementById(`finance-section-${section}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
   }
 
-  useEffect(() => {
-    invoicesRef.current = invoices;
-  }, [invoices]);
-
-  useEffect(() => {
-    const tab = searchParams.get("tab");
-    const invoiceId = searchParams.get("invoice");
-    const nextInvoice =
-      invoiceId && invoicesRef.current.some((invoice) => invoice.id === invoiceId)
-        ? invoicesRef.current.find((invoice) => invoice.id === invoiceId)
-        : undefined;
-
-    startTransition(() => {
-      if (tab && tabs.some((item) => item.key === tab)) {
-        setActiveTab(tab as FinanceTab);
-      }
-
-      if (invoiceId && nextInvoice) {
-        setSelectedInvoiceId(invoiceId);
-        setStatusDraft(nextInvoice.status);
-      }
-    });
-  }, [searchParams]);
+  function handleSidebarSelect(entry: FinanceSidebarEntry) {
+    if (entry.filter) {
+      setQueueFilter(entry.filter);
+    }
+    focusSection(entry.section, entry.tab);
+  }
 
   function applyProjectData(nextData: FinancePayload) {
     startTransition(() => {
@@ -746,16 +1392,20 @@ function FinanceModuleContent({
 
   async function generateMonthlyStatement() {
     try {
-      const nextData = await runFinanceAction("create-invoice", {
-        dmDraft,
-        vatRegimeId: vatRegime.id,
-      }, "create-invoice");
+      const nextData = await runFinanceAction(
+        "create-invoice",
+        {
+          dmDraft,
+          vatRegimeId: vatRegime.id,
+        },
+        "create-invoice",
+      );
       const nextInvoiceId = nextData.invoices[0]?.id ?? "";
       setSelectedInvoiceId(nextInvoiceId);
       if (nextData.invoices[0]) {
         setStatusDraft(nextData.invoices[0].status);
       }
-      selectTab("invoices", nextInvoiceId);
+      openInvoiceDrawer(nextInvoiceId, "summary");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Generation impossible.");
     }
@@ -772,9 +1422,7 @@ function FinanceModuleContent({
   async function sendInvoice(invoiceId: string) {
     try {
       const nextData = await runFinanceAction("send-invoice", { invoiceId }, "send-invoice");
-      const nextInvoice = nextData.invoices.find((invoice) => invoice.id === invoiceId) as
-        | InvoiceItem
-        | undefined;
+      const nextInvoice = nextData.invoices.find((invoice) => invoice.id === invoiceId);
       openPdf(nextInvoice?.pdfUrl);
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Envoi impossible.");
@@ -786,11 +1434,15 @@ function FinanceModuleContent({
       return;
     }
     try {
-      await runFinanceAction("register-payment", {
-        invoiceId,
-        paymentDraft,
-      }, "register-payment");
-      selectTab("cashflow");
+      await runFinanceAction(
+        "register-payment",
+        {
+          invoiceId,
+          paymentDraft,
+        },
+        "register-payment",
+      );
+      focusSection("collections", "cashflow");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Paiement impossible.");
     }
@@ -798,36 +1450,121 @@ function FinanceModuleContent({
 
   async function updateInvoiceStatus(invoiceId: string) {
     try {
-      await runFinanceAction("update-invoice-status", {
-        invoiceId,
-        status: statusDraft,
-      }, "update-invoice-status");
+      await runFinanceAction(
+        "update-invoice-status",
+        {
+          invoiceId,
+          status: statusDraft,
+        },
+        "update-invoice-status",
+      );
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Statut impossible.");
     }
   }
 
-  function handleSelectInvoice(invoiceId: string) {
+  function openInvoiceDrawer(invoiceId: string, nextDrawerTab: DrawerTab = "summary") {
     const nextInvoice = invoices.find((invoice) => invoice.id === invoiceId);
     setSelectedInvoiceId(invoiceId);
     if (nextInvoice) {
       setStatusDraft(nextInvoice.status);
     }
-    replaceModuleUrl(activeTab, invoiceId);
+    setDrawerTab(nextDrawerTab);
+    setDrawerOpen(true);
+    setActiveSection("billing");
+    setActiveTab("invoices");
+    replaceModuleUrl("invoices", invoiceId);
+  }
+
+  function closeInvoiceDrawer() {
+    setDrawerOpen(false);
+    replaceModuleUrl(activeTab);
+  }
+
+  function handleTopPaymentAction() {
+    if (!nextPaymentInvoice) {
+      return;
+    }
+
+    openInvoiceDrawer(nextPaymentInvoice.id, "payments");
+  }
+
+  function handleSelectInvoice(invoiceId: string) {
+    openInvoiceDrawer(invoiceId, "summary");
   }
 
   function downloadInvoicePdf(invoice: InvoiceItem) {
     openPdf(invoice.pdfUrl);
   }
 
+  function openDocumentsHub() {
+    router.push("/documents");
+  }
+
+  const financeActionCard = !selectedInvoice
+    ? {
+        action: () => (canCreateInvoice ? focusSection("overview", "dm") : null),
+        canRun: canCreateInvoice && !pendingAction,
+        helper: createInvoiceHelper,
+        label: "Preparer le decompte",
+        tone: "primary" as Tone,
+      }
+    : !selectedInvoice.status || selectedInvoice.status === "Brouillon"
+      ? {
+          action: () => (canSendInvoice ? sendInvoice(selectedInvoice.id) : null),
+          canRun: canSendInvoice && !pendingAction,
+          helper: sendInvoiceHelper,
+          label: "Envoyer la facture",
+          tone: "primary" as Tone,
+        }
+      : !selectedInvoice.validatedByMoe || !selectedInvoice.validatedByMo
+        ? {
+            action: () =>
+              validationAction.canRun ? validateInvoice(selectedInvoice.id) : null,
+            canRun: validationAction.canRun && !pendingAction,
+            helper: validationAction.helper,
+            label: validationAction.label,
+            tone: validationAction.canRun ? ("warning" as Tone) : ("neutral" as Tone),
+          }
+        : selectedInvoice.status !== "Payee"
+          ? {
+              action: () =>
+                canRegisterPaymentForSelectedInvoice ? registerPayment(selectedInvoice.id) : null,
+              canRun: canRegisterPaymentForSelectedInvoice && !pendingAction,
+              helper: paymentActionHelper,
+              label: "Enregistrer le paiement recu",
+              tone: canRegisterPaymentForSelectedInvoice
+                ? ("success" as Tone)
+                : ("neutral" as Tone),
+            }
+          : {
+              action: () => {
+                if (selectedInvoice.id) {
+                  openInvoiceDrawer(selectedInvoice.id, "payments");
+                }
+              },
+              canRun: true,
+              helper:
+                "La facture est cloturee. Ouvrez l'onglet paiements pour revoir l'encaissement.",
+              label: "Voir le paiement",
+              tone: "success" as Tone,
+            };
+
+  const topPeriodLabel =
+    periodFilter === "all"
+      ? "Toutes periodes"
+      : formatDate(`${periodFilter}-01`);
+
   return (
     <div className="space-y-6">
       <SectionHeading
-        eyebrow="Finance"
-        title="Facturation, encaissements et tresorerie"
+        eyebrow="Finance cockpit"
+        title="Module 9 - Facturation & Finance"
+        description={`${activeProject.name} - Operations financieres du projet: decompte, validations, encaissements, TVA et rentabilite.`}
         action={
           <button
-            onClick={() => (canCreateInvoice ? selectTab("dm") : null)}
+            type="button"
+            onClick={() => focusSection("overview", "dm")}
             disabled={!canCreateInvoice || Boolean(pendingAction)}
             title={createInvoiceHelper}
             className={cx(
@@ -837,29 +1574,150 @@ function FinanceModuleContent({
                 : "cursor-not-allowed bg-stone-200 text-stone-500",
             )}
           >
-            Nouveau decompte
+            Nouveau DM
           </button>
         }
       />
 
-      <div className="grid gap-4 xl:grid-cols-4">
-        {overview.kpis.map((metric, index) => (
-          <MetricCard
+      <Panel className="space-y-4">
+        <div className="grid gap-3 xl:grid-cols-[220px_220px_minmax(0,1fr)_auto_auto]">
+          <label className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
+            <span className="text-xs uppercase tracking-[0.16em] text-stone-500">Projet</span>
+            <select
+              value={activeProject.id}
+              onChange={(event) => setActiveProjectId(event.target.value)}
+              className="mt-2 w-full bg-transparent text-sm font-semibold text-stone-950 outline-none"
+            >
+              {availableProjects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name} - {project.code}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
+            <span className="text-xs uppercase tracking-[0.16em] text-stone-500">Periode</span>
+            <select
+              value={periodFilter}
+              onChange={(event) => setPeriodFilter(event.target.value)}
+              className="mt-2 w-full bg-transparent text-sm font-semibold text-stone-950 outline-none"
+            >
+              <option value="all">Toutes periodes</option>
+              {periodOptions.map((value) => (
+                <option key={value} value={value}>
+                  {formatDate(`${toMonthInputValue(value)}-01`)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex items-center gap-3 rounded-[20px] border border-stone-200 bg-white px-4 py-3">
+            <Search className="size-4 text-stone-500" />
+            <input
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="Rechercher facture, projet, reference, statut"
+              className="w-full bg-transparent text-sm text-stone-900 outline-none placeholder:text-stone-400"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={() => (canCreateInvoice ? generateMonthlyStatement() : focusSection("overview", "dm"))}
+            disabled={!canCreateInvoice || pendingAction === "create-invoice"}
+            title={createInvoiceHelper}
+            className={cx(
+              "rounded-[20px] px-4 py-3 text-sm font-semibold",
+              canCreateInvoice && pendingAction !== "create-invoice"
+                ? "bg-black text-white hover:bg-stone-800"
+                : "cursor-not-allowed bg-stone-200 text-stone-500",
+            )}
+          >
+            {pendingAction === "create-invoice" ? "Generation..." : "Generer facture"}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleTopPaymentAction}
+            disabled={!nextPaymentInvoice || !canRecordPayment || Boolean(pendingAction)}
+            title={
+              nextPaymentInvoice
+                ? "Ouvrir la prochaine facture prete pour encaissement."
+                : "Aucune facture eligible au paiement pour le moment."
+            }
+            className={cx(
+              "rounded-[20px] border px-4 py-3 text-sm font-semibold",
+              nextPaymentInvoice && canRecordPayment && !pendingAction
+                ? "border-stone-200 bg-white text-stone-950 hover:bg-stone-50"
+                : "cursor-not-allowed border-stone-200 bg-stone-100 text-stone-400",
+            )}
+          >
+            Paiement recu
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.16em] text-stone-500">
+            <span>{activeProject.code}</span>
+            <span>-</span>
+            <span>{topPeriodLabel}</span>
+          </div>
+          <div className="text-sm text-stone-600">
+            {filteredInvoices.length} element(s) visibles dans la file active
+          </div>
+        </div>
+      </Panel>
+
+      <div className="grid gap-4 xl:grid-cols-5">
+        {topMetrics.map((metric, index) => (
+          <button
             key={metric.label}
-            label={metric.label}
-            value={metric.value}
-            helper={metric.helper}
-            tone={metric.tone}
-            icon={metricIcons[index]}
-          />
+            type="button"
+            onClick={() => {
+              if (metric.label === "DSO") {
+                setQueueFilter("overdue");
+                focusSection("collections", "cashflow");
+                return;
+              }
+
+              if (metric.label.includes("Facturation")) {
+                setQueueFilter("sent");
+                focusSection("billing", "invoices");
+                return;
+              }
+
+              if (metric.label.includes("budget")) {
+                focusSection("profitability", "cashflow");
+                return;
+              }
+
+              if (metric.label.includes("TVA")) {
+                focusSection("vat", "vat");
+                return;
+              }
+
+              setQueueFilter("overdue");
+              focusSection("collections", "cashflow");
+            }}
+            className="text-left"
+          >
+            <MetricCard
+              label={metric.label}
+              value={metric.value}
+              helper={metric.helper}
+              tone={metric.tone}
+              icon={metricIcons[index]}
+            />
+          </button>
         ))}
       </div>
 
       {!canCreateInvoice || !canSendInvoice || !canValidateInvoice || !canRecordPayment ? (
-        <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm leading-6 text-stone-600">
+        <InlineNotice tone="neutral" title="Finance adaptee a votre role">
           Votre role <span className="font-semibold text-stone-950">{currentUserRole}</span> peut
           consulter la finance, avec des droits adaptes pour creer, valider par etapes ou enregistrer les paiements.
-        </div>
+        </InlineNotice>
       ) : null}
 
       {mutationError ? (
@@ -869,249 +1727,315 @@ function FinanceModuleContent({
       ) : null}
 
       {pendingAction ? (
-        <div className="rounded-[22px] border border-sky-200 bg-sky-50 px-4 py-4 text-sm leading-6 text-sky-800">
-          Mise a jour finance en cours. Les actions critiques se reactiveront une fois le traitement termine.
-        </div>
+        <InlineNotice tone="primary" title="Traitement finance en cours">
+          Mise a jour en cours. Les actions critiques se reactiveront une fois le traitement termine.
+        </InlineNotice>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
-        <Panel
-          title="Parcours facture"
-          description="Une lecture simple pour savoir ou en est la facture et quelle etape reste a traiter."
-        >
-          <div className="space-y-3">
-            {workflowSteps.map((step) => (
-              <button
-                key={step.title}
-                type="button"
-                onClick={() => selectTab(step.targetTab, selectedInvoice?.id)}
-                className={cx(
-                  "flex w-full flex-col gap-3 rounded-[22px] border p-4 text-left transition-colors md:flex-row md:items-center md:justify-between",
-                  step.state === "current"
-                    ? "border-sky-200 bg-sky-50 text-sky-950"
-                    : step.state === "done"
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
-                      : "border-stone-200 bg-stone-50 text-stone-900 hover:bg-white",
-                )}
-              >
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-semibold">{step.title}</p>
-                    <StatusBadge tone={step.tone}>{step.badge}</StatusBadge>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-current/80">{step.detail}</p>
-                </div>
-                <span className="text-sm font-semibold text-current/70">Ouvrir</span>
-              </button>
-            ))}
-          </div>
-        </Panel>
+      <div className="grid gap-4 xl:grid-cols-[236px_minmax(0,1fr)_288px]">
+        <FinanceSidebar
+          activeEntryId={activeSection}
+          entries={sidebarEntries}
+          onSelect={handleSidebarSelect}
+          queueFilter={queueFilter}
+        />
 
-        <Panel
-          title="Prochaine etape"
-          description="L'action principale reste seule au premier plan pour eviter les allers-retours dans le circuit finance."
-        >
-          <div className="rounded-[24px] border border-stone-200 bg-black p-5 text-white">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.16em] text-white/60">Etape active</p>
-                <p className="mt-2 font-display text-2xl font-semibold">{currentWorkflowStep?.title ?? "Parcours finance"}</p>
-              </div>
-              <StatusBadge tone={financeActionCard.tone}>{toneLabel(financeActionCard.tone)}</StatusBadge>
-            </div>
-            <p className="mt-4 text-sm leading-6 text-white/75">{financeActionCard.helper}</p>
-            <button
-              type="button"
-              onClick={financeActionCard.action}
-              disabled={!financeActionCard.canRun}
-              title={financeActionCard.helper}
-              className={cx(
-                "mt-5 flex w-full items-center justify-center gap-2 rounded-[20px] px-4 py-4 text-sm font-semibold",
-                financeActionCard.canRun
-                  ? "bg-white text-stone-950 hover:bg-stone-100"
-                  : "cursor-not-allowed bg-white/10 text-white/45",
-              )}
-            >
-              {financeActionCard.label}
-            </button>
+        <div className="space-y-4">
+          <section id="finance-section-overview" className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <FinanceActionCenter
+              activeFilter={queueFilter}
+              actionCards={actionCenterCards}
+              financeActionCard={financeActionCard}
+              onCardSelect={(card) => {
+                if (card.filter) {
+                  setQueueFilter(card.filter);
+                }
+                focusSection(card.section, card.section === "overview" ? "dm" : "invoices");
+              }}
+            />
+            <FinanceDecompteComposer
+              canCreateInvoice={canCreateInvoice}
+              dmDraft={dmDraft}
+              draftValues={draftValues}
+              pendingAction={pendingAction}
+              projectLots={projectData.projectSetup.lots}
+              setDmDraft={setDmDraft}
+              vatRegime={vatRegime}
+              onGenerate={generateMonthlyStatement}
+            />
+          </section>
+
+          <section id="finance-section-treasury">
+            <FinanceTreasuryPulse
+              chartData={chartData}
+              summary={treasurySummary}
+              treasuryAlert={overview.treasuryAlert}
+            />
+          </section>
+
+          <section id="finance-section-billing">
+            <FinanceBillingQueue
+              activeFilter={queueFilter}
+              invoices={filteredInvoices}
+              onAction={(invoice, nextTab) => {
+                openInvoiceDrawer(invoice.id, nextTab);
+              }}
+              onFilterChange={setQueueFilter}
+              onRowClick={handleSelectInvoice}
+            />
+          </section>
+
+          <section id="finance-section-collections">
+            <FinanceCollectionsSection
+              agingBuckets={agingBuckets}
+              invoices={queueRecords.filter((invoice) => invoice.remainingAmount > 0)}
+              summary={collectionsSummary}
+              onSelectInvoice={(invoiceId) => openInvoiceDrawer(invoiceId, "payments")}
+            />
+          </section>
+
+          <section id="finance-section-documents">
+            <FinanceDocumentsProofs
+              documents={linkedDocuments}
+              onOpenDocumentsHub={openDocumentsHub}
+            />
+          </section>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <section id="finance-section-vat">
+              <FinanceVatSection
+                declaration={declaration}
+                selectedInvoice={selectedInvoice}
+                setVatRegime={setVatRegime}
+                vatRegime={vatRegime}
+              />
+            </section>
+
+            <section id="finance-section-profitability">
+              <FinanceProfitabilitySection summary={profitabilitySummary} />
+            </section>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Facture suivie</p>
-              <p className="mt-3 text-sm font-semibold text-stone-950">
-                {selectedInvoice?.invoiceNumber ?? "Aucune facture"}
-              </p>
-              <p className="mt-2 text-xs leading-5 text-stone-600">
-                {selectedInvoice
-                  ? `${selectedInvoice.status} - ${formatCurrency(selectedInvoice.amountTtc)} TTC`
-                  : "Commencez par preparer un decompte pour ouvrir le circuit."}
-              </p>
-            </div>
-            <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Bloquant actuel</p>
-              <p className="mt-3 text-sm font-semibold text-stone-950">{currentWorkflowStep?.badge ?? "Aucun"}</p>
-              <p className="mt-2 text-xs leading-5 text-stone-600">{currentWorkflowStep?.detail ?? "Le circuit finance est stable."}</p>
-            </div>
-          </div>
-        </Panel>
+          <section id="finance-section-archives">
+            <FinanceArchivesSection
+              invoices={queueRecords.filter((invoice) => invoice.displayStatus === "Payee" || invoice.status === "Litigieuse")}
+              onSelectInvoice={(invoiceId) => openInvoiceDrawer(invoiceId, "workflow")}
+            />
+          </section>
+        </div>
+
+        <FinanceRightRail
+          alerts={buildFinanceAlerts(queueRecords, overview.treasuryAlert)}
+          automations={buildAutomationPreview(queueRecords, declaration)}
+          myActions={myActions}
+          profitabilitySummary={profitabilitySummary}
+          vatSummary={declaration}
+        />
       </div>
 
-      <Panel className="overflow-hidden">
-        <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => selectTab(tab.key)}
-                  className={cx(
-                    "rounded-[20px] border px-4 py-3 text-left",
-                    activeTab === tab.key
-                      ? "border-sky-400/25 bg-sky-400/12 text-white"
-                      : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
-                  )}
-                >
-                  <div className="text-sm font-semibold">{tab.label}</div>
-                  <div className="mt-1 text-xs text-slate-400">{tab.helper}</div>
-                </button>
-              ))}
-            </div>
-
-            <div className="rounded-[28px] border border-white/8 bg-white/4 p-5">
-              {activeTab === "dm" ? (
-                <DecompteTab
-                  canCreateInvoice={canCreateInvoice}
-                  dmDraft={dmDraft}
-                  setDmDraft={setDmDraft}
-                  availableLots={projectData.projectSetup.lots}
-                  vatRegime={vatRegime}
-                  draftValues={draftValues}
-                  pendingAction={pendingAction}
-                  generateMonthlyStatement={generateMonthlyStatement}
-                />
-              ) : null}
-
-              {activeTab === "invoices" ? (
-                <InvoicesTab
-                  canRecordPayment={canRegisterPaymentForSelectedInvoice}
-                  paymentActionHelper={paymentActionHelper}
-                  canSendInvoice={canSendInvoice}
-                  sendInvoiceHelper={sendInvoiceHelper}
-                  canUpdateStatus={canApplyStatusUpdate}
-                  statusActionHelper={statusActionHelper}
-                  manualStatusOptions={manualStatusOptions}
-                  invoices={invoices}
-                  selectedInvoiceId={selectedInvoiceId}
-                  selectInvoice={handleSelectInvoice}
-                  selectedInvoice={selectedInvoice}
-                  paymentCoverage={paymentCoverage}
-                  projectMembers={projectData.projectMembers}
-                  workflowOwners={workflowOwners}
-                  sendInvoice={sendInvoice}
-                  statusValue={selectedStatusValue}
-                  setStatusDraft={setStatusDraft}
-                  updateInvoiceStatus={updateInvoiceStatus}
-                  validateInvoice={validateInvoice}
-                  validationAction={validationAction}
-                  workflowSteps={workflowSteps}
-                  pendingAction={pendingAction}
-                  downloadInvoicePdf={downloadInvoicePdf}
-                  paymentDraft={paymentDraft}
-                  setPaymentDraft={setPaymentDraft}
-                  registerPayment={registerPayment}
-                />
-              ) : null}
-
-              {activeTab === "vat" ? (
-                <VatTab
-                  vatRegime={vatRegime}
-                  setVatRegime={setVatRegime}
-                  selectedInvoice={selectedInvoice}
-                  declaration={declaration}
-                />
-              ) : null}
-
-              {activeTab === "cashflow" ? (
-                <CashflowTab
-                  invoices={invoices}
-                  payments={payments}
-                  cashflowData={cashflowData}
-                />
-              ) : null}
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <Panel
-              title="Synthese facture selectionnee"
-            >
-              {selectedInvoice ? (
-                <div className="rounded-[24px] border border-white/8 bg-white/4 p-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-display text-2xl font-semibold text-white">
-                        {selectedInvoice.invoiceNumber}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-300">
-                        {selectedInvoice.project}
-                      </p>
-                    </div>
-                    <StatusBadge tone={selectedInvoice.tone}>
-                      {selectedInvoice.status}
-                    </StatusBadge>
-                  </div>
-
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    <MiniStat label="HT" value={formatCurrency(selectedInvoice.amountHt)} />
-                    <MiniStat label="TVA" value={formatCurrency(selectedInvoice.tvaAmount)} />
-                    <MiniStat label="TTC" value={formatCurrency(selectedInvoice.amountTtc)} />
-                    <MiniStat label="Echeance" value={formatDate(selectedInvoice.dueDate)} />
-                  </div>
-
-                  <div className="mt-5">
-                    <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-slate-500">
-                      <span>Couverture encaissement</span>
-                      <span>{paymentCoverage}%</span>
-                    </div>
-                    <ProgressBar
-                      value={paymentCoverage}
-                      tone={paymentCoverage >= 100 ? "success" : "warning"}
-                    />
-                  </div>
-                </div>
-              ) : null}
-            </Panel>
-
-            <Panel
-              title="Alerte tresorerie"
-            >
-              <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="mt-1 size-4 text-amber-300" />
-                  <p className="text-sm leading-6 text-slate-200">
-                    {overview.treasuryAlert}
-                  </p>
-                </div>
-              </div>
-            </Panel>
-
-          </div>
-        </div>
-      </Panel>
+      <FinanceInvoiceDrawer
+        canRecordPayment={canRegisterPaymentForSelectedInvoice}
+        canSendInvoice={canSendInvoice}
+        canUpdateStatus={canApplyStatusUpdate}
+        downloadInvoicePdf={downloadInvoicePdf}
+        drawerTab={drawerTab}
+        isOpen={drawerOpen}
+        linkedDocuments={linkedDocuments}
+        manualStatusOptions={manualStatusOptions}
+        onClose={closeInvoiceDrawer}
+        onOpenDocumentsHub={openDocumentsHub}
+        onRegisterPayment={registerPayment}
+        onSendInvoice={sendInvoice}
+        onSetDrawerTab={setDrawerTab}
+        onStatusChange={setStatusDraft}
+        onUpdateStatus={updateInvoiceStatus}
+        onValidateInvoice={validateInvoice}
+        paymentActionHelper={paymentActionHelper}
+        paymentCoverage={paymentCoverage}
+        paymentDraft={paymentDraft}
+        payments={payments.filter((payment) => payment.invoiceId === selectedInvoice?.id)}
+        pendingAction={pendingAction}
+        selectedInvoice={selectedInvoice}
+        selectedQueueRecord={selectedQueueRecord}
+        sendInvoiceHelper={sendInvoiceHelper}
+        setPaymentDraft={setPaymentDraft}
+        statusActionHelper={statusActionHelper}
+        statusValue={selectedStatusValue}
+        validationAction={validationAction}
+        workflowOwners={workflowOwners}
+        workflowSteps={workflowSteps}
+      />
     </div>
   );
 }
 
-function DecompteTab({
+function FinanceSidebar({
+  activeEntryId,
+  entries,
+  onSelect,
+  queueFilter,
+}: {
+  activeEntryId: string;
+  entries: FinanceSidebarEntry[];
+  onSelect: (entry: FinanceSidebarEntry) => void;
+  queueFilter: QueueFilter;
+}) {
+  const mainEntries = entries.filter((entry) => !String(entry.id).startsWith("quick-"));
+  const quickEntries = entries.filter((entry) => String(entry.id).startsWith("quick-"));
+
+  return (
+    <Panel className="h-fit">
+      <div className="space-y-5">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+            Navigation finance
+          </p>
+          <div className="mt-3 space-y-2">
+            {mainEntries.map((entry) => {
+              const isActive = activeEntryId === entry.section && (!entry.filter || entry.filter === queueFilter);
+              return (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => onSelect(entry)}
+                  className={cx(
+                    "flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left text-sm transition-colors",
+                    isActive
+                      ? "border-black bg-black text-white"
+                      : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50",
+                  )}
+                >
+                  <span>{entry.label}</span>
+                  <ChevronRight className="size-4" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+            Vues rapides
+          </p>
+          <div className="mt-3 space-y-2">
+            {quickEntries.map((entry) => {
+              const isActive = entry.filter === queueFilter;
+              return (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => onSelect(entry)}
+                  className={cx(
+                    "flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left text-sm transition-colors",
+                    isActive
+                      ? "border-black bg-black text-white"
+                      : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50",
+                  )}
+                >
+                  <span>{entry.label}</span>
+                  <span className={cx("text-xs font-semibold", isActive ? "text-white/70" : "text-stone-500")}>
+                    {entry.count ?? 0}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function FinanceActionCenter({
+  activeFilter,
+  actionCards,
+  financeActionCard,
+  onCardSelect,
+}: {
+  activeFilter: QueueFilter;
+  actionCards: ActionCenterCard[];
+  financeActionCard: {
+    action: () => void;
+    canRun: boolean;
+    helper: string;
+    label: string;
+    tone: Tone;
+  };
+  onCardSelect: (card: ActionCenterCard) => void;
+}) {
+  return (
+    <Panel
+      title="Centre d'action"
+      description="Le cockpit met en avant les urgences finance avant la file complete pour limiter les changements de contexte."
+      action={<StatusBadge tone={financeActionCard.tone}>{toneLabel(financeActionCard.tone)}</StatusBadge>}
+    >
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {actionCards.map((card) => (
+          <button
+            key={card.id}
+            type="button"
+            onClick={() => onCardSelect(card)}
+            className={cx(
+              "rounded-[20px] border p-4 text-left transition-colors",
+              activeFilter === card.filter
+                ? "border-black bg-black text-white"
+                : "border-stone-200 bg-white text-stone-900 hover:bg-stone-50",
+            )}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className={cx("text-xs uppercase tracking-[0.16em]", activeFilter === card.filter ? "text-white/65" : "text-stone-500")}>
+                  {card.label}
+                </p>
+                <p className="mt-3 font-display text-3xl font-semibold">
+                  {card.count}
+                </p>
+              </div>
+              <StatusBadge tone={card.tone}>{toneLabel(card.tone)}</StatusBadge>
+            </div>
+            <p className={cx("mt-4 text-sm leading-6", activeFilter === card.filter ? "text-white/75" : "text-stone-600")}>
+              {card.helper}
+            </p>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Prochaine action</p>
+            <p className="mt-2 text-lg font-semibold text-stone-950">{financeActionCard.label}</p>
+            <p className="mt-2 text-sm leading-6 text-stone-600">{financeActionCard.helper}</p>
+          </div>
+          <button
+            type="button"
+            onClick={financeActionCard.action}
+            disabled={!financeActionCard.canRun}
+            className={cx(
+              "inline-flex items-center justify-center gap-2 rounded-[18px] px-4 py-3 text-sm font-semibold",
+              financeActionCard.canRun
+                ? "bg-black text-white hover:bg-stone-800"
+                : "cursor-not-allowed bg-stone-200 text-stone-500",
+            )}
+          >
+            {financeActionCard.label}
+            <ArrowRight className="size-4" />
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function FinanceDecompteComposer({
   canCreateInvoice,
   dmDraft,
-  setDmDraft,
-  availableLots,
-  vatRegime,
   draftValues,
   pendingAction,
-  generateMonthlyStatement,
+  projectLots,
+  setDmDraft,
+  vatRegime,
+  onGenerate,
 }: {
   canCreateInvoice: boolean;
   dmDraft: {
@@ -1121,6 +2045,14 @@ function DecompteTab({
     retentionPct: number;
     advanceDeduction: number;
   };
+  draftValues: {
+    retentionAmount: number;
+    amountAfterRetention: number;
+    tvaAmount: number;
+    amountTtc: number;
+  };
+  pendingAction: string;
+  projectLots: string[];
   setDmDraft: React.Dispatch<
     React.SetStateAction<{
       periodMonth: string;
@@ -1130,77 +2062,57 @@ function DecompteTab({
       advanceDeduction: number;
     }>
   >;
-  availableLots: string[];
   vatRegime: { id: string; label: string; rate: number; helper: string };
-  draftValues: {
-    retentionAmount: number;
-    amountAfterRetention: number;
-    tvaAmount: number;
-    amountTtc: number;
-  };
-  pendingAction: string;
-  generateMonthlyStatement: () => void;
+  onGenerate: () => void;
 }) {
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+    <Panel
+      title="Preparer le decompte du mois"
+      description="Le DM reste le point de depart du circuit finance. Verifiez les montants avant de generer la facture."
+    >
+      <div className="grid gap-4 xl:grid-cols-[1fr_0.92fr]">
         <div className="space-y-4">
-          <StepHeading
-            title="1. Preparer le decompte"
-            description="Choisissez la periode, reprenez l'avancement et verifiez les montants avant de generer la facture."
-          />
-          <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-              Lots relies au decompte
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {availableLots.map((lot) => (
-                <span
-                  key={lot}
-                  className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
-                >
-                  {lot}
-                </span>
-              ))}
-            </div>
-          </div>
-          <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-            <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
-              Mois de decompte
-            </span>
+          <label className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
+            <span className="text-xs uppercase tracking-[0.16em] text-stone-500">Periode de facturation</span>
             <input
               type="month"
               value={toMonthInputValue(dmDraft.periodMonth)}
               onChange={(event) =>
                 setDmDraft((current) => ({ ...current, periodMonth: event.target.value }))
               }
-              className="mt-3 w-full bg-transparent text-white outline-none"
+              className="mt-2 w-full bg-transparent text-sm font-semibold text-stone-950 outline-none"
             />
-            <p className="mt-3 text-xs leading-5 text-slate-400">
-              Utilisez le mois de facturation reel pour garder les decomptes et l&apos;historique alignes.
-            </p>
           </label>
-          <NumberField
-            label="Avancement saisi (%)"
-            value={dmDraft.progressPct}
-            onChange={(value) =>
-              setDmDraft((current) => ({ ...current, progressPct: value }))
-            }
-          />
-          <NumberField
-            label="Base HT avant deductions"
-            value={dmDraft.baseAmountHt}
-            onChange={(value) =>
-              setDmDraft((current) => ({ ...current, baseAmountHt: value }))
-            }
-          />
-          <div className="grid gap-4 md:grid-cols-2">
+
+          <div className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
+            <span className="text-xs uppercase tracking-[0.16em] text-stone-500">Lots relies au decompte</span>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {projectLots.map((lot) => (
+                <span
+                  key={lot}
+                  className="rounded-full border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700"
+                >
+                  {lot}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
             <NumberField
-              label="Retenue de garantie (%)"
+              label="Avancement saisi (%)"
+              value={dmDraft.progressPct}
+              onChange={(value) => setDmDraft((current) => ({ ...current, progressPct: value }))}
+            />
+            <NumberField
+              label="Base HT"
+              value={dmDraft.baseAmountHt}
+              onChange={(value) => setDmDraft((current) => ({ ...current, baseAmountHt: value }))}
+            />
+            <NumberField
+              label="Retenue (%)"
               value={dmDraft.retentionPct}
-              onChange={(value) =>
-                setDmDraft((current) => ({ ...current, retentionPct: value }))
-              }
+              onChange={(value) => setDmDraft((current) => ({ ...current, retentionPct: value }))}
             />
             <NumberField
               label="Deduction avance"
@@ -1212,39 +2124,30 @@ function DecompteTab({
           </div>
 
           <button
-            onClick={() => (canCreateInvoice ? generateMonthlyStatement() : null)}
+            type="button"
+            onClick={() => (canCreateInvoice ? onGenerate() : null)}
             disabled={!canCreateInvoice || pendingAction === "create-invoice"}
             className={cx(
-              "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
+              "flex w-full items-center justify-center gap-2 rounded-[20px] px-4 py-4 text-sm font-semibold",
               canCreateInvoice && pendingAction !== "create-invoice"
-                ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
-                : "cursor-not-allowed bg-slate-700 text-slate-400",
+                ? "bg-black text-white hover:bg-stone-800"
+                : "cursor-not-allowed bg-stone-200 text-stone-500",
             )}
           >
-            <FileText className="size-4" />
-            {pendingAction === "create-invoice"
-              ? "Creation en cours..."
-              : canCreateInvoice
-                ? "Generer le decompte et la facture"
-                : "Lecture seule des decomptes"}
+            <Receipt className="size-4" />
+            {pendingAction === "create-invoice" ? "Generation en cours..." : "Generer la facture"}
           </button>
         </div>
 
-        <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-          <StepHeading
-            title="2. Verifier le calcul"
-            description="Controlez retenue, avance, TVA et total TTC avant d'ouvrir le circuit de validation."
-          />
-          <div className="flex items-center gap-2">
-            <Receipt className="size-4 text-slate-400" />
-            <p className="text-sm font-semibold text-white">
-              Calcul automatique depuis l&apos;avancement
-            </p>
-          </div>
+        <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+          <p className="text-sm font-semibold text-stone-950">Synthese de calcul</p>
+          <p className="mt-2 text-sm leading-6 text-stone-600">
+            Controle rapide avant envoi vers le circuit de validation.
+          </p>
           <div className="mt-4 space-y-3">
-            <LineItem label="Montant HT de base" value={formatCurrency(dmDraft.baseAmountHt)} />
+            <LineItem label="Base HT" value={formatCurrency(dmDraft.baseAmountHt)} />
             <LineItem
-              label={`Retenue de garantie (${dmDraft.retentionPct}%)`}
+              label={`Retenue (${dmDraft.retentionPct}%)`}
               value={`- ${formatCurrency(draftValues.retentionAmount)}`}
             />
             <LineItem
@@ -1259,391 +2162,533 @@ function DecompteTab({
               label={`${vatRegime.label}`}
               value={formatCurrency(draftValues.tvaAmount)}
             />
-            <div className="border-t border-white/8 pt-3">
-              <LineItem
-                label="Total TTC"
-                value={formatCurrency(draftValues.amountTtc)}
-                emphasize
-              />
+            <div className="border-t border-stone-200 pt-3">
+              <LineItem label="TTC" value={formatCurrency(draftValues.amountTtc)} emphasize />
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </Panel>
   );
 }
 
-function InvoicesTab({
-  canRecordPayment,
-  paymentActionHelper,
-  canSendInvoice,
-  sendInvoiceHelper,
-  canUpdateStatus,
-  statusActionHelper,
-  manualStatusOptions,
-  invoices,
-  selectedInvoiceId,
-  selectInvoice,
-  selectedInvoice,
-  paymentCoverage,
-  projectMembers,
-  workflowOwners,
-  sendInvoice,
-  statusValue,
-  setStatusDraft,
-  updateInvoiceStatus,
-  validateInvoice,
-  validationAction,
-  workflowSteps,
-  pendingAction,
-  downloadInvoicePdf,
-  paymentDraft,
-  setPaymentDraft,
-  registerPayment,
+function FinanceTreasuryPulse({
+  chartData,
+  summary,
+  treasuryAlert,
 }: {
-  canRecordPayment: boolean;
-  paymentActionHelper: string;
-  canSendInvoice: boolean;
-  sendInvoiceHelper: string;
-  canUpdateStatus: boolean;
-  statusActionHelper: string;
-  manualStatusOptions: string[];
-  invoices: InvoiceItem[];
-  selectedInvoiceId: string;
-  selectInvoice: (invoiceId: string) => void;
-  selectedInvoice: InvoiceItem | undefined;
-  paymentCoverage: number;
-  projectMembers: Array<{
-    id: string;
-    initials: string;
-    name: string;
-    role: string;
-  }>;
-  workflowOwners: WorkflowOwnerDisplay;
-  sendInvoice: (invoiceId: string) => void;
-  statusValue: string;
-  setStatusDraft: React.Dispatch<React.SetStateAction<string>>;
-  updateInvoiceStatus: (invoiceId: string) => void;
-  validateInvoice: (invoiceId: string) => void;
-  validationAction: {
-    canRun: boolean;
-    helper: string;
-    label: string;
-  };
-  workflowSteps: FinanceWorkflowStep[];
-  pendingAction: string;
-  downloadInvoicePdf: (invoice: InvoiceItem) => void;
-  paymentDraft: {
-    amount: string;
-    method: string;
-    reference: string;
-  };
-  setPaymentDraft: React.Dispatch<
-    React.SetStateAction<{
-      amount: string;
-      method: string;
-      reference: string;
-    }>
-  >;
-  registerPayment: (invoiceId: string) => void;
+  chartData: Array<{ actual: number; costs: number; label: string; planned: number }>;
+  summary: { actual: number; costs: number; delta: number; planned: number };
+  treasuryAlert: string;
+}) {
+  const max = Math.max(
+    ...chartData.flatMap((item) => [item.planned, item.actual, item.costs]),
+    1,
+  );
+
+  return (
+    <Panel
+      title="Pulse tresorerie"
+      description="Recettes prevues, recettes encaissees et couts reels restent visibles au meme endroit pour anticiper la tension."
+    >
+      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <div>
+          <div className="flex items-center gap-4 text-xs uppercase tracking-[0.16em] text-stone-500">
+            <span className="inline-flex items-center gap-2">
+              <span className="size-2 rounded-full bg-stone-300" />
+              Prevues
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span className="size-2 rounded-full bg-sky-500" />
+              Encaissees
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span className="size-2 rounded-full bg-amber-400" />
+              Couts reels
+            </span>
+          </div>
+
+          <div className="mt-4 grid grid-cols-5 gap-3">
+            {chartData.map((item) => (
+              <div key={item.label} className="space-y-3">
+                <div className="flex h-48 items-end justify-center gap-2 rounded-[20px] border border-stone-200 bg-stone-50 px-3 pb-3 pt-5">
+                  <div className="flex w-full items-end gap-2">
+                    <div className="flex-1">
+                      <div
+                        className="w-full rounded-t-full bg-stone-300"
+                        style={{ height: `${(item.planned / max) * 140}px` }}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <div
+                        className="w-full rounded-t-full bg-sky-500"
+                        style={{ height: `${(item.actual / max) * 140}px` }}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <div
+                        className="w-full rounded-t-full bg-amber-400"
+                        style={{ height: `${(item.costs / max) * 140}px` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-stone-950">{item.label}</p>
+                  <p className="text-xs text-stone-500">
+                    {item.actual}k encaisses / {item.costs}k couts
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <CompactSummaryCard label="Recettes prevues" value={`${summary.planned}k`} />
+          <CompactSummaryCard label="Recettes encaissees" value={`${summary.actual}k`} />
+          <CompactSummaryCard label="Couts reels" value={`${summary.costs}k`} />
+          <CompactSummaryCard
+            label="Balance nette"
+            tone={summary.delta >= 0 ? "success" : "danger"}
+            value={`${summary.delta >= 0 ? "+" : ""}${summary.delta}k`}
+          />
+          <InlineNotice tone={summary.delta >= 0 ? "neutral" : "warning"} title="Lecture tresorerie">
+            {treasuryAlert}
+          </InlineNotice>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function FinanceBillingQueue({
+  activeFilter,
+  invoices,
+  onAction,
+  onFilterChange,
+  onRowClick,
+}: {
+  activeFilter: QueueFilter;
+  invoices: QueueRecord[];
+  onAction: (invoice: QueueRecord, nextTab: DrawerTab) => void;
+  onFilterChange: (value: QueueFilter) => void;
+  onRowClick: (invoiceId: string) => void;
 }) {
   return (
-    <div className="space-y-4">
-      <StepHeading
-        title="1. Choisir la facture a traiter"
-        description="Selectionnez d'abord la facture du mois pour concentrer l'envoi, la validation et l'encaissement sur une seule reference."
-      />
-      <div className="space-y-3">
-        {invoices.map((invoice) => (
+    <Panel
+      title="File active de facturation"
+      description="La file devient la surface operationnelle centrale: on y voit la situation, le blocage, le reste a encaisser et l'action suivante."
+    >
+      <div className="flex flex-wrap gap-2">
+        {queueFilters.map((filter) => (
           <button
-            key={invoice.id}
+            key={filter.key}
             type="button"
-            onClick={() => selectInvoice(invoice.id)}
-            title={
-              selectedInvoiceId === invoice.id
-                ? "Cette facture est deja selectionnee."
-                : "Ouvrir cette facture et synchroniser la selection dans l'URL."
-            }
+            onClick={() => onFilterChange(filter.key)}
             className={cx(
-              "w-full rounded-[24px] border p-4 text-left",
-              selectedInvoiceId === invoice.id
-                ? "border-sky-400/25 bg-sky-400/10"
-                : "border-white/8 bg-white/4 hover:bg-white/6",
+              "rounded-full border px-3 py-2 text-sm font-semibold transition-colors",
+              activeFilter === filter.key
+                ? "border-black bg-black text-white"
+                : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50",
             )}
           >
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-display text-lg font-semibold text-white">
-                    {invoice.invoiceNumber}
-                  </p>
-                  <StatusBadge tone={invoice.tone}>{invoice.status}</StatusBadge>
-                </div>
-                <p className="mt-2 text-sm text-slate-300">
-                  {invoice.project} - {formatDate(invoice.periodMonth)}
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-sm text-slate-300 sm:grid-cols-4">
-                <MiniStat label="HT" value={formatCurrency(invoice.amountHt)} />
-                <MiniStat label="TVA" value={`${invoice.tvaRate}%`} />
-                <MiniStat label="TTC" value={formatCurrency(invoice.amountTtc)} />
-                <MiniStat label="Echeance" value={formatDate(invoice.dueDate)} />
-              </div>
-            </div>
+            {filter.label}
           </button>
         ))}
       </div>
 
-      {selectedInvoice ? (
-        <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-          <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-            <StepHeading
-              title="2. Suivre le circuit de validation"
-              description="Verifiez ou la facture se trouve dans le parcours, puis n'ouvrez que l'etape suivante."
-            />
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-white">
-                Sequence de la facture
-              </p>
-              <StatusBadge tone={selectedInvoice.tone}>{selectedInvoice.status}</StatusBadge>
-            </div>
-            <div className="mt-4 space-y-3">
-              {workflowSteps.map((step) => (
-                <div
-                  key={step.title}
-                  className={cx(
-                    "rounded-[20px] border p-4",
-                    step.state === "current"
-                      ? "border-sky-400/25 bg-sky-400/10"
-                      : step.state === "done"
-                        ? "border-emerald-400/25 bg-emerald-400/10"
-                        : "border-white/8 bg-white/4",
-                  )}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-white">{step.title}</p>
-                    <StatusBadge tone={step.tone}>{step.badge}</StatusBadge>
-                  </div>
-                  <p className="mt-2 text-sm text-slate-300">{step.detail}</p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 rounded-[20px] border border-white/8 bg-white/4 p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                Circuit de validation affecte
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {(workflowOwners.projectManagerId || workflowOwners.clientApproverId || workflowOwners.financeLeadId) ? (
-                  [
-                    workflowOwners.projectManagerId
-                      ? {
-                          label: "Chef de projet",
-                          ...workflowOwners.projectManagerId,
-                        }
-                      : null,
-                    workflowOwners.financeLeadId
-                      ? {
-                          label: "Referent finance",
-                          ...workflowOwners.financeLeadId,
-                        }
-                      : null,
-                    workflowOwners.clientApproverId
-                      ? {
-                          label: "Validation client",
-                          ...workflowOwners.clientApproverId,
-                        }
-                      : null,
-                  ]
-                    .filter((member): member is NonNullable<typeof member> => Boolean(member))
-                    .map((member) => (
-                      <span
-                        key={`${member.id}-${member.label}`}
-                        className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
-                      >
-                        {member.label} - {member.name}
-                      </span>
-                    ))
-                ) : (
-                  projectMembers
-                    .filter((member) =>
-                      ["Chef de projet", "Maitre d'ouvrage", "Comptable", "Super Admin"].includes(
-                        member.role,
-                      ),
-                    )
-                    .map((member) => (
-                    <span
-                      key={member.id}
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+      {invoices.length === 0 ? (
+        <div className="mt-4">
+          <EmptyStateCard
+            title="Aucune facture dans cette vue"
+            detail="Changez le filtre ou la periode pour retrouver la file active correspondante."
+          />
+        </div>
+      ) : (
+        <div className="mt-4 overflow-hidden rounded-[22px] border border-stone-200">
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-collapse">
+              <thead className="bg-stone-100 text-left text-xs uppercase tracking-[0.16em] text-stone-500">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Periode</th>
+                  <th className="px-4 py-3 font-semibold">Projet</th>
+                  <th className="px-4 py-3 font-semibold">Avancement</th>
+                  <th className="px-4 py-3 font-semibold">Facture</th>
+                  <th className="px-4 py-3 font-semibold">Statut</th>
+                  <th className="px-4 py-3 font-semibold">Echeance</th>
+                  <th className="px-4 py-3 font-semibold">Restant</th>
+                  <th className="px-4 py-3 font-semibold">Paiement</th>
+                  <th className="px-4 py-3 font-semibold">Action</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white">
+                {invoices.map((invoice) => {
+                  const action = deriveQueueAction(invoice);
+                  return (
+                    <tr
+                      key={invoice.id}
+                      onClick={() => onRowClick(invoice.id)}
+                      className="cursor-pointer border-t border-stone-100 align-top transition-colors hover:bg-stone-50"
                     >
-                      {member.name} - {member.role}
-                    </span>
-                    ))
-                )}
-              </div>
-            </div>
-            <StepHeading
-              title="3. Agir sur la facture"
-              description="Envoyez, ajustez ou validez seulement quand l'etape precedente est terminee."
-            />
-            <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
-              <label className="rounded-[20px] border border-white/8 bg-white/4 p-4">
-                <span className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                  Ajustement manuel
-                </span>
-                <select
-                  value={statusValue}
-                  onChange={(event) => setStatusDraft(event.target.value)}
-                  disabled={!manualStatusOptions.length || !canUpdateStatus || pendingAction === "update-invoice-status"}
-                  title={statusActionHelper}
-                  className="mt-3 w-full rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white outline-none"
-                >
-                  {manualStatusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                onClick={() => (canUpdateStatus ? updateInvoiceStatus(selectedInvoice.id) : null)}
-                disabled={!canUpdateStatus || pendingAction === "update-invoice-status"}
-                title={statusActionHelper}
-                className={cx(
-                  "self-end rounded-2xl px-4 py-3 text-sm font-semibold",
-                  canUpdateStatus && pendingAction !== "update-invoice-status"
-                    ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
-                    : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
-                )}
-              >
-                {pendingAction === "update-invoice-status" ? "Mise a jour..." : "Mettre a jour"}
-              </button>
-            </div>
-            <p className="text-xs leading-5 text-slate-400">{statusActionHelper}</p>
-            <div className="mt-4 rounded-[20px] border border-white/8 bg-white/4 p-4 text-sm leading-6 text-slate-300">
-              {validationAction.helper}
-            </div>
-            <div className="mt-4 flex flex-wrap gap-3">
-              {selectedInvoice.pdfUrl ? (
-                <button
-                  onClick={() => downloadInvoicePdf(selectedInvoice)}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/8"
-                >
-                  <FileText className="size-4" />
-                  Telecharger le PDF
-                </button>
-              ) : null}
-              <button
-                onClick={() => (canSendInvoice ? sendInvoice(selectedInvoice.id) : null)}
-                disabled={!canSendInvoice || pendingAction === "send-invoice"}
-                title={sendInvoiceHelper}
-                className={cx(
-                  "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
-                  canSendInvoice && pendingAction !== "send-invoice"
-                    ? "border border-white/10 bg-white/5 text-white hover:bg-white/8"
-                    : "cursor-not-allowed border border-white/8 bg-white/5 text-slate-500",
-                )}
-              >
-                <Send className="size-4" />
-                {pendingAction === "send-invoice" ? "Envoi..." : "Envoyer la facture"}
-              </button>
-              <button
-                onClick={() => (validationAction.canRun ? validateInvoice(selectedInvoice.id) : null)}
-                disabled={!validationAction.canRun || pendingAction === "validate-invoice"}
-                title={validationAction.helper}
-                className={cx(
-                  "inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
-                  validationAction.canRun && pendingAction !== "validate-invoice"
-                    ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
-                    : "cursor-not-allowed bg-slate-700 text-slate-400",
-                )}
-              >
-                <CheckCheck className="size-4" />
-                {pendingAction === "validate-invoice" ? "Validation..." : validationAction.label}
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-            <StepHeading
-              title="4. Enregistrer le paiement"
-              description="Le paiement ne s'ouvre qu'apres validation client. Saisissez ensuite l'encaissement pour cloturer la facture."
-            />
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-white">
-                5. Paiement recu
-              </p>
-              <StatusBadge tone={paymentCoverage >= 100 ? "success" : "warning"}>
-                {paymentCoverage}% couvre
-              </StatusBadge>
-            </div>
-            <div className="mt-4 space-y-4">
-              <fieldset
-                disabled={!canRecordPayment}
-                className="space-y-4 disabled:opacity-70"
-              >
-                <Field
-                  label="Montant recu"
-                  value={paymentDraft.amount}
-                  onChange={(value) =>
-                    setPaymentDraft((current) => ({ ...current, amount: value }))
-                  }
-                />
-                <Field
-                  label="Mode"
-                  value={paymentDraft.method}
-                  onChange={(value) =>
-                    setPaymentDraft((current) => ({ ...current, method: value }))
-                  }
-                />
-                <Field
-                  label="Reference paiement"
-                  value={paymentDraft.reference}
-                  onChange={(value) =>
-                    setPaymentDraft((current) => ({ ...current, reference: value }))
-                  }
-                />
-              </fieldset>
-              <button
-                onClick={() =>
-                  canRecordPayment ? registerPayment(selectedInvoice.id) : null
-                }
-                disabled={!canRecordPayment || pendingAction === "register-payment"}
-                title={paymentActionHelper}
-                className={cx(
-                  "flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-sm font-semibold",
-                  canRecordPayment && pendingAction !== "register-payment"
-                    ? "bg-sky-400 text-slate-950 hover:bg-sky-300"
-                    : "cursor-not-allowed bg-slate-700 text-slate-400",
-                )}
-              >
-                <Landmark className="size-4" />
-                {pendingAction === "register-payment"
-                  ? "Enregistrement..."
-                  : canRecordPayment
-                    ? "Enregistrer le paiement recu"
-                    : "Paiement indisponible"}
-              </button>
-              <p className="text-xs leading-5 text-slate-400">{paymentActionHelper}</p>
-            </div>
+                      <td className="px-4 py-4 text-sm text-stone-700">{formatDate(invoice.periodMonth)}</td>
+                      <td className="px-4 py-4 text-sm text-stone-700">{invoice.project}</td>
+                      <td className="px-4 py-4">
+                        <div className="space-y-2">
+                          <p className="text-sm font-semibold text-stone-950">{invoice.sourceProgress}%</p>
+                          <ProgressBar value={invoice.sourceProgress} tone="primary" />
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-stone-950">{invoice.invoiceNumber}</p>
+                          <p className="text-xs text-stone-500">{formatCurrency(invoice.amountTtc)} TTC</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="space-y-2">
+                          <StatusBadge tone={getQueueStatusTone(invoice.displayStatus)}>
+                            {invoice.displayStatus}
+                          </StatusBadge>
+                          <p className="text-xs leading-5 text-stone-500">{action.helper}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-stone-950">{formatDate(invoice.dueDate)}</p>
+                          <p className={cx("text-xs", invoice.isOverdue ? "text-rose-600" : "text-stone-500")}>
+                            {invoice.isOverdue ? `${invoice.overdueDays} j de retard` : timeAgo(invoice.dueDate)}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-sm font-semibold text-stone-950">
+                        {formatCurrency(invoice.remainingAmount)}
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs text-stone-500">
+                            <span>{invoice.coverage}%</span>
+                            <span>{formatCurrency(invoice.paidAmount)}</span>
+                          </div>
+                          <ProgressBar
+                            value={invoice.coverage}
+                            tone={invoice.coverage >= 100 ? "success" : invoice.isOverdue ? "danger" : "warning"}
+                          />
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onAction(invoice, action.drawerTab);
+                          }}
+                          className="inline-flex items-center gap-2 rounded-[16px] border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-100"
+                        >
+                          {action.label}
+                          <ChevronRight className="size-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
-      ) : null}
-    </div>
+      )}
+    </Panel>
   );
 }
 
-function VatTab({
-  vatRegime,
-  setVatRegime,
-  selectedInvoice,
-  declaration,
+function FinanceCollectionsSection({
+  agingBuckets,
+  invoices,
+  summary,
+  onSelectInvoice,
 }: {
-  vatRegime: { id: string; label: string; rate: number; helper: string };
+  agingBuckets: Array<{ key: string; label: string; tone: Tone; value: number }>;
+  invoices: QueueRecord[];
+  summary: { totalInvoiced: number; totalPaid: number; totalRemaining: number };
+  onSelectInvoice: (invoiceId: string) => void;
+}) {
+  return (
+    <Panel
+      title="Encaissements"
+      description="Les retards et restes a encaisser sont regroupes par anciennete pour prioriser les relances."
+    >
+      <div className="grid gap-3 md:grid-cols-4">
+        {agingBuckets.map((bucket) => (
+          <div key={bucket.key} className="rounded-[20px] border border-stone-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">{bucket.label}</p>
+              <StatusBadge tone={bucket.tone}>{toneLabel(bucket.tone)}</StatusBadge>
+            </div>
+            <p className="mt-3 font-display text-2xl font-semibold text-stone-950">
+              {formatCurrency(bucket.value)}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <CompactSummaryCard label="Facture TTC" value={formatCurrency(summary.totalInvoiced)} />
+        <CompactSummaryCard label="Encaisse" value={formatCurrency(summary.totalPaid)} tone="success" />
+        <CompactSummaryCard label="Restant" value={formatCurrency(summary.totalRemaining)} tone="warning" />
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {invoices.slice(0, 6).map((invoice) => (
+          <button
+            key={invoice.id}
+            type="button"
+            onClick={() => onSelectInvoice(invoice.id)}
+            className="flex w-full items-start justify-between rounded-[20px] border border-stone-200 bg-white px-4 py-4 text-left transition-colors hover:bg-stone-50"
+          >
+            <div>
+              <p className="text-sm font-semibold text-stone-950">{invoice.invoiceNumber}</p>
+              <p className="mt-1 text-sm text-stone-600">
+                {invoice.project} · {formatDate(invoice.dueDate)}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm font-semibold text-stone-950">
+                {formatCurrency(invoice.remainingAmount)}
+              </p>
+              <p className={cx("mt-1 text-xs", invoice.isOverdue ? "text-rose-600" : "text-stone-500")}>
+                {invoice.isOverdue ? `${invoice.overdueDays} j de retard` : "Courant"}
+              </p>
+            </div>
+          </button>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function FinanceDocumentsProofs({
+  documents,
+  onOpenDocumentsHub,
+}: {
+  documents: LinkedFinanceDocument[];
+  onOpenDocumentsHub: () => void;
+}) {
+  return (
+    <Panel
+      title="Documents & preuves"
+      description="Les pieces finance restent visibles ici pour garder le cockpit pret a l'automatisation, sans transformer la page en GED."
+      action={
+        <button
+          type="button"
+          onClick={onOpenDocumentsHub}
+          className="inline-flex items-center gap-2 rounded-[18px] border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-50"
+        >
+          Ouvrir Module 6
+          <FolderKanban className="size-4" />
+        </button>
+      }
+    >
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {documents.map((document) => (
+          <div key={document.id} className="rounded-[20px] border border-stone-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-stone-950">{document.kind}</p>
+              <StatusBadge tone={document.status.includes("Disponible") ? "success" : "neutral"}>
+                {document.status}
+              </StatusBadge>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-stone-600">{document.description}</p>
+            <div className="mt-4">
+              {document.url ? (
+                <button
+                  type="button"
+                  onClick={() => openPdf(document.url)}
+                  className="inline-flex items-center gap-2 rounded-[16px] border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-100"
+                >
+                  {document.actionLabel}
+                  <FileText className="size-4" />
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-[16px] border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-500">
+                  {document.actionLabel}
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function FinanceVatSection({
+  declaration,
+  selectedInvoice,
+  setVatRegime,
+  vatRegime,
+}: {
+  declaration: {
+    month: string;
+    collectedTva: number;
+    declaredTva: number;
+    variance: number;
+    status: string;
+  };
+  selectedInvoice: InvoiceItem | undefined;
   setVatRegime: React.Dispatch<
     React.SetStateAction<{ id: string; label: string; rate: number; helper: string }>
   >;
-  selectedInvoice: InvoiceItem | undefined;
-  declaration: {
+  vatRegime: { id: string; label: string; rate: number; helper: string };
+}) {
+  return (
+    <Panel title="TVA & declarations" description="La TVA reste visible et parametrable sans casser le flux principal de facturation.">
+      <div className="flex flex-wrap gap-2">
+        {financeVatRegimes.map((regime) => (
+          <button
+            key={regime.id}
+            type="button"
+            onClick={() => setVatRegime(regime)}
+            className={cx(
+              "rounded-full border px-3 py-2 text-sm font-semibold",
+              vatRegime.id === regime.id
+                ? "border-black bg-black text-white"
+                : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50",
+            )}
+          >
+            {regime.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <div className="rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+          <p className="text-sm font-semibold text-stone-950">Regime actif</p>
+          <p className="mt-2 text-sm leading-6 text-stone-600">{vatRegime.helper}</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <MiniStat label="Taux" value={`${vatRegime.rate}%`} />
+            <MiniStat
+              label="Sur la facture suivie"
+              value={
+                selectedInvoice
+                  ? formatCurrency(Math.round((selectedInvoice.amountHt * vatRegime.rate) / 100))
+                  : "-"
+              }
+            />
+          </div>
+        </div>
+
+        <div className="rounded-[20px] border border-stone-200 bg-white p-4">
+          <div className="space-y-3">
+            <LineItem label="Periode" value={declaration.month} />
+            <LineItem label="TVA collectee" value={formatCurrency(declaration.collectedTva)} />
+            <LineItem label="TVA declaree" value={formatCurrency(declaration.declaredTva)} />
+            <LineItem label="Ecart" value={formatCurrency(declaration.variance)} />
+            <div className="border-t border-stone-200 pt-3">
+              <LineItem label="Statut" value={declaration.status} emphasize />
+            </div>
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function FinanceProfitabilitySection({
+  summary,
+}: {
+  summary: {
+    budget: number;
+    gap: number;
+    realCosts: number;
+    risk: string;
+    spentRatio: number;
+    trend: string;
+  };
+}) {
+  return (
+    <Panel title="Rentabilite" description="Le cockpit garde la rentabilite visible pour arbitrer les relances, la TVA et la pression tresorerie.">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <CompactSummaryCard label="Budget initial" value={formatCurrency(summary.budget)} />
+        <CompactSummaryCard label="Cout reel" value={formatCurrency(summary.realCosts)} />
+        <CompactSummaryCard
+          label="Ecart budget / reel"
+          tone={summary.gap >= 0 ? "success" : "danger"}
+          value={formatCurrency(summary.gap)}
+        />
+        <CompactSummaryCard label="Tendance" value={summary.trend} tone={summary.trend === "Positive" ? "success" : "warning"} />
+      </div>
+      <div className="mt-4 rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-stone-950">Couverture budget</p>
+            <p className="mt-1 text-sm text-stone-600">{summary.risk}</p>
+          </div>
+          <StatusBadge tone={summary.spentRatio >= 95 ? "danger" : summary.spentRatio >= 80 ? "warning" : "success"}>
+            {summary.spentRatio}%
+          </StatusBadge>
+        </div>
+        <div className="mt-3">
+          <ProgressBar
+            value={Math.min(summary.spentRatio, 100)}
+            tone={summary.spentRatio >= 95 ? "danger" : summary.spentRatio >= 80 ? "warning" : "success"}
+          />
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function FinanceArchivesSection({
+  invoices,
+  onSelectInvoice,
+}: {
+  invoices: QueueRecord[];
+  onSelectInvoice: (invoiceId: string) => void;
+}) {
+  return (
+    <Panel title="Archives" description="Les dossiers clos et litigieux restent consultables sans polluer la file active.">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {invoices.slice(0, 6).map((invoice) => (
+          <button
+            key={invoice.id}
+            type="button"
+            onClick={() => onSelectInvoice(invoice.id)}
+            className="rounded-[20px] border border-stone-200 bg-white p-4 text-left transition-colors hover:bg-stone-50"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-stone-950">{invoice.invoiceNumber}</p>
+              <StatusBadge tone={getQueueStatusTone(invoice.displayStatus)}>{invoice.displayStatus}</StatusBadge>
+            </div>
+            <p className="mt-2 text-sm text-stone-600">{invoice.project}</p>
+            <p className="mt-3 text-xs text-stone-500">
+              {formatCurrency(invoice.amountTtc)} · {formatDate(invoice.periodMonth)}
+            </p>
+          </button>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function FinanceRightRail({
+  alerts,
+  automations,
+  myActions,
+  profitabilitySummary,
+  vatSummary,
+}: {
+  alerts: Array<{ detail: string; label: string; tone: Tone }>;
+  automations: Array<{ label: string; state: string; tone: Tone }>;
+  myActions: Array<{ cta: string; detail: string; label: string; onClick: () => void; tone: Tone }>;
+  profitabilitySummary: {
+    budget: number;
+    gap: number;
+    realCosts: number;
+    risk: string;
+    spentRatio: number;
+    trend: string;
+  };
+  vatSummary: {
     month: string;
     collectedTva: number;
     declaredTva: number;
@@ -1653,144 +2698,500 @@ function VatTab({
 }) {
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        {financeVatRegimes.map((regime) => (
-          <button
-            key={regime.id}
-            onClick={() => setVatRegime(regime)}
-            className={cx(
-              "rounded-full border px-4 py-2 text-sm font-semibold",
-              vatRegime.id === regime.id
-                ? "border-sky-400/25 bg-sky-400/12 text-sky-100"
-                : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/8",
-            )}
-          >
-            {regime.label}
-          </button>
-        ))}
-      </div>
+      <Panel title="Mes actions" description="Le cockpit recentre la file finance sur vos validations, relances et paiements.">
+        <div className="space-y-3">
+          {myActions.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={item.onClick}
+              className="w-full rounded-[20px] border border-stone-200 bg-white p-4 text-left transition-colors hover:bg-stone-50"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-stone-950">{item.label}</p>
+                <StatusBadge tone={item.tone}>{toneLabel(item.tone)}</StatusBadge>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-stone-600">{item.detail}</p>
+              <p className="mt-3 text-sm font-semibold text-stone-900">{item.cta}</p>
+            </button>
+          ))}
+        </div>
+      </Panel>
 
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-        <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-          <p className="text-sm font-semibold text-white">Regime applique</p>
-          <p className="mt-3 text-sm leading-6 text-slate-300">{vatRegime.helper}</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <MiniStat label="Taux" value={`${vatRegime.rate}%`} />
-            <MiniStat
-              label="Sur facture selectionnee"
-              value={
-                selectedInvoice
-                  ? formatCurrency(
-                      Math.round((selectedInvoice.amountHt * vatRegime.rate) / 100),
-                    )
-                  : "-"
+      <Panel title="Automations preview" description="Le design prepare deja les futurs automatismes finance sans exiger un nouveau backend aujourd'hui.">
+        <div className="space-y-3">
+          {automations.map((automation) => (
+            <div key={automation.label} className="rounded-[18px] border border-stone-200 bg-stone-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-stone-950">{automation.label}</p>
+                <StatusBadge tone={automation.tone}>{automation.state}</StatusBadge>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      <Panel title="Alertes" description="Les exceptions sont isolees ici pour accelerer les relances et les arbitrages.">
+        <div className="space-y-3">
+          {alerts.map((alert) => (
+            <div key={alert.label} className="rounded-[18px] border border-stone-200 bg-white p-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className={cx("size-4", alert.tone === "danger" ? "text-rose-500" : "text-amber-500")} />
+                <p className="text-sm font-semibold text-stone-950">{alert.label}</p>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-stone-600">{alert.detail}</p>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      <Panel title="TVA mini summary">
+        <div className="space-y-3 text-sm">
+          <MiniStat label="Collectee" value={formatCurrency(vatSummary.collectedTva)} />
+          <MiniStat label="Declaree" value={formatCurrency(vatSummary.declaredTva)} />
+          <MiniStat label="Ecart" value={formatCurrency(vatSummary.variance)} />
+          <MiniStat label="Statut" value={vatSummary.status} />
+        </div>
+      </Panel>
+
+      <Panel title="Rentabilite mini summary">
+        <div className="space-y-3 text-sm">
+          <MiniStat label="Budget vs reel" value={formatCurrency(profitabilitySummary.gap)} />
+          <MiniStat label="Tendance" value={profitabilitySummary.trend} />
+          <MiniStat label="Risque" value={profitabilitySummary.risk} />
+          <div className="pt-1">
+            <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-stone-500">
+              <span>Couverture budget</span>
+              <span>{profitabilitySummary.spentRatio}%</span>
+            </div>
+            <ProgressBar
+              value={Math.min(profitabilitySummary.spentRatio, 100)}
+              tone={
+                profitabilitySummary.spentRatio >= 95
+                  ? "danger"
+                  : profitabilitySummary.spentRatio >= 80
+                    ? "warning"
+                    : "success"
               }
             />
           </div>
         </div>
+      </Panel>
+    </div>
+  );
+}
 
-        <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-          <p className="text-sm font-semibold text-white">Declaration mensuelle TVA</p>
-          <div className="mt-4 space-y-3">
-            <LineItem label="Periode" value={declaration.month} />
-            <LineItem
-              label="TVA collectee"
-              value={formatCurrency(declaration.collectedTva)}
-            />
-            <LineItem
-              label="TVA declaree"
-              value={formatCurrency(declaration.declaredTva)}
-            />
-            <LineItem
-              label="Ecart"
-              value={formatCurrency(declaration.variance)}
-            />
-            <div className="border-t border-white/8 pt-3">
-              <LineItem
-                label="Statut"
-                value={declaration.status}
-                emphasize
-              />
+function FinanceInvoiceDrawer({
+  canRecordPayment,
+  canSendInvoice,
+  canUpdateStatus,
+  downloadInvoicePdf,
+  drawerTab,
+  isOpen,
+  linkedDocuments,
+  manualStatusOptions,
+  onClose,
+  onOpenDocumentsHub,
+  onRegisterPayment,
+  onSendInvoice,
+  onSetDrawerTab,
+  onStatusChange,
+  onUpdateStatus,
+  onValidateInvoice,
+  paymentActionHelper,
+  paymentCoverage,
+  paymentDraft,
+  payments,
+  pendingAction,
+  selectedInvoice,
+  selectedQueueRecord,
+  sendInvoiceHelper,
+  setPaymentDraft,
+  statusActionHelper,
+  statusValue,
+  validationAction,
+  workflowOwners,
+  workflowSteps,
+}: {
+  canRecordPayment: boolean;
+  canSendInvoice: boolean;
+  canUpdateStatus: boolean;
+  downloadInvoicePdf: (invoice: InvoiceItem) => void;
+  drawerTab: DrawerTab;
+  isOpen: boolean;
+  linkedDocuments: LinkedFinanceDocument[];
+  manualStatusOptions: string[];
+  onClose: () => void;
+  onOpenDocumentsHub: () => void;
+  onRegisterPayment: (invoiceId: string) => void;
+  onSendInvoice: (invoiceId: string) => void;
+  onSetDrawerTab: (tab: DrawerTab) => void;
+  onStatusChange: React.Dispatch<React.SetStateAction<string>>;
+  onUpdateStatus: (invoiceId: string) => void;
+  onValidateInvoice: (invoiceId: string) => void;
+  paymentActionHelper: string;
+  paymentCoverage: number;
+  paymentDraft: {
+    amount: string;
+    method: string;
+    reference: string;
+  };
+  payments: PaymentItem[];
+  pendingAction: string;
+  selectedInvoice: InvoiceItem | undefined;
+  selectedQueueRecord: QueueRecord | null;
+  sendInvoiceHelper: string;
+  setPaymentDraft: React.Dispatch<
+    React.SetStateAction<{
+      amount: string;
+      method: string;
+      reference: string;
+    }>
+  >;
+  statusActionHelper: string;
+  statusValue: string;
+  validationAction: DrawerAction;
+  workflowOwners: WorkflowOwnerDisplay;
+  workflowSteps: FinanceWorkflowStep[];
+}) {
+  if (!isOpen || !selectedInvoice) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/25 backdrop-blur-sm">
+      <button type="button" aria-label="Fermer" className="flex-1" onClick={onClose} />
+      <div className="h-full w-full max-w-[560px] overflow-y-auto border-l border-stone-200 bg-white shadow-2xl">
+        <div className="sticky top-0 z-10 border-b border-stone-200 bg-white/95 px-5 py-4 backdrop-blur">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-display text-2xl font-semibold text-stone-950">
+                  {selectedInvoice.invoiceNumber}
+                </h3>
+                <StatusBadge tone={selectedQueueRecord ? getQueueStatusTone(selectedQueueRecord.displayStatus) : selectedInvoice.tone}>
+                  {selectedQueueRecord?.displayStatus ?? selectedInvoice.status}
+                </StatusBadge>
+              </div>
+              <p className="mt-2 text-sm text-stone-600">{selectedInvoice.project}</p>
+              <p className="mt-2 text-xs uppercase tracking-[0.16em] text-stone-500">
+                Couverture paiement {paymentCoverage}%
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full border border-stone-200 p-2 text-stone-500 hover:bg-stone-50"
+            >
+              <X className="size-4" />
+            </button>
           </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {[
+              { key: "summary", label: "Resume" },
+              { key: "workflow", label: "Workflow" },
+              { key: "payments", label: "Paiements" },
+              { key: "documents", label: "Documents" },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => onSetDrawerTab(tab.key as DrawerTab)}
+                className={cx(
+                  "rounded-full border px-3 py-2 text-sm font-semibold",
+                  drawerTab === tab.key
+                    ? "border-black bg-black text-white"
+                    : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50",
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-4 px-5 py-5">
+          {drawerTab === "summary" ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <CompactSummaryCard label="HT" value={formatCurrency(selectedInvoice.amountHt)} />
+                <CompactSummaryCard label="Retenue" value={formatCurrency(selectedInvoice.retentionAmount)} />
+                <CompactSummaryCard label="Deduction avance" value={formatCurrency(selectedInvoice.advanceDeduction)} />
+                <CompactSummaryCard label="TVA" value={formatCurrency(selectedInvoice.tvaAmount)} />
+                <CompactSummaryCard label="TTC" value={formatCurrency(selectedInvoice.amountTtc)} />
+                <CompactSummaryCard label="Restant du" value={formatCurrency(selectedQueueRecord?.remainingAmount ?? 0)} tone={selectedQueueRecord?.remainingAmount ? "warning" : "success"} />
+              </div>
+              <div className="rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+                <p className="text-sm font-semibold text-stone-950">Lecture rapide</p>
+                <p className="mt-2 text-sm leading-6 text-stone-600">
+                  {selectedQueueRecord?.displayStatus === "En retard"
+                    ? `Cette facture est en retard de ${selectedQueueRecord.overdueDays} jour(s).`
+                    : "Le parcours financier est visible ci-dessous avec un suivi clair du restant a encaisser."}
+                </p>
+                <div className="mt-4">
+                  <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-stone-500">
+                    <span>Couverture de paiement</span>
+                    <span>{paymentCoverage}%</span>
+                  </div>
+                  <ProgressBar
+                    value={paymentCoverage}
+                    tone={paymentCoverage >= 100 ? "success" : selectedQueueRecord?.isOverdue ? "danger" : "warning"}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {drawerTab === "workflow" ? (
+            <div className="space-y-4">
+              <div className="space-y-3">
+                {workflowSteps.map((step) => (
+                  <div
+                    key={step.title}
+                    className={cx(
+                      "rounded-[18px] border p-4",
+                      step.state === "current"
+                        ? "border-sky-200 bg-sky-50"
+                        : step.state === "done"
+                          ? "border-emerald-200 bg-emerald-50"
+                          : "border-stone-200 bg-stone-50",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-stone-950">{step.title}</p>
+                      <StatusBadge tone={step.tone}>{step.badge}</StatusBadge>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-stone-600">{step.detail}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-[20px] border border-stone-200 bg-white p-4">
+                <p className="text-sm font-semibold text-stone-950">Responsables affectes</p>
+                <div className="mt-3 space-y-2 text-sm text-stone-600">
+                  <p>Projet · {workflowOwners.projectManagerId?.name ?? "Non affecte"}</p>
+                  <p>Finance · {workflowOwners.financeLeadId?.name ?? "Non affecte"}</p>
+                  <p>Client · {workflowOwners.clientApproverId?.name ?? "Non affecte"}</p>
+                </div>
+              </div>
+
+              <div className="rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+                <label className="block">
+                  <span className="text-xs uppercase tracking-[0.14em] text-stone-500">Ajustement manuel</span>
+                  <select
+                    value={statusValue}
+                    onChange={(event) => onStatusChange(event.target.value)}
+                    disabled={!manualStatusOptions.length || !canUpdateStatus || pendingAction === "update-invoice-status"}
+                    title={statusActionHelper}
+                    className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-3 py-3 text-sm text-stone-900 outline-none"
+                  >
+                    {manualStatusOptions.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="mt-3 text-xs leading-5 text-stone-500">{statusActionHelper}</p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => (canUpdateStatus ? onUpdateStatus(selectedInvoice.id) : null)}
+                    disabled={!canUpdateStatus || pendingAction === "update-invoice-status"}
+                    className={cx(
+                      "rounded-[16px] px-4 py-3 text-sm font-semibold",
+                      canUpdateStatus && pendingAction !== "update-invoice-status"
+                        ? "border border-stone-200 bg-white text-stone-900 hover:bg-stone-50"
+                        : "cursor-not-allowed border border-stone-200 bg-stone-100 text-stone-400",
+                    )}
+                  >
+                    {pendingAction === "update-invoice-status" ? "Mise a jour..." : "Mettre a jour"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => (canSendInvoice ? onSendInvoice(selectedInvoice.id) : null)}
+                    disabled={!canSendInvoice || pendingAction === "send-invoice"}
+                    title={sendInvoiceHelper}
+                    className={cx(
+                      "inline-flex items-center gap-2 rounded-[16px] px-4 py-3 text-sm font-semibold",
+                      canSendInvoice && pendingAction !== "send-invoice"
+                        ? "border border-stone-200 bg-white text-stone-900 hover:bg-stone-50"
+                        : "cursor-not-allowed border border-stone-200 bg-stone-100 text-stone-400",
+                    )}
+                  >
+                    <Send className="size-4" />
+                    {pendingAction === "send-invoice" ? "Envoi..." : "Envoyer la facture"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => (validationAction.canRun ? onValidateInvoice(selectedInvoice.id) : null)}
+                    disabled={!validationAction.canRun || pendingAction === "validate-invoice"}
+                    title={validationAction.helper}
+                    className={cx(
+                      "inline-flex items-center gap-2 rounded-[16px] px-4 py-3 text-sm font-semibold",
+                      validationAction.canRun && pendingAction !== "validate-invoice"
+                        ? "bg-black text-white hover:bg-stone-800"
+                        : "cursor-not-allowed bg-stone-200 text-stone-500",
+                    )}
+                  >
+                    <CheckCheck className="size-4" />
+                    {pendingAction === "validate-invoice" ? "Validation..." : validationAction.label}
+                  </button>
+                  {selectedInvoice.pdfUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => downloadInvoicePdf(selectedInvoice)}
+                      className="inline-flex items-center gap-2 rounded-[16px] border border-stone-200 bg-white px-4 py-3 text-sm font-semibold text-stone-900 hover:bg-stone-50"
+                    >
+                      <FileText className="size-4" />
+                      Telecharger le PDF
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {drawerTab === "payments" ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <CompactSummaryCard label="Paiements saisis" value={String(payments.length)} />
+                <CompactSummaryCard
+                  label="Restant"
+                  value={formatCurrency(selectedQueueRecord?.remainingAmount ?? 0)}
+                  tone={selectedQueueRecord?.remainingAmount ? "warning" : "success"}
+                />
+              </div>
+
+              <div className="space-y-3">
+                {payments.length ? (
+                  payments.map((payment) => (
+                    <div key={payment.id} className="rounded-[18px] border border-stone-200 bg-white p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-stone-950">{formatCurrency(payment.amount)}</p>
+                        <p className="text-xs text-stone-500">{formatDate(payment.paidAt)}</p>
+                      </div>
+                      <p className="mt-2 text-sm text-stone-600">
+                        {payment.method} · {payment.reference}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <EmptyStateCard
+                    title="Aucun paiement enregistre"
+                    detail="Le paiement sera visible ici des qu'un encaissement sera saisi sur cette facture."
+                  />
+                )}
+              </div>
+
+              <div className="rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+                <div className="space-y-4">
+                  <Field
+                    label="Montant recu"
+                    value={paymentDraft.amount}
+                    onChange={(value) =>
+                      setPaymentDraft((current) => ({ ...current, amount: value }))
+                    }
+                  />
+                  <Field
+                    label="Mode"
+                    value={paymentDraft.method}
+                    onChange={(value) =>
+                      setPaymentDraft((current) => ({ ...current, method: value }))
+                    }
+                  />
+                  <Field
+                    label="Reference paiement"
+                    value={paymentDraft.reference}
+                    onChange={(value) =>
+                      setPaymentDraft((current) => ({ ...current, reference: value }))
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => (canRecordPayment ? onRegisterPayment(selectedInvoice.id) : null)}
+                  disabled={!canRecordPayment || pendingAction === "register-payment"}
+                  title={paymentActionHelper}
+                  className={cx(
+                    "mt-4 flex w-full items-center justify-center gap-2 rounded-[20px] px-4 py-4 text-sm font-semibold",
+                    canRecordPayment && pendingAction !== "register-payment"
+                      ? "bg-black text-white hover:bg-stone-800"
+                      : "cursor-not-allowed bg-stone-200 text-stone-500",
+                  )}
+                >
+                  <Landmark className="size-4" />
+                  {pendingAction === "register-payment" ? "Enregistrement..." : "Enregistrer le paiement"}
+                </button>
+                <p className="mt-3 text-xs leading-5 text-stone-500">{paymentActionHelper}</p>
+              </div>
+            </div>
+          ) : null}
+
+          {drawerTab === "documents" ? (
+            <div className="space-y-4">
+              <div className="grid gap-3">
+                {linkedDocuments.map((document) => (
+                  <div key={document.id} className="rounded-[18px] border border-stone-200 bg-white p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-stone-950">{document.kind}</p>
+                        <p className="mt-2 text-sm leading-6 text-stone-600">{document.description}</p>
+                      </div>
+                      <StatusBadge tone={document.status.includes("Disponible") ? "success" : "neutral"}>
+                        {document.status}
+                      </StatusBadge>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {document.url ? (
+                        <button
+                          type="button"
+                          onClick={() => openPdf(document.url)}
+                          className="inline-flex items-center gap-2 rounded-[16px] border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-100"
+                        >
+                          {document.actionLabel}
+                          <FileBadge2 className="size-4" />
+                        </button>
+                      ) : null}
+                      {document.kind === "Rapports signes" ? (
+                        <button
+                          type="button"
+                          onClick={onOpenDocumentsHub}
+                          className="inline-flex items-center gap-2 rounded-[16px] border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-50"
+                        >
+                          Ouvrir Module 6
+                          <FolderKanban className="size-4" />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-function CashflowTab({
-  invoices,
-  payments,
-  cashflowData,
+function CompactSummaryCard({
+  label,
+  tone = "neutral",
+  value,
 }: {
-  invoices: InvoiceItem[];
-  payments: PaymentItem[];
-  cashflowData: Array<{
-    label: string;
-    plannedReceipts: number;
-    actualReceipts: number;
-    actualCosts: number;
-  }>;
+  label: string;
+  tone?: Tone;
+  value: string;
 }) {
-  const chartData = cashflowData.map((item) => ({
-    label: item.label,
-    planned: item.plannedReceipts,
-    actual: item.actualReceipts,
-  }));
-
-  const totalInvoiced = invoices.reduce((sum, invoice) => sum + invoice.amountTtc, 0);
-  const totalPaid = payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const totalCosts = cashflowData.reduce((sum, item) => sum + item.actualCosts, 0);
-
   return (
-    <div className="space-y-4">
-      <StepHeading
-        title="5. Suivre l'encaissement"
-        description="Comparez recettes prevues, paiements recus et tension de tresorerie pour savoir ou relancer."
-      />
-      <SimpleBarChart data={chartData} />
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Facture TTC</p>
-          <p className="mt-2 text-lg font-semibold text-white">{formatCurrency(totalInvoiced)}</p>
-        </div>
-        <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Encaisse</p>
-          <p className="mt-2 text-lg font-semibold text-white">{formatCurrency(totalPaid)}</p>
-        </div>
-        <div className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Couts reels</p>
-          <p className="mt-2 text-lg font-semibold text-white">{formatCurrency(totalCosts * 1000)}</p>
-        </div>
+    <div className="rounded-[18px] border border-stone-200 bg-white p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs uppercase tracking-[0.14em] text-stone-500">{label}</p>
+        {tone !== "neutral" ? <StatusBadge tone={tone}>{toneLabel(tone)}</StatusBadge> : null}
       </div>
-
-      <div className="space-y-3">
-        {cashflowData.map((item) => {
-          const delta = item.actualReceipts - item.actualCosts;
-          const tone: ActiveTone = delta >= 0 ? "success" : "danger";
-
-          return (
-            <div
-              key={item.label}
-              className="rounded-[22px] border border-white/8 bg-white/4 p-4"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-white">{item.label}</p>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Recettes prevues {item.plannedReceipts}k / recues {item.actualReceipts}k
-                  </p>
-                </div>
-                <StatusBadge tone={tone}>
-                  {delta >= 0 ? `+${delta}` : delta}k net
-                </StatusBadge>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <p className="mt-3 text-lg font-semibold text-stone-950">{value}</p>
     </div>
   );
 }
@@ -1805,12 +3206,12 @@ function Field({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-      <span className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</span>
+    <label className="block rounded-[18px] border border-stone-200 bg-white px-4 py-3">
+      <span className="text-xs uppercase tracking-[0.16em] text-stone-500">{label}</span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-3 w-full bg-transparent text-white outline-none"
+        className="mt-2 w-full bg-transparent text-sm text-stone-900 outline-none"
       />
     </label>
   );
@@ -1826,30 +3227,15 @@ function NumberField({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="rounded-[22px] border border-white/8 bg-white/4 p-4">
-      <span className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</span>
+    <label className="block rounded-[18px] border border-stone-200 bg-white px-4 py-3">
+      <span className="text-xs uppercase tracking-[0.16em] text-stone-500">{label}</span>
       <input
         type="number"
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="mt-3 w-full bg-transparent text-white outline-none"
+        className="mt-2 w-full bg-transparent text-sm font-semibold text-stone-950 outline-none"
       />
     </label>
-  );
-}
-
-function StepHeading({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="rounded-[22px] border border-white/8 bg-white/4 px-4 py-3">
-      <p className="text-sm font-semibold text-white">{title}</p>
-      <p className="mt-1 text-sm leading-6 text-slate-300">{description}</p>
-    </div>
   );
 }
 
@@ -1864,10 +3250,10 @@ function LineItem({
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <p className={cx("text-sm text-slate-300", emphasize && "font-semibold text-white")}>
+      <p className={cx("text-sm text-stone-600", emphasize && "font-semibold text-stone-950")}>
         {label}
       </p>
-      <p className={cx("text-sm text-white", emphasize && "font-semibold")}>{value}</p>
+      <p className={cx("text-sm text-stone-950", emphasize && "font-semibold")}>{value}</p>
     </div>
   );
 }
@@ -1875,8 +3261,148 @@ function LineItem({
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-1 text-sm text-white">{value}</p>
+      <p className="text-xs uppercase tracking-[0.14em] text-stone-500">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-stone-950">{value}</p>
     </div>
   );
+}
+
+function mapTabToSection(tab: FinanceTab): FinanceSectionId {
+  switch (tab) {
+    case "cashflow":
+      return "treasury";
+    case "vat":
+      return "vat";
+    case "invoices":
+      return "billing";
+    case "dm":
+    default:
+      return "overview";
+  }
+}
+
+function deriveQueueAction(invoice: QueueRecord) {
+  if (invoice.displayStatus === "Litigieuse") {
+    return {
+      drawerTab: "workflow" as DrawerTab,
+      helper: "Verifier le blocage et les validations.",
+      label: "Suivre le litige",
+    };
+  }
+
+  if (invoice.displayStatus === "En retard") {
+    return {
+      drawerTab: "payments" as DrawerTab,
+      helper: "Un encaissement manque apres l'echeance.",
+      label: "Relancer",
+    };
+  }
+
+  if (invoice.status === "Brouillon") {
+    return {
+      drawerTab: "workflow" as DrawerTab,
+      helper: "Le brouillon doit etre envoye pour lancer le circuit.",
+      label: "Envoyer",
+    };
+  }
+
+  if (!invoice.validatedByMoe) {
+    return {
+      drawerTab: "workflow" as DrawerTab,
+      helper: "La validation projet reste la prochaine etape.",
+      label: "Validation projet",
+    };
+  }
+
+  if (!invoice.validatedByMo) {
+    return {
+      drawerTab: "workflow" as DrawerTab,
+      helper: "La validation client est attendue avant encaissement.",
+      label: "Validation client",
+    };
+  }
+
+  if (invoice.remainingAmount > 0) {
+    return {
+      drawerTab: "payments" as DrawerTab,
+      helper: "Le paiement peut maintenant etre saisi.",
+      label: "Paiement recu",
+    };
+  }
+
+  return {
+    drawerTab: "summary" as DrawerTab,
+    helper: "La facture est cloturee et archivable.",
+    label: "Voir le dossier",
+  };
+}
+
+function buildFinanceAlerts(queueRecords: QueueRecord[], treasuryAlert: string) {
+  const alerts: Array<{ detail: string; label: string; tone: Tone }> = [];
+  const overdueInvoices = queueRecords.filter((invoice) => invoice.isOverdue);
+  const overdueAmount = overdueInvoices.reduce((sum, invoice) => sum + invoice.remainingAmount, 0);
+
+  if (overdueInvoices.length > 0) {
+    alerts.push({
+      detail: `${overdueInvoices.length} facture(s) depassent l'echeance pour ${formatCurrency(overdueAmount)} a relancer.`,
+      label: "Retard d'encaissement",
+      tone: "danger",
+    });
+  }
+
+  alerts.push({
+    detail: treasuryAlert,
+    label: "Tension tresorerie",
+    tone: overdueInvoices.length > 0 ? "warning" : "primary",
+  });
+
+  const disputedInvoices = queueRecords.filter((invoice) => invoice.status === "Litigieuse");
+  if (disputedInvoices.length > 0) {
+    alerts.push({
+      detail: `${disputedInvoices.length} facture(s) sont en litige et bloquent la collecte.`,
+      label: "Factures litigieuses",
+      tone: "danger",
+    });
+  }
+
+  return alerts.slice(0, 3);
+}
+
+function buildAutomationPreview(
+  queueRecords: QueueRecord[],
+  declaration: {
+    month: string;
+    collectedTva: number;
+    declaredTva: number;
+    variance: number;
+    status: string;
+  },
+) {
+  const overdueInvoices = queueRecords.filter((invoice) => invoice.isOverdue).length;
+  return [
+    {
+      label: "DM auto-calcule",
+      state: queueRecords.some((invoice) => invoice.sourceProgress > 0) ? "Pret" : "En attente",
+      tone: queueRecords.some((invoice) => invoice.sourceProgress > 0) ? ("success" as Tone) : ("neutral" as Tone),
+    },
+    {
+      label: "Relances automatiques",
+      state: overdueInvoices > 0 ? `${overdueInvoices} cible(s)` : "Stable",
+      tone: overdueInvoices > 0 ? ("warning" as Tone) : ("success" as Tone),
+    },
+    {
+      label: "TVA pre-remplie",
+      state: declaration.status,
+      tone: declaration.variance === 0 ? ("success" as Tone) : ("warning" as Tone),
+    },
+    {
+      label: "Rappels de paiement",
+      state: queueRecords.some((invoice) => invoice.validatedByMo && invoice.remainingAmount > 0)
+        ? "Disponibles"
+        : "Aucun besoin",
+      tone: queueRecords.some((invoice) => invoice.validatedByMo && invoice.remainingAmount > 0)
+        ? ("primary" as Tone)
+        : ("neutral" as Tone),
+    },
+  ];
 }

@@ -329,6 +329,7 @@ export type FinanceInvoiceRecord = {
   sourceProgress: number;
   validatedByMoe: boolean;
   validatedByMo: boolean;
+  pdfUrl?: string;
   moeValidatedBy?: string;
   moeValidatedAt?: string;
   moValidatedBy?: string;
