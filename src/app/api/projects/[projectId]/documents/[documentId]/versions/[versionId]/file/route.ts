@@ -21,27 +21,25 @@ export async function GET(
     const { projectId, documentId, versionId } = await params;
 
     if (shouldUseRebuildDocumentsBridge()) {
-      try {
-        const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
-        const asset = await downloadRebuildDocumentVersionFile(
-          rebuildAccessToken,
-          projectId,
-          documentId,
-          decodeURIComponent(versionId),
-        );
+      const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+      const asset = await downloadRebuildDocumentVersionFile(
+        rebuildAccessToken,
+        projectId,
+        documentId,
+        decodeURIComponent(versionId),
+      );
 
-        if (asset) {
-          return new NextResponse(new Uint8Array(asset.bytes), {
-            headers: {
-              "Cache-Control": "private, max-age=300",
-              "Content-Disposition": `attachment; filename="${asset.fileName}"`,
-              "Content-Type": asset.mimeType,
-            },
-          });
-        }
-      } catch (error) {
-        console.error("[documents bridge] version file fallback to legacy payload", error);
+      if (!asset) {
+        return NextResponse.json({ error: "Erreur lecture revision documentaire." }, { status: 500 });
       }
+
+      return new NextResponse(new Uint8Array(asset.bytes), {
+        headers: {
+          "Cache-Control": "private, max-age=300",
+          "Content-Disposition": `attachment; filename="${asset.fileName}"`,
+          "Content-Type": asset.mimeType,
+        },
+      });
     }
 
     const token = request.cookies.get(sessionCookieName)?.value ?? "";

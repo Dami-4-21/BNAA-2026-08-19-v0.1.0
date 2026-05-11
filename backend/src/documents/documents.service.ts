@@ -24,6 +24,7 @@ type DocumentListRow = {
   code: string | null;
   created_at: string;
   created_by: string;
+  current_version_id: string | null;
   discipline: string | null;
   doc_type: string | null;
   file_key: string | null;
@@ -84,6 +85,7 @@ type DistributionRow = {
   role: string;
   sent_at: string;
   user_id: string;
+  version_id: string;
 };
 
 type ProjectMemberRow = {
@@ -488,7 +490,16 @@ export class DocumentsService {
       }
 
       const members = await this.listProjectMembers(client, currentUser.tenantId, projectId);
-      const recipients = resolveDistributionRecipients(members, audience);
+      const historicalRecipientIds = audience.startsWith("Lot ")
+        ? await this.listHistoricalAudienceRecipientIds(client, projectId, document.lot, audience)
+        : [];
+      const recipients = resolveDistributionRecipients({
+        audience,
+        documentType: mapHubTypeToUiDocumentType(document.hub_type),
+        historicalRecipientIds,
+        members,
+        visibilityRoles: parseVisibilityScopeRoles(document.visibility_scope),
+      });
       if (recipients.length === 0) {
         throw new BadRequestException("No recipient is associated with this distribution.");
       }
@@ -498,9 +509,32 @@ export class DocumentsService {
         throw new BadRequestException("No current version is available for this document.");
       }
 
-      await client.query(`DELETE FROM document_distributions WHERE document_id = $1`, [documentId]);
+      const existingDistributions = await client.query<{ id: string; recipient_id: string }>(
+        `SELECT id, recipient_id
+         FROM document_distributions
+         WHERE document_id = $1
+           AND version_id = $2`,
+        [documentId, currentVersion.id],
+      );
+      const distributionByRecipientId = new Map(
+        existingDistributions.rows.map((distribution) => [distribution.recipient_id, distribution.id]),
+      );
 
       for (const recipient of recipients) {
+        const existingDistributionId = distributionByRecipientId.get(recipient.id);
+
+        if (existingDistributionId) {
+          await client.query(
+            `UPDATE document_distributions
+             SET audience = $2,
+                 note = $3,
+                 sent_at = NOW()
+             WHERE id = $1`,
+            [existingDistributionId, audience, "Diffusion controlee BNAA"],
+          );
+          continue;
+        }
+
         await client.query(
           `INSERT INTO document_distributions (
             id,
@@ -511,14 +545,7 @@ export class DocumentsService {
             note,
             sent_at
           ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-          [
-            uuidv4(),
-            documentId,
-            currentVersion.id,
-            recipient.id,
-            audience,
-            "Diffusion controlee BNAA",
-          ],
+          [uuidv4(), documentId, currentVersion.id, recipient.id, audience, "Diffusion controlee BNAA"],
         );
       }
 
@@ -731,35 +758,55 @@ export class DocumentsService {
     const reportById = new Map(reports.map((report) => [report.id, report]));
     const ncrById = new Map(ncrs.map((ncr) => [ncr.id, ncr]));
 
-    const storedDocumentItems = documents.map((document) =>
-      this.mapStoredDocument(
-        document,
-        versionsByDocument.get(document.id) ?? [],
-        distributionsByDocument.get(document.id) ?? [],
-        membersById,
-        projectId,
-      ),
-    );
-    const reportDocumentItems = reports.map((report) =>
-      this.mapReportDocument(report, photosByReport.get(report.id) ?? [], membersById, projectId),
-    );
-    const photoDocumentItems = photos.map((photo) =>
-      this.mapPhotoDocument(photo, reportById.get(String(photo.report_id ?? "")) ?? null, membersById, projectId),
-    );
-    const ncrDocumentItems = ncrs.map((ncr) =>
-      this.mapNcrDocument(ncr, photosByNcr.get(ncr.id) ?? [], membersById, projectId),
-    );
+    const storedDocumentItems = documents
+      .filter((document) =>
+        this.canViewStoredDocument(currentUser, document, distributionsByDocument.get(document.id) ?? []),
+      )
+      .map((document) =>
+        this.mapStoredDocument(
+          document,
+          versionsByDocument.get(document.id) ?? [],
+          distributionsByDocument.get(document.id) ?? [],
+          membersById,
+          projectId,
+        ),
+      );
+    const reportDocumentItems = reports
+      .map((report) =>
+        this.mapReportDocument(report, photosByReport.get(report.id) ?? [], membersById, projectId),
+      )
+      .filter((document) => this.canViewDerivedDocument(currentUser.role, document));
+    const photoDocumentItems = photos
+      .map((photo) =>
+        this.mapPhotoDocument(
+          photo,
+          reportById.get(String(photo.report_id ?? "")) ?? null,
+          membersById,
+          projectId,
+        ),
+      )
+      .filter((document) => this.canViewDerivedDocument(currentUser.role, document));
+    const ncrDocumentItems = ncrs
+      .map((ncr) => this.mapNcrDocument(ncr, photosByNcr.get(ncr.id) ?? [], membersById, projectId))
+      .filter((document) => this.canViewDerivedDocument(currentUser.role, document));
 
     const allDocuments = [
       ...storedDocumentItems,
       ...reportDocumentItems,
       ...photoDocumentItems,
       ...ncrDocumentItems,
-    ].filter((document) => this.canViewDocument(currentUser.role, document));
+    ];
 
     const visibleDocumentIds = new Set(allDocuments.map((document) => document.id));
+    const currentVersionByDocumentId = new Map(
+      documents.map((document) => [document.id, document.current_version_id]),
+    );
     const visibleRecipients = distributions
-      .filter((distribution) => visibleDocumentIds.has(distribution.document_id))
+      .filter(
+        (distribution) =>
+          visibleDocumentIds.has(distribution.document_id) &&
+          distribution.version_id === currentVersionByDocumentId.get(distribution.document_id),
+      )
       .map((distribution) => ({
         acknowledgedAt: distribution.acknowledged_at
           ? formatDateTimeLabel(distribution.acknowledged_at)
@@ -851,13 +898,16 @@ export class DocumentsService {
     membersById: Map<string, ProjectMemberRow>,
     projectId: string,
   ): DocumentFilePayload {
+    const currentDistributions = document.current_version_id
+      ? distributions.filter((distribution) => distribution.version_id === document.current_version_id)
+      : distributions;
     const currentVersion =
       versions.find((version) => version.is_current) ??
       versions[versions.length - 1] ??
       null;
     const currentRevision = currentVersion?.version_label ?? "v1.0";
-    const readCount = distributions.filter((distribution) => distribution.acknowledged_at).length;
-    const recipients = distributions.length;
+    const readCount = currentDistributions.filter((distribution) => distribution.acknowledged_at).length;
+    const recipients = currentDistributions.length;
     const status = resolveDocumentStatus(document.status, recipients, readCount);
     const tone = resolveDocumentTone(status);
     const publishDate = formatIsoDate(currentVersion?.uploaded_at ?? document.created_at);
@@ -1212,6 +1262,61 @@ export class DocumentsService {
     return true;
   }
 
+  private canViewStoredDocument(
+    currentUser: AuthenticatedUser,
+    document: DocumentListRow,
+    distributions: DistributionRow[],
+  ) {
+    if (currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.CP) {
+      return true;
+    }
+
+    const visibilityRoles = parseVisibilityScopeRoles(document.visibility_scope);
+    const explicitShare = distributions.some(
+      (distribution) =>
+        distribution.user_id === currentUser.sub &&
+        (!document.current_version_id || distribution.version_id === document.current_version_id),
+    );
+
+    if (explicitShare) {
+      return true;
+    }
+
+    if (visibilityRoles.size > 0) {
+      return visibilityRoles.has(currentUser.role);
+    }
+
+    return this.canViewDocument(currentUser.role, {
+      documentType: mapHubTypeToUiDocumentType(document.hub_type),
+    } as DocumentFilePayload);
+  }
+
+  private canViewDerivedDocument(role: UserRole, document: DocumentFilePayload) {
+    const documentType = document.documentType ?? "plan";
+
+    if (role === UserRole.ADMIN || role === UserRole.CP) {
+      return true;
+    }
+
+    if (role === UserRole.BE) {
+      return documentType === "quality";
+    }
+
+    if (role === UserRole.CT) {
+      return documentType === "plan" || documentType === "report" || documentType === "photo" || documentType === "quality";
+    }
+
+    if (role === UserRole.CO) {
+      return documentType === "report" && document.status === "Courante";
+    }
+
+    if (role === UserRole.MO) {
+      return documentType === "report" && document.status === "Courante";
+    }
+
+    return false;
+  }
+
   private assertCanPublish(currentUser: AuthenticatedUser) {
     if (!DOCUMENT_EDIT_ROLES.has(currentUser.role)) {
       throw new ForbiddenException("You cannot publish or edit document metadata.");
@@ -1266,6 +1371,7 @@ export class DocumentsService {
          d.status::text AS status,
          d.created_by,
          d.created_at,
+         cv.id AS current_version_id,
          cv.version_label,
          cv.file_url,
          cv.file_key,
@@ -1286,8 +1392,9 @@ export class DocumentsService {
         AND cv.is_current = true
        LEFT JOIN document_versions dv
          ON dv.document_id = d.id
-       LEFT JOIN document_distributions dd
-         ON dd.document_id = d.id
+        LEFT JOIN document_distributions dd
+          ON dd.document_id = d.id
+         AND dd.version_id = cv.id
        WHERE d.project_id = $1
          AND d.id = $2
        GROUP BY d.id, cv.id
@@ -1372,6 +1479,7 @@ export class DocumentsService {
          d.status::text AS status,
          d.created_by,
          d.created_at,
+         cv.id AS current_version_id,
          cv.version_label,
          cv.file_url,
          cv.file_key,
@@ -1392,8 +1500,9 @@ export class DocumentsService {
         AND cv.is_current = true
        LEFT JOIN document_versions dv
          ON dv.document_id = d.id
-       LEFT JOIN document_distributions dd
-         ON dd.document_id = d.id
+        LEFT JOIN document_distributions dd
+          ON dd.document_id = d.id
+         AND dd.version_id = cv.id
        WHERE d.project_id = $1
        GROUP BY d.id, cv.id
        ORDER BY COALESCE(d.last_distributed_at, cv.uploaded_at, d.created_at) DESC`,
@@ -1440,6 +1549,7 @@ export class DocumentsService {
       `SELECT
          dd.id,
          dd.document_id,
+         dd.version_id,
          dd.audience,
          dd.sent_at,
          dd.read_at AS acknowledged_at,
@@ -1478,6 +1588,30 @@ export class DocumentsService {
     );
 
     return result.rows;
+  }
+
+  private async listHistoricalAudienceRecipientIds(
+    client: PoolClient,
+    projectId: string,
+    lot: string | null,
+    audience: string,
+  ) {
+    if (!lot) {
+      return [];
+    }
+
+    const result = await client.query<{ recipient_id: string }>(
+      `SELECT DISTINCT dd.recipient_id
+       FROM document_distributions dd
+       INNER JOIN documents d
+         ON d.id = dd.document_id
+       WHERE d.project_id = $1
+         AND d.lot = $2
+         AND dd.audience = $3`,
+      [projectId, lot, audience],
+    );
+
+    return result.rows.map((row) => row.recipient_id);
   }
 
   private async listReports(client: PoolClient, projectId: string) {
@@ -1751,16 +1885,66 @@ function buildDocumentKpis(documents: DocumentFilePayload[]) {
   ];
 }
 
-function resolveDistributionRecipients(members: ProjectMemberRow[], audience: string) {
-  if (audience === "Equipe projet complete" || audience.startsWith("Lot ")) {
-    return members;
+function resolveDistributionRecipients({
+  audience,
+  documentType,
+  historicalRecipientIds,
+  members,
+  visibilityRoles,
+}: {
+  audience: string;
+  documentType: DocumentFilePayload["documentType"];
+  historicalRecipientIds: string[];
+  members: ProjectMemberRow[];
+  visibilityRoles: Set<UserRole>;
+}) {
+  const scopedMembers = members.filter(
+    (member) =>
+      visibilityRoles.size === 0 || visibilityRoles.has(member.role as UserRole),
+  );
+
+  if (audience === "Equipe projet complete") {
+    return scopedMembers;
   }
 
-  const exactMember = members.find(
+  if (audience.startsWith("Lot ")) {
+    const historicalMembers = scopedMembers.filter((member) =>
+      historicalRecipientIds.includes(member.id),
+    );
+
+    if (historicalMembers.length > 0) {
+      return historicalMembers;
+    }
+
+    const financeLotRoles = new Set<UserRole>([
+      UserRole.ADMIN,
+      UserRole.CO,
+      UserRole.CP,
+      UserRole.MO,
+    ]);
+    const technicalLotRoles = new Set<UserRole>([
+      UserRole.ADMIN,
+      UserRole.BE,
+      UserRole.CP,
+      UserRole.CT,
+    ]);
+
+    const lotScopedMembers = scopedMembers.filter((member) => {
+      if (documentType === "finance") {
+        return financeLotRoles.has(member.role as UserRole);
+      }
+
+      return technicalLotRoles.has(member.role as UserRole);
+    });
+
+    return lotScopedMembers;
+  }
+
+  const exactMember = scopedMembers.find(
     (member) => `${member.full_name} - ${mapBackendRoleToLegacyLabel(member.role)}` === audience,
   );
 
-  return exactMember ? [exactMember] : members;
+  return exactMember ? [exactMember] : scopedMembers;
 }
 
 function resolveDocumentStatus(status: string, recipients: number, readCount: number) {
@@ -1847,6 +2031,14 @@ function buildVisibilityScopeLabel(value: unknown) {
     return "Partage / audit";
   }
   return "Projet / chantier";
+}
+
+function parseVisibilityScopeRoles(value: unknown) {
+  const roles = parseJsonArray(value)
+    .map((scope) => String(scope).trim().toUpperCase())
+    .filter((scope): scope is keyof typeof UserRole => scope in UserRole);
+
+  return new Set(roles.map((scope) => UserRole[scope]));
 }
 
 function normalizePriority(value: string | null | undefined) {

@@ -32,16 +32,14 @@ export async function GET(
     const token = request.cookies.get(sessionCookieName)?.value ?? "";
 
     if (shouldUseRebuildDocumentsBridge()) {
-      try {
-        const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
-        const bridgedPayload = await buildRebuildDocumentsPayload(rebuildAccessToken, projectId);
+      const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+      const bridgedPayload = await buildRebuildDocumentsPayload(rebuildAccessToken, projectId);
 
-        if (bridgedPayload) {
-          return NextResponse.json(bridgedPayload);
-        }
-      } catch (error) {
-        console.error("[documents bridge] fallback to legacy payload", error);
+      if (!bridgedPayload) {
+        return NextResponse.json({ error: "Erreur documents." }, { status: 500 });
       }
+
+      return NextResponse.json(bridgedPayload);
     }
 
     const payload = await getDocumentsPayload(token, projectId);
@@ -73,25 +71,23 @@ export async function POST(
           }
 
           if (shouldUseRebuildDocumentsBridge()) {
-            try {
-              const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
-              const bridgedPayload = await publishRebuildDocumentVersion(
-                rebuildAccessToken,
-                projectId,
-                {
-                  documentId: String(formData.get("documentId") ?? ""),
-                  file,
-                  format: String(formData.get("format") ?? ""),
-                  revision: String(formData.get("revision") ?? ""),
-                },
-              );
+            const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+            const bridgedPayload = await publishRebuildDocumentVersion(
+              rebuildAccessToken,
+              projectId,
+              {
+                documentId: String(formData.get("documentId") ?? ""),
+                file,
+                format: String(formData.get("format") ?? ""),
+                revision: String(formData.get("revision") ?? ""),
+              },
+            );
 
-              if (bridgedPayload) {
-                return NextResponse.json(bridgedPayload);
-              }
-            } catch (error) {
-              console.error("[documents bridge] publish fallback to legacy payload", error);
+            if (!bridgedPayload) {
+              return NextResponse.json({ error: "Erreur action documentaire." }, { status: 500 });
             }
+
+            return NextResponse.json(bridgedPayload);
           }
 
           const nextPayload = await uploadDocumentVersion(token, projectId, {
@@ -109,29 +105,27 @@ export async function POST(
           };
 
           if (shouldUseRebuildDocumentsBridge() && rebuildDocumentActions.has(body.action ?? "")) {
-            try {
-              const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
-              const bridgedPayload = await mutateRebuildDocumentsPayload(
-                rebuildAccessToken,
-                projectId,
-                body.action as
-                  | "acknowledge"
-                  | "distribute"
-                  | "mark-obsolete"
-                  | "toggle-offline"
-                  | "update-metadata",
-                {
-                  documentId: String(body.payload?.documentId ?? ""),
-                  ...body.payload,
-                },
-              );
+            const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+            const bridgedPayload = await mutateRebuildDocumentsPayload(
+              rebuildAccessToken,
+              projectId,
+              body.action as
+                | "acknowledge"
+                | "distribute"
+                | "mark-obsolete"
+                | "toggle-offline"
+                | "update-metadata",
+              {
+                documentId: String(body.payload?.documentId ?? ""),
+                ...body.payload,
+              },
+            );
 
-              if (bridgedPayload) {
-                return NextResponse.json(bridgedPayload);
-              }
-            } catch (error) {
-              console.error("[documents bridge] mutation fallback to legacy payload", error);
+            if (!bridgedPayload) {
+              return NextResponse.json({ error: "Erreur action documentaire." }, { status: 500 });
             }
+
+            return NextResponse.json(bridgedPayload);
           }
 
           const nextPayload = await mutateDocumentsPayload(

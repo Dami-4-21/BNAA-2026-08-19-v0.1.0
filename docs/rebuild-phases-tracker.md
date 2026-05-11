@@ -246,6 +246,8 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 - [x] compare versions
 - [x] offline preparation state
 - [x] Implement controlled distribution and per-recipient read traceability.
+- [x] Tighten document visibility so stored scopes, explicit sharing, and synthetic chantier evidence follow Phase 4 role rules more strictly.
+- [x] Preserve current-version distribution traceability across re-diffusions instead of wiping recipient read history.
 - [x] Implement current-version switching and obsolete-version rules.
 - [x] Normalize the current-version shortcut so the main document download always resolves the effective current revision.
 - [x] Implement role-aware visibility filtering by role, project context, document type, workflow relevance, and explicit sharing.
@@ -326,6 +328,7 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 - [x] Keep the current `/api/projects/[projectId]/documents` route path and response contract stable while introducing the unified document hub model behind adapters.
 - [x] Validate parity for plans, reports, photos/evidence, generated PDFs, and finance-linked documents inside the unified workspace.
 - [x] Replace the legacy documents route with rebuild-backed data once parity is validated.
+- [x] Remove silent legacy fallback from the live documents bridge once rebuild parity is validated.
 
 ### Phase 4 Exit Criteria
 

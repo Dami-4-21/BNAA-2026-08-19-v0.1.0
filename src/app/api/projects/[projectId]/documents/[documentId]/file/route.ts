@@ -17,22 +17,20 @@ export async function GET(
     const { projectId, documentId } = await params;
 
     if (shouldUseRebuildDocumentsBridge()) {
-      try {
-        const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
-        const asset = await downloadRebuildDocumentFile(rebuildAccessToken, projectId, documentId);
+      const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
+      const asset = await downloadRebuildDocumentFile(rebuildAccessToken, projectId, documentId);
 
-        if (asset) {
-          return new NextResponse(new Uint8Array(asset.bytes), {
-            headers: {
-              "Cache-Control": "private, max-age=300",
-              "Content-Disposition": `attachment; filename="${asset.fileName}"`,
-              "Content-Type": asset.mimeType,
-            },
-          });
-        }
-      } catch (error) {
-        console.error("[documents bridge] file fallback to legacy payload", error);
+      if (!asset) {
+        return NextResponse.json({ error: "Erreur lecture document." }, { status: 500 });
       }
+
+      return new NextResponse(new Uint8Array(asset.bytes), {
+        headers: {
+          "Cache-Control": "private, max-age=300",
+          "Content-Disposition": `attachment; filename="${asset.fileName}"`,
+          "Content-Type": asset.mimeType,
+        },
+      });
     }
 
     const token = request.cookies.get(sessionCookieName)?.value ?? "";
