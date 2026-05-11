@@ -2697,87 +2697,124 @@ function FinanceRightRail({
   };
 }) {
   return (
-    <div className="space-y-4">
-      <Panel title="Mes actions" description="Le cockpit recentre la file finance sur vos validations, relances et paiements.">
-        <div className="space-y-3">
-          {myActions.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              onClick={item.onClick}
-              className="w-full rounded-[20px] border border-stone-200 bg-white p-4 text-left transition-colors hover:bg-stone-50"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-stone-950">{item.label}</p>
-                <StatusBadge tone={item.tone}>{toneLabel(item.tone)}</StatusBadge>
-              </div>
-              <p className="mt-2 text-sm leading-6 text-stone-600">{item.detail}</p>
-              <p className="mt-3 text-sm font-semibold text-stone-900">{item.cta}</p>
-            </button>
-          ))}
-        </div>
-      </Panel>
-
-      <Panel title="Automations preview" description="Le design prepare deja les futurs automatismes finance sans exiger un nouveau backend aujourd'hui.">
-        <div className="space-y-3">
-          {automations.map((automation) => (
-            <div key={automation.label} className="rounded-[18px] border border-stone-200 bg-stone-50 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-stone-950">{automation.label}</p>
-                <StatusBadge tone={automation.tone}>{automation.state}</StatusBadge>
-              </div>
+    <Panel
+      title="Pilotage personnel"
+      description="Vos actions, automatismes, alertes, TVA et rentabilite sont regroupes dans un seul rail finance."
+      className="h-fit"
+    >
+      <div className="space-y-5">
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-stone-950">Mes actions</p>
+              <p className="mt-1 text-sm text-stone-600">
+                Validations, relances et paiements a traiter en priorite.
+              </p>
             </div>
-          ))}
-        </div>
-      </Panel>
-
-      <Panel title="Alertes" description="Les exceptions sont isolees ici pour accelerer les relances et les arbitrages.">
-        <div className="space-y-3">
-          {alerts.map((alert) => (
-            <div key={alert.label} className="rounded-[18px] border border-stone-200 bg-white p-4">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className={cx("size-4", alert.tone === "danger" ? "text-rose-500" : "text-amber-500")} />
-                <p className="text-sm font-semibold text-stone-950">{alert.label}</p>
-              </div>
-              <p className="mt-2 text-sm leading-6 text-stone-600">{alert.detail}</p>
-            </div>
-          ))}
-        </div>
-      </Panel>
-
-      <Panel title="TVA mini summary">
-        <div className="space-y-3 text-sm">
-          <MiniStat label="Collectee" value={formatCurrency(vatSummary.collectedTva)} />
-          <MiniStat label="Declaree" value={formatCurrency(vatSummary.declaredTva)} />
-          <MiniStat label="Ecart" value={formatCurrency(vatSummary.variance)} />
-          <MiniStat label="Statut" value={vatSummary.status} />
-        </div>
-      </Panel>
-
-      <Panel title="Rentabilite mini summary">
-        <div className="space-y-3 text-sm">
-          <MiniStat label="Budget vs reel" value={formatCurrency(profitabilitySummary.gap)} />
-          <MiniStat label="Tendance" value={profitabilitySummary.trend} />
-          <MiniStat label="Risque" value={profitabilitySummary.risk} />
-          <div className="pt-1">
-            <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-stone-500">
-              <span>Couverture budget</span>
-              <span>{profitabilitySummary.spentRatio}%</span>
-            </div>
-            <ProgressBar
-              value={Math.min(profitabilitySummary.spentRatio, 100)}
-              tone={
-                profitabilitySummary.spentRatio >= 95
-                  ? "danger"
-                  : profitabilitySummary.spentRatio >= 80
-                    ? "warning"
-                    : "success"
-              }
-            />
+            <StatusBadge tone="primary">{myActions.length} actives</StatusBadge>
           </div>
-        </div>
-      </Panel>
-    </div>
+          <div className="space-y-3">
+            {myActions.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={item.onClick}
+                className="w-full rounded-[20px] border border-stone-200 bg-white p-4 text-left transition-colors hover:bg-stone-50"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-stone-950">{item.label}</p>
+                  <StatusBadge tone={item.tone}>{toneLabel(item.tone)}</StatusBadge>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-stone-600">{item.detail}</p>
+                <p className="mt-3 text-sm font-semibold text-stone-900">{item.cta}</p>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <div className="border-t border-stone-200" />
+
+        <section className="space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-stone-950">Automations preview</p>
+            <p className="mt-1 text-sm text-stone-600">
+              Le cockpit prepare deja les futurs automatismes finance.
+            </p>
+          </div>
+          <div className="space-y-3">
+            {automations.map((automation) => (
+              <div key={automation.label} className="rounded-[18px] border border-stone-200 bg-stone-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-stone-950">{automation.label}</p>
+                  <StatusBadge tone={automation.tone}>{automation.state}</StatusBadge>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div className="border-t border-stone-200" />
+
+        <section className="space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-stone-950">Alertes</p>
+            <p className="mt-1 text-sm text-stone-600">
+              Les exceptions sont isolees pour accelerer les arbitrages.
+            </p>
+          </div>
+          <div className="space-y-3">
+            {alerts.map((alert) => (
+              <div key={alert.label} className="rounded-[18px] border border-stone-200 bg-white p-4">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className={cx("size-4", alert.tone === "danger" ? "text-rose-500" : "text-amber-500")} />
+                  <p className="text-sm font-semibold text-stone-950">{alert.label}</p>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-stone-600">{alert.detail}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div className="border-t border-stone-200" />
+
+        <section className="space-y-4">
+          <div className="rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+            <p className="text-sm font-semibold text-stone-950">TVA mini summary</p>
+            <div className="mt-4 space-y-3 text-sm">
+              <MiniStat label="Collectee" value={formatCurrency(vatSummary.collectedTva)} />
+              <MiniStat label="Declaree" value={formatCurrency(vatSummary.declaredTva)} />
+              <MiniStat label="Ecart" value={formatCurrency(vatSummary.variance)} />
+              <MiniStat label="Statut" value={vatSummary.status} />
+            </div>
+          </div>
+
+          <div className="rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+            <p className="text-sm font-semibold text-stone-950">Rentabilite mini summary</p>
+            <div className="mt-4 space-y-3 text-sm">
+              <MiniStat label="Budget vs reel" value={formatCurrency(profitabilitySummary.gap)} />
+              <MiniStat label="Tendance" value={profitabilitySummary.trend} />
+              <MiniStat label="Risque" value={profitabilitySummary.risk} />
+              <div className="pt-1">
+                <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-stone-500">
+                  <span>Couverture budget</span>
+                  <span>{profitabilitySummary.spentRatio}%</span>
+                </div>
+                <ProgressBar
+                  value={Math.min(profitabilitySummary.spentRatio, 100)}
+                  tone={
+                    profitabilitySummary.spentRatio >= 95
+                      ? "danger"
+                      : profitabilitySummary.spentRatio >= 80
+                        ? "warning"
+                        : "success"
+                  }
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </Panel>
   );
 }
 

@@ -374,6 +374,7 @@ Goal: rebuild the `Finance` domain on the new backend and frontend stack while p
 ### Frontend Tasks
 
 - [x] Align the live finance module to the finance-cockpit information architecture while preserving current route contracts and business actions during the rebuild bridge.
+- [x] Consolidate the finance right rail widgets into one shared cockpit card for denser desktop scanning.
 - [ ] Rebuild finance overview, statement, invoice, and payment screens on rebuild APIs.
 - [ ] Keep finance documents discoverable and traceable from the unified document hub without exposing unrelated technical/site files to finance roles.
 - [ ] Rebuild the finance step flow:
