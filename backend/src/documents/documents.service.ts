@@ -1271,23 +1271,35 @@ export class DocumentsService {
       return true;
     }
 
+    const documentType = mapHubTypeToUiDocumentType(document.hub_type);
     const visibilityRoles = parseVisibilityScopeRoles(document.visibility_scope);
+    const effectiveVisibilityRoles =
+      visibilityRoles.size > 0
+        ? visibilityRoles
+        : getDefaultVisibilityRolesForDocumentType(documentType);
     const explicitShare = distributions.some(
       (distribution) =>
         distribution.user_id === currentUser.sub &&
         (!document.current_version_id || distribution.version_id === document.current_version_id),
     );
 
+    if (currentUser.role === UserRole.CO) {
+      return (
+        documentType === "finance" &&
+        (explicitShare || effectiveVisibilityRoles.has(currentUser.role))
+      );
+    }
+
     if (explicitShare) {
       return true;
     }
 
-    if (visibilityRoles.size > 0) {
-      return visibilityRoles.has(currentUser.role);
+    if (effectiveVisibilityRoles.size > 0) {
+      return effectiveVisibilityRoles.has(currentUser.role);
     }
 
     return this.canViewDocument(currentUser.role, {
-      documentType: mapHubTypeToUiDocumentType(document.hub_type),
+      documentType,
     } as DocumentFilePayload);
   }
 
@@ -1898,9 +1910,13 @@ function resolveDistributionRecipients({
   members: ProjectMemberRow[];
   visibilityRoles: Set<UserRole>;
 }) {
+  const effectiveVisibilityRoles =
+    visibilityRoles.size > 0
+      ? visibilityRoles
+      : getDefaultVisibilityRolesForDocumentType(documentType);
   const scopedMembers = members.filter(
     (member) =>
-      visibilityRoles.size === 0 || visibilityRoles.has(member.role as UserRole),
+      effectiveVisibilityRoles.size === 0 || effectiveVisibilityRoles.has(member.role as UserRole),
   );
 
   if (audience === "Equipe projet complete") {
@@ -2039,6 +2055,24 @@ function parseVisibilityScopeRoles(value: unknown) {
     .filter((scope): scope is keyof typeof UserRole => scope in UserRole);
 
   return new Set(roles.map((scope) => UserRole[scope]));
+}
+
+function getDefaultVisibilityRolesForDocumentType(documentType: DocumentFilePayload["documentType"]) {
+  switch (documentType) {
+    case "finance":
+      return new Set<UserRole>([UserRole.ADMIN, UserRole.CO, UserRole.CP, UserRole.MO]);
+    case "quality":
+      return new Set<UserRole>([UserRole.ADMIN, UserRole.BE, UserRole.CP, UserRole.CT]);
+    case "photo":
+    case "report":
+      return new Set<UserRole>([UserRole.ADMIN, UserRole.CP, UserRole.CT, UserRole.MO]);
+    case "audit":
+    case "export":
+      return new Set<UserRole>([UserRole.ADMIN, UserRole.CP, UserRole.MO]);
+    case "plan":
+    default:
+      return new Set<UserRole>([UserRole.ADMIN, UserRole.BE, UserRole.CP, UserRole.CT, UserRole.MO]);
+  }
 }
 
 function normalizePriority(value: string | null | undefined) {

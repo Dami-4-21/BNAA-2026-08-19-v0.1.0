@@ -251,6 +251,7 @@ Reference: `docs/phase-4-document-hub-strategy.md`
 - [x] Implement current-version switching and obsolete-version rules.
 - [x] Normalize the current-version shortcut so the main document download always resolves the effective current revision.
 - [x] Implement role-aware visibility filtering by role, project context, document type, workflow relevance, and explicit sharing.
+- [x] Prevent finance-role users from inheriting unrelated technical document visibility through project-wide explicit distributions.
 - [x] Implement priority derivation so the rebuild payload can surface high/medium/low relevance per role.
 - [x] Prepare the document hub file model so it is object-storage-ready now; actual MinIO/presigned cutover remains in Phase 6 shared services.
 - [x] Implement PDF comparison support against rebuild version records.
