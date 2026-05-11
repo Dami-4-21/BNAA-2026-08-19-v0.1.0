@@ -151,11 +151,9 @@ type ActionCenterCard = {
 };
 
 type FinanceSidebarEntry = {
-  count?: number;
-  id: FinanceSectionId | `quick-${string}`;
+  id: FinanceSectionId;
   label: string;
   section: FinanceSectionId;
-  tab?: FinanceTab;
   filter?: QueueFilter;
 };
 
@@ -166,6 +164,14 @@ type LinkedFinanceDocument = {
   kind: string;
   status: string;
   url?: string;
+};
+
+type FinanceHealthSummary = {
+  overdueAmount: number;
+  profitabilityRisk: string;
+  profitabilityTrend: string;
+  remainingToCollect: number;
+  vatStatus: string;
 };
 
 const allManualInvoiceStatuses = [
@@ -1169,7 +1175,7 @@ function FinanceModuleContent({
         label: "Mes validations projet",
         onClick: () => {
           setQueueFilter("project-validation");
-          focusSection("billing", "invoices");
+          focusSection("billing");
         },
         tone: "warning",
       });
@@ -1182,7 +1188,7 @@ function FinanceModuleContent({
         label: "Mes validations client",
         onClick: () => {
           setQueueFilter("client-validation");
-          focusSection("billing", "invoices");
+          focusSection("billing");
         },
         tone: "warning",
       });
@@ -1195,7 +1201,7 @@ function FinanceModuleContent({
         label: "Mes paiements",
         onClick: () => {
           setQueueFilter("collectible");
-          focusSection("collections", "cashflow");
+          focusSection("collections");
         },
         tone: "primary",
       });
@@ -1208,7 +1214,7 @@ function FinanceModuleContent({
         label: "Mes retards",
         onClick: () => {
           setQueueFilter("overdue");
-          focusSection("collections", "cashflow");
+          focusSection("collections");
         },
         tone: "danger",
       });
@@ -1219,7 +1225,7 @@ function FinanceModuleContent({
         cta: "Rester en veille",
         detail: "Aucune action personnelle urgente n'est detectee pour le moment.",
         label: "Mes actions",
-        onClick: () => focusSection("overview", "dm"),
+        onClick: () => focusSection("overview"),
         tone: "success",
       });
     }
@@ -1228,55 +1234,17 @@ function FinanceModuleContent({
   })();
 
   const sidebarEntries = useMemo<FinanceSidebarEntry[]>(() => {
-    const projectValidations = projectValidationInvoices.length;
-    const clientValidations = clientValidationInvoices.length;
-    const paymentItems = collectibleInvoices.length;
-    const overdues = overdueInvoices.length;
-
     return [
-      { id: "overview", label: "Vue generale", section: "overview", tab: "dm" },
-      { id: "billing", label: "Facturation", section: "billing", tab: "invoices" },
-      { id: "collections", label: "Encaissements", section: "collections", tab: "cashflow" },
-      { id: "treasury", label: "Tresorerie", section: "treasury", tab: "cashflow" },
-      { id: "vat", label: "TVA & declarations", section: "vat", tab: "vat" },
-      { id: "profitability", label: "Rentabilite", section: "profitability", tab: "cashflow" },
-      { id: "documents", label: "Documents lies", section: "documents", tab: "invoices" },
-      { id: "archives", label: "Archives", section: "archives", tab: "invoices", filter: "paid" },
-      {
-        id: "quick-validations",
-        label: "Mes validations",
-        section: "billing",
-        tab: "invoices",
-        filter:
-          currentUserRole === "Maitre d'ouvrage"
-            ? "client-validation"
-            : "project-validation",
-        count: currentUserRole === "Maitre d'ouvrage" ? clientValidations : projectValidations,
-      },
-      {
-        id: "quick-payments",
-        label: "Mes paiements",
-        section: "collections",
-        tab: "cashflow",
-        filter: "collectible",
-        count: paymentItems,
-      },
-      {
-        id: "quick-overdue",
-        label: "Mes retards",
-        section: "collections",
-        tab: "cashflow",
-        filter: "overdue",
-        count: overdues,
-      },
+      { id: "overview", label: "Vue generale", section: "overview" },
+      { id: "billing", label: "Facturation", section: "billing" },
+      { id: "collections", label: "Encaissements", section: "collections" },
+      { id: "treasury", label: "Tresorerie", section: "treasury" },
+      { id: "vat", label: "TVA & declarations", section: "vat" },
+      { id: "profitability", label: "Rentabilite", section: "profitability" },
+      { id: "documents", label: "Documents lies", section: "documents" },
+      { id: "archives", label: "Archives", section: "archives", filter: "paid" },
     ];
-  }, [
-    clientValidationInvoices.length,
-    collectibleInvoices.length,
-    currentUserRole,
-    overdueInvoices.length,
-    projectValidationInvoices.length,
-  ]);
+  }, []);
 
   const nextPaymentInvoice = useMemo(
     () => overdueCollectibleInvoices[0] ?? collectibleInvoices[0] ?? null,
@@ -1327,11 +1295,10 @@ function FinanceModuleContent({
   }
 
   function focusSection(section: FinanceSectionId, tab?: FinanceTab) {
+    const nextTab = tab ?? mapSectionToTab(section);
     setActiveSection(section);
-    if (tab) {
-      setActiveTab(tab);
-      replaceModuleUrl(tab, drawerOpen ? selectedInvoice?.id : undefined);
-    }
+    setActiveTab(nextTab);
+    replaceModuleUrl(nextTab, drawerOpen ? selectedInvoice?.id : undefined);
 
     requestAnimationFrame(() => {
       document.getElementById(`finance-section-${section}`)?.scrollIntoView({
@@ -1345,7 +1312,7 @@ function FinanceModuleContent({
     if (entry.filter) {
       setQueueFilter(entry.filter);
     }
-    focusSection(entry.section, entry.tab);
+    focusSection(entry.section);
   }
 
   function applyProjectData(nextData: FinancePayload) {
@@ -1442,7 +1409,7 @@ function FinanceModuleContent({
         },
         "register-payment",
       );
-      focusSection("collections", "cashflow");
+      focusSection("collections");
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : "Paiement impossible.");
     }
@@ -1503,7 +1470,7 @@ function FinanceModuleContent({
 
   const financeActionCard = !selectedInvoice
     ? {
-        action: () => (canCreateInvoice ? focusSection("overview", "dm") : null),
+        action: () => (canCreateInvoice ? focusSection("overview") : null),
         canRun: canCreateInvoice && !pendingAction,
         helper: createInvoiceHelper,
         label: "Preparer le decompte",
@@ -1564,7 +1531,7 @@ function FinanceModuleContent({
         action={
           <button
             type="button"
-            onClick={() => focusSection("overview", "dm")}
+            onClick={() => focusSection("overview")}
             disabled={!canCreateInvoice || Boolean(pendingAction)}
             title={createInvoiceHelper}
             className={cx(
@@ -1580,7 +1547,7 @@ function FinanceModuleContent({
       />
 
       <Panel className="space-y-4">
-        <div className="grid gap-3 xl:grid-cols-[220px_220px_minmax(0,1fr)_auto_auto]">
+        <div className="grid gap-3 xl:grid-cols-[220px_220px_minmax(0,1fr)_auto]">
           <label className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
             <span className="text-xs uppercase tracking-[0.16em] text-stone-500">Projet</span>
             <select
@@ -1624,21 +1591,6 @@ function FinanceModuleContent({
 
           <button
             type="button"
-            onClick={() => (canCreateInvoice ? generateMonthlyStatement() : focusSection("overview", "dm"))}
-            disabled={!canCreateInvoice || pendingAction === "create-invoice"}
-            title={createInvoiceHelper}
-            className={cx(
-              "rounded-[20px] px-4 py-3 text-sm font-semibold",
-              canCreateInvoice && pendingAction !== "create-invoice"
-                ? "bg-black text-white hover:bg-stone-800"
-                : "cursor-not-allowed bg-stone-200 text-stone-500",
-            )}
-          >
-            {pendingAction === "create-invoice" ? "Generation..." : "Generer facture"}
-          </button>
-
-          <button
-            type="button"
             onClick={handleTopPaymentAction}
             disabled={!nextPaymentInvoice || !canRecordPayment || Boolean(pendingAction)}
             title={
@@ -1677,28 +1629,28 @@ function FinanceModuleContent({
             onClick={() => {
               if (metric.label === "DSO") {
                 setQueueFilter("overdue");
-                focusSection("collections", "cashflow");
+                focusSection("collections");
                 return;
               }
 
               if (metric.label.includes("Facturation")) {
                 setQueueFilter("sent");
-                focusSection("billing", "invoices");
+                focusSection("billing");
                 return;
               }
 
               if (metric.label.includes("budget")) {
-                focusSection("profitability", "cashflow");
+                focusSection("profitability");
                 return;
               }
 
               if (metric.label.includes("TVA")) {
-                focusSection("vat", "vat");
+                focusSection("vat");
                 return;
               }
 
               setQueueFilter("overdue");
-              focusSection("collections", "cashflow");
+              focusSection("collections");
             }}
             className="text-left"
           >
@@ -1732,7 +1684,7 @@ function FinanceModuleContent({
         </InlineNotice>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)_272px]">
+      <div className="grid gap-4 xl:grid-cols-[216px_minmax(0,1fr)_256px]">
         <FinanceSidebar
           activeEntryId={activeSection}
           entries={sidebarEntries}
@@ -1743,7 +1695,7 @@ function FinanceModuleContent({
         <div className="space-y-4">
           <section
             id="finance-section-overview"
-            className="grid gap-4 xl:grid-cols-[minmax(0,1.24fr)_minmax(340px,0.96fr)]"
+            className="grid gap-4 xl:grid-cols-[minmax(0,1.42fr)_minmax(300px,0.78fr)]"
           >
             <FinanceActionCenter
               activeFilter={queueFilter}
@@ -1753,7 +1705,7 @@ function FinanceModuleContent({
                 if (card.filter) {
                   setQueueFilter(card.filter);
                 }
-                focusSection(card.section, card.section === "overview" ? "dm" : "invoices");
+                focusSection(card.section);
               }}
             />
             <FinanceDecompteComposer
@@ -1765,14 +1717,6 @@ function FinanceModuleContent({
               setDmDraft={setDmDraft}
               vatRegime={vatRegime}
               onGenerate={generateMonthlyStatement}
-            />
-          </section>
-
-          <section id="finance-section-treasury">
-            <FinanceTreasuryPulse
-              chartData={chartData}
-              summary={treasurySummary}
-              treasuryAlert={overview.treasuryAlert}
             />
           </section>
 
@@ -1788,19 +1732,24 @@ function FinanceModuleContent({
             />
           </section>
 
-          <section id="finance-section-collections">
-            <FinanceCollectionsSection
-              agingBuckets={agingBuckets}
-              invoices={queueRecords.filter((invoice) => invoice.remainingAmount > 0)}
-              summary={collectionsSummary}
-              onSelectInvoice={(invoiceId) => openInvoiceDrawer(invoiceId, "payments")}
+          <section id="finance-section-treasury">
+            <FinanceTreasuryPulse
+              chartData={chartData}
+              summary={treasurySummary}
+              treasuryAlert={overview.treasuryAlert}
             />
           </section>
 
-          <section id="finance-section-documents">
-            <FinanceDocumentsProofs
-              documents={linkedDocuments}
-              onOpenDocumentsHub={openDocumentsHub}
+          <section id="finance-section-collections">
+            <FinanceCollectionsSection
+              agingBuckets={agingBuckets}
+              collectibleCount={collectibleInvoices.length}
+              overdueCount={overdueCollectibleInvoices.length}
+              onOpenQueue={(filter) => {
+                setQueueFilter(filter);
+                focusSection("billing");
+              }}
+              summary={collectionsSummary}
             />
           </section>
 
@@ -1819,6 +1768,13 @@ function FinanceModuleContent({
             </section>
           </div>
 
+          <section id="finance-section-documents">
+            <FinanceDocumentsProofs
+              documents={linkedDocuments}
+              onOpenDocumentsHub={openDocumentsHub}
+            />
+          </section>
+
           <section id="finance-section-archives">
             <FinanceArchivesSection
               invoices={queueRecords.filter((invoice) => invoice.displayStatus === "Payee" || invoice.status === "Litigieuse")}
@@ -1829,10 +1785,17 @@ function FinanceModuleContent({
 
         <FinanceRightRail
           alerts={buildFinanceAlerts(queueRecords, overview.treasuryAlert)}
-          automations={buildAutomationPreview(queueRecords, declaration)}
+          healthSummary={{
+            overdueAmount: overdueCollectibleInvoices.reduce(
+              (sum, invoice) => sum + invoice.remainingAmount,
+              0,
+            ),
+            profitabilityRisk: profitabilitySummary.risk,
+            profitabilityTrend: profitabilitySummary.trend,
+            remainingToCollect: collectionsSummary.totalRemaining,
+            vatStatus: declaration.status,
+          }}
           myActions={myActions}
-          profitabilitySummary={profitabilitySummary}
-          vatSummary={declaration}
         />
       </div>
 
@@ -1883,66 +1846,33 @@ function FinanceSidebar({
   onSelect: (entry: FinanceSidebarEntry) => void;
   queueFilter: QueueFilter;
 }) {
-  const mainEntries = entries.filter((entry) => !String(entry.id).startsWith("quick-"));
-  const quickEntries = entries.filter((entry) => String(entry.id).startsWith("quick-"));
-
   return (
     <Panel className="h-fit xl:sticky xl:top-24">
-      <div className="space-y-5">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
-            Navigation finance
-          </p>
-          <div className="mt-3 space-y-2">
-            {mainEntries.map((entry) => {
-              const isActive = activeEntryId === entry.section && (!entry.filter || entry.filter === queueFilter);
-              return (
-                <button
-                  key={entry.id}
-                  type="button"
-                  onClick={() => onSelect(entry)}
-                  className={cx(
-                    "flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left text-sm transition-colors",
-                    isActive
-                      ? "border-black bg-black text-white"
-                      : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50",
-                  )}
-                >
-                  <span>{entry.label}</span>
-                  <ChevronRight className="size-4" />
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
-            Vues rapides
-          </p>
-          <div className="mt-3 space-y-2">
-            {quickEntries.map((entry) => {
-              const isActive = entry.filter === queueFilter;
-              return (
-                <button
-                  key={entry.id}
-                  type="button"
-                  onClick={() => onSelect(entry)}
-                  className={cx(
-                    "flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left text-sm transition-colors",
-                    isActive
-                      ? "border-black bg-black text-white"
-                      : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50",
-                  )}
-                >
-                  <span>{entry.label}</span>
-                  <span className={cx("text-xs font-semibold", isActive ? "text-white/70" : "text-stone-500")}>
-                    {entry.count ?? 0}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+          Navigation finance
+        </p>
+        <div className="mt-3 space-y-2">
+          {entries.map((entry) => {
+            const isActive =
+              activeEntryId === entry.section && (!entry.filter || entry.filter === queueFilter);
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                onClick={() => onSelect(entry)}
+                className={cx(
+                  "flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left text-sm transition-colors",
+                  isActive
+                    ? "border-black bg-black text-white"
+                    : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50",
+                )}
+              >
+                <span>{entry.label}</span>
+                <ChevronRight className="size-4" />
+              </button>
+            );
+          })}
         </div>
       </div>
     </Panel>
@@ -2081,9 +2011,9 @@ function FinanceDecompteComposer({
   return (
     <Panel
       title="Preparer le decompte du mois"
-      description="Le DM reste le point de depart du circuit finance. Verifiez les montants avant de generer la facture."
+      description="Le DM lance le cycle mensuel. Verifiez les montants avant generation."
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_252px]">
         <div className="space-y-4">
           <label className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
             <span className="text-xs uppercase tracking-[0.16em] text-stone-500">Periode de facturation</span>
@@ -2416,19 +2346,21 @@ function FinanceBillingQueue({
 
 function FinanceCollectionsSection({
   agingBuckets,
-  invoices,
+  collectibleCount,
+  onOpenQueue,
+  overdueCount,
   summary,
-  onSelectInvoice,
 }: {
   agingBuckets: Array<{ key: string; label: string; tone: Tone; value: number }>;
-  invoices: QueueRecord[];
+  collectibleCount: number;
+  onOpenQueue: (filter: QueueFilter) => void;
+  overdueCount: number;
   summary: { totalInvoiced: number; totalPaid: number; totalRemaining: number };
-  onSelectInvoice: (invoiceId: string) => void;
 }) {
   return (
     <Panel
       title="Encaissements"
-      description="Les retards et restes a encaisser sont regroupes par anciennete pour prioriser les relances."
+      description="Les encaissements sont resumes par anciennete et volume. Le detail operatoire reste dans la file active."
     >
       <div className="grid gap-3 md:grid-cols-4">
         {agingBuckets.map((bucket) => (
@@ -2450,30 +2382,33 @@ function FinanceCollectionsSection({
         <CompactSummaryCard label="Restant" value={formatCurrency(summary.totalRemaining)} tone="warning" />
       </div>
 
-      <div className="mt-4 space-y-3">
-        {invoices.slice(0, 6).map((invoice) => (
-          <button
-            key={invoice.id}
-            type="button"
-            onClick={() => onSelectInvoice(invoice.id)}
-            className="flex w-full items-start justify-between rounded-[20px] border border-stone-200 bg-white px-4 py-4 text-left transition-colors hover:bg-stone-50"
-          >
-            <div>
-              <p className="text-sm font-semibold text-stone-950">{invoice.invoiceNumber}</p>
-              <p className="mt-1 text-sm text-stone-600">
-                {invoice.project} · {formatDate(invoice.dueDate)}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm font-semibold text-stone-950">
-                {formatCurrency(invoice.remainingAmount)}
-              </p>
-              <p className={cx("mt-1 text-xs", invoice.isOverdue ? "text-rose-600" : "text-stone-500")}>
-                {invoice.isOverdue ? `${invoice.overdueDays} j de retard` : "Courant"}
-              </p>
-            </div>
-          </button>
-        ))}
+      <div className="mt-4 rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-stone-950">Lecture encaissements</p>
+            <p className="mt-2 text-sm leading-6 text-stone-600">
+              {overdueCount > 0
+                ? `${overdueCount} retard(s) restent a relancer. Le detail des factures se traite dans la file active.`
+                : "Les factures encaissables et les relances se traitent dans la file active pour eviter une seconde file de travail."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => onOpenQueue("collectible")}
+              className="rounded-[16px] border border-stone-200 bg-white px-4 py-3 text-sm font-semibold text-stone-900 hover:bg-stone-100"
+            >
+              Voir les encaissements ({collectibleCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenQueue("overdue")}
+              className="rounded-[16px] border border-stone-200 bg-white px-4 py-3 text-sm font-semibold text-stone-900 hover:bg-stone-100"
+            >
+              Voir les retards ({overdueCount})
+            </button>
+          </div>
+        </div>
       </div>
     </Panel>
   );
@@ -2685,34 +2620,17 @@ function FinanceArchivesSection({
 
 function FinanceRightRail({
   alerts,
-  automations,
+  healthSummary,
   myActions,
-  profitabilitySummary,
-  vatSummary,
 }: {
   alerts: Array<{ detail: string; label: string; tone: Tone }>;
-  automations: Array<{ label: string; state: string; tone: Tone }>;
+  healthSummary: FinanceHealthSummary;
   myActions: Array<{ cta: string; detail: string; label: string; onClick: () => void; tone: Tone }>;
-  profitabilitySummary: {
-    budget: number;
-    gap: number;
-    realCosts: number;
-    risk: string;
-    spentRatio: number;
-    trend: string;
-  };
-  vatSummary: {
-    month: string;
-    collectedTva: number;
-    declaredTva: number;
-    variance: number;
-    status: string;
-  };
 }) {
   return (
     <Panel
       title="Pilotage personnel"
-      description="Vos actions, automatismes, alertes, TVA et rentabilite sont regroupes dans un seul rail finance."
+      description="Vos actions, alertes et indicateurs de sante finance sont regroupes dans un rail plus compact."
       className="h-fit xl:sticky xl:top-24"
     >
       <div className="space-y-4">
@@ -2749,27 +2667,6 @@ function FinanceRightRail({
 
         <section className="space-y-3">
           <div>
-            <p className="text-sm font-semibold text-stone-950">Automations preview</p>
-            <p className="mt-1 text-xs leading-5 text-stone-600">
-              Lecture rapide des automatismes prepares.
-            </p>
-          </div>
-          <div className="space-y-3">
-            {automations.map((automation) => (
-              <div key={automation.label} className="rounded-[18px] border border-stone-200 bg-stone-50 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-stone-950">{automation.label}</p>
-                  <StatusBadge tone={automation.tone}>{automation.state}</StatusBadge>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <div className="border-t border-stone-200" />
-
-        <section className="space-y-3">
-          <div>
             <p className="text-sm font-semibold text-stone-950">Alertes</p>
             <p className="mt-1 text-xs leading-5 text-stone-600">
               Les exceptions sont isolees pour accelerer les arbitrages.
@@ -2790,40 +2687,24 @@ function FinanceRightRail({
 
         <div className="border-t border-stone-200" />
 
-        <section className="grid gap-3">
-          <div className="rounded-[18px] border border-stone-200 bg-stone-50 p-3">
-            <p className="text-sm font-semibold text-stone-950">TVA mini summary</p>
-            <div className="mt-3 space-y-2 text-sm">
-              <MiniStat label="Collectee" value={formatCurrency(vatSummary.collectedTva)} />
-              <MiniStat label="Declaree" value={formatCurrency(vatSummary.declaredTva)} />
-              <MiniStat label="Ecart" value={formatCurrency(vatSummary.variance)} />
-              <MiniStat label="Statut" value={vatSummary.status} />
+        <section className="rounded-[18px] border border-stone-200 bg-stone-50 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-stone-950">Sante financiere</p>
+              <p className="mt-1 text-xs leading-5 text-stone-600">
+                Lecture synthese pour savoir quoi relancer et quel niveau de pression garder en tete.
+              </p>
             </div>
+            <StatusBadge tone={healthSummary.overdueAmount > 0 ? "warning" : "success"}>
+              {healthSummary.overdueAmount > 0 ? "Sous tension" : "Stable"}
+            </StatusBadge>
           </div>
 
-          <div className="rounded-[18px] border border-stone-200 bg-stone-50 p-3">
-            <p className="text-sm font-semibold text-stone-950">Rentabilite mini summary</p>
-            <div className="mt-3 space-y-2 text-sm">
-              <MiniStat label="Budget vs reel" value={formatCurrency(profitabilitySummary.gap)} />
-              <MiniStat label="Tendance" value={profitabilitySummary.trend} />
-              <MiniStat label="Risque" value={profitabilitySummary.risk} />
-              <div className="pt-1">
-                <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-stone-500">
-                  <span>Couverture budget</span>
-                  <span>{profitabilitySummary.spentRatio}%</span>
-                </div>
-                <ProgressBar
-                  value={Math.min(profitabilitySummary.spentRatio, 100)}
-                  tone={
-                    profitabilitySummary.spentRatio >= 95
-                      ? "danger"
-                      : profitabilitySummary.spentRatio >= 80
-                        ? "warning"
-                        : "success"
-                  }
-                />
-              </div>
-            </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <CompactSummaryCard label="A encaisser" value={formatCurrency(healthSummary.remainingToCollect)} tone={healthSummary.remainingToCollect > 0 ? "warning" : "success"} />
+            <CompactSummaryCard label="Montant en retard" value={formatCurrency(healthSummary.overdueAmount)} tone={healthSummary.overdueAmount > 0 ? "danger" : "success"} />
+            <CompactSummaryCard label="TVA" value={healthSummary.vatStatus} />
+            <CompactSummaryCard label="Rentabilite" value={healthSummary.profitabilityTrend} tone={healthSummary.profitabilityRisk === "Risque eleve" ? "danger" : healthSummary.profitabilityRisk === "Sous tension" ? "warning" : "success"} />
           </div>
         </section>
       </div>
@@ -3331,6 +3212,24 @@ function mapTabToSection(tab: FinanceTab): FinanceSectionId {
   }
 }
 
+function mapSectionToTab(section: FinanceSectionId): FinanceTab {
+  switch (section) {
+    case "billing":
+    case "documents":
+    case "archives":
+      return "invoices";
+    case "vat":
+      return "vat";
+    case "collections":
+    case "treasury":
+    case "profitability":
+      return "cashflow";
+    case "overview":
+    default:
+      return "dm";
+  }
+}
+
 function deriveQueueAction(invoice: QueueRecord) {
   if (invoice.displayStatus === "Litigieuse") {
     return {
@@ -3418,41 +3317,3 @@ function buildFinanceAlerts(queueRecords: QueueRecord[], treasuryAlert: string) 
   return alerts.slice(0, 3);
 }
 
-function buildAutomationPreview(
-  queueRecords: QueueRecord[],
-  declaration: {
-    month: string;
-    collectedTva: number;
-    declaredTva: number;
-    variance: number;
-    status: string;
-  },
-) {
-  const overdueInvoices = queueRecords.filter((invoice) => invoice.isOverdue).length;
-  return [
-    {
-      label: "DM auto-calcule",
-      state: queueRecords.some((invoice) => invoice.sourceProgress > 0) ? "Pret" : "En attente",
-      tone: queueRecords.some((invoice) => invoice.sourceProgress > 0) ? ("success" as Tone) : ("neutral" as Tone),
-    },
-    {
-      label: "Relances automatiques",
-      state: overdueInvoices > 0 ? `${overdueInvoices} cible(s)` : "Stable",
-      tone: overdueInvoices > 0 ? ("warning" as Tone) : ("success" as Tone),
-    },
-    {
-      label: "TVA pre-remplie",
-      state: declaration.status,
-      tone: declaration.variance === 0 ? ("success" as Tone) : ("warning" as Tone),
-    },
-    {
-      label: "Rappels de paiement",
-      state: queueRecords.some((invoice) => invoice.validatedByMo && invoice.remainingAmount > 0)
-        ? "Disponibles"
-        : "Aucun besoin",
-      tone: queueRecords.some((invoice) => invoice.validatedByMo && invoice.remainingAmount > 0)
-        ? ("primary" as Tone)
-        : ("neutral" as Tone),
-    },
-  ];
-}
