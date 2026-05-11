@@ -1664,7 +1664,7 @@ function FinanceModuleContent({
         <div className="space-y-4">
           <section
             id="finance-section-overview"
-            className="grid gap-4 xl:grid-cols-[minmax(0,1.62fr)_minmax(280px,0.7fr)]"
+            className="space-y-4"
           >
             <FinanceActionCenter
               activeFilter={queueFilter}
