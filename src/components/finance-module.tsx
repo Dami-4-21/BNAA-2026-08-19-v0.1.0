@@ -150,13 +150,6 @@ type ActionCenterCard = {
   filter?: QueueFilter;
 };
 
-type FinanceSidebarEntry = {
-  id: FinanceSectionId;
-  label: string;
-  section: FinanceSectionId;
-  filter?: QueueFilter;
-};
-
 type LinkedFinanceDocument = {
   actionLabel: string;
   description: string;
@@ -597,7 +590,6 @@ function FinanceModuleContent({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<FinanceTab>("dm");
-  const [activeSection, setActiveSection] = useState<FinanceSectionId>("overview");
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("all");
   const [overview, setOverview] = useState(projectData.overview);
   const [invoices, setInvoices] = useState<InvoiceItem[]>(projectData.invoices);
@@ -1233,19 +1225,6 @@ function FinanceModuleContent({
     return items.slice(0, 3);
   })();
 
-  const sidebarEntries = useMemo<FinanceSidebarEntry[]>(() => {
-    return [
-      { id: "overview", label: "Vue generale", section: "overview" },
-      { id: "billing", label: "Facturation", section: "billing" },
-      { id: "collections", label: "Encaissements", section: "collections" },
-      { id: "treasury", label: "Tresorerie", section: "treasury" },
-      { id: "vat", label: "TVA & declarations", section: "vat" },
-      { id: "profitability", label: "Rentabilite", section: "profitability" },
-      { id: "documents", label: "Documents lies", section: "documents" },
-      { id: "archives", label: "Archives", section: "archives", filter: "paid" },
-    ];
-  }, []);
-
   const nextPaymentInvoice = useMemo(
     () => overdueCollectibleInvoices[0] ?? collectibleInvoices[0] ?? null,
     [collectibleInvoices, overdueCollectibleInvoices],
@@ -1266,8 +1245,14 @@ function FinanceModuleContent({
     startTransition(() => {
       if (tab && ["dm", "invoices", "vat", "cashflow"].includes(tab)) {
         const mappedTab = tab as FinanceTab;
+        const mappedSection = mapTabToSection(mappedTab);
         setActiveTab(mappedTab);
-        setActiveSection(mapTabToSection(mappedTab));
+        requestAnimationFrame(() => {
+          document.getElementById(`finance-section-${mappedSection}`)?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        });
       }
 
       if (invoiceId && nextInvoice) {
@@ -1296,7 +1281,6 @@ function FinanceModuleContent({
 
   function focusSection(section: FinanceSectionId, tab?: FinanceTab) {
     const nextTab = tab ?? mapSectionToTab(section);
-    setActiveSection(section);
     setActiveTab(nextTab);
     replaceModuleUrl(nextTab, drawerOpen ? selectedInvoice?.id : undefined);
 
@@ -1306,13 +1290,6 @@ function FinanceModuleContent({
         block: "start",
       });
     });
-  }
-
-  function handleSidebarSelect(entry: FinanceSidebarEntry) {
-    if (entry.filter) {
-      setQueueFilter(entry.filter);
-    }
-    focusSection(entry.section);
   }
 
   function applyProjectData(nextData: FinancePayload) {
@@ -1438,7 +1415,6 @@ function FinanceModuleContent({
     }
     setDrawerTab(nextDrawerTab);
     setDrawerOpen(true);
-    setActiveSection("billing");
     setActiveTab("invoices");
     replaceModuleUrl("invoices", invoiceId);
   }
@@ -1684,18 +1660,11 @@ function FinanceModuleContent({
         </InlineNotice>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[216px_minmax(0,1fr)_256px]">
-        <FinanceSidebar
-          activeEntryId={activeSection}
-          entries={sidebarEntries}
-          onSelect={handleSidebarSelect}
-          queueFilter={queueFilter}
-        />
-
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_248px]">
         <div className="space-y-4">
           <section
             id="finance-section-overview"
-            className="grid gap-4 xl:grid-cols-[minmax(0,1.42fr)_minmax(300px,0.78fr)]"
+            className="grid gap-4 xl:grid-cols-[minmax(0,1.62fr)_minmax(280px,0.7fr)]"
           >
             <FinanceActionCenter
               activeFilter={queueFilter}
@@ -1832,50 +1801,6 @@ function FinanceModuleContent({
         workflowSteps={workflowSteps}
       />
     </div>
-  );
-}
-
-function FinanceSidebar({
-  activeEntryId,
-  entries,
-  onSelect,
-  queueFilter,
-}: {
-  activeEntryId: string;
-  entries: FinanceSidebarEntry[];
-  onSelect: (entry: FinanceSidebarEntry) => void;
-  queueFilter: QueueFilter;
-}) {
-  return (
-    <Panel className="h-fit xl:sticky xl:top-24">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
-          Navigation finance
-        </p>
-        <div className="mt-3 space-y-2">
-          {entries.map((entry) => {
-            const isActive =
-              activeEntryId === entry.section && (!entry.filter || entry.filter === queueFilter);
-            return (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => onSelect(entry)}
-                className={cx(
-                  "flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left text-sm transition-colors",
-                  isActive
-                    ? "border-black bg-black text-white"
-                    : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50",
-                )}
-              >
-                <span>{entry.label}</span>
-                <ChevronRight className="size-4" />
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </Panel>
   );
 }
 
