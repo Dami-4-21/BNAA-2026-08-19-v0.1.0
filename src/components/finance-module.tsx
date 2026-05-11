@@ -1909,7 +1909,7 @@ function FinanceActionCenter({
             type="button"
             onClick={() => onCardSelect(card)}
             className={cx(
-              "flex h-full min-h-[148px] flex-col rounded-[20px] border p-4 text-left transition-colors",
+              "flex h-full min-h-[124px] flex-col rounded-[18px] border px-4 py-3.5 text-left transition-colors",
               index === actionCards.length - 1 ? "lg:col-span-2" : "",
               activeFilter === card.filter
                 ? "border-black bg-black text-white"
@@ -1921,7 +1921,7 @@ function FinanceActionCenter({
                 <p className={cx("text-xs uppercase tracking-[0.16em]", activeFilter === card.filter ? "text-white/65" : "text-stone-500")}>
                   {card.label}
                 </p>
-                <p className="mt-3 font-display text-2xl font-semibold">
+                <p className="mt-2.5 font-display text-[1.7rem] font-semibold leading-none">
                   {card.count}
                 </p>
               </div>
@@ -1929,13 +1929,13 @@ function FinanceActionCenter({
             </div>
             <p
               className={cx(
-                "mt-4 flex-1 text-sm leading-6",
+                "mt-3 flex-1 text-sm leading-5",
                 activeFilter === card.filter ? "text-white/75" : "text-stone-600",
               )}
             >
               {card.helper}
             </p>
-            <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold">
+            <div className="mt-3 inline-flex items-center gap-2 text-sm font-semibold">
               Voir la file
               <ChevronRight className="size-4" />
             </div>
@@ -1943,19 +1943,19 @@ function FinanceActionCenter({
         ))}
       </div>
 
-      <div className="mt-4 rounded-[22px] border border-stone-200 bg-stone-50 p-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mt-4 rounded-[20px] border border-stone-200 bg-stone-50 px-4 py-3.5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Prochaine action</p>
-            <p className="mt-2 text-lg font-semibold text-stone-950">{financeActionCard.label}</p>
-            <p className="mt-2 text-sm leading-6 text-stone-600">{financeActionCard.helper}</p>
+            <p className="mt-1.5 text-base font-semibold text-stone-950">{financeActionCard.label}</p>
+            <p className="mt-1.5 text-sm leading-5 text-stone-600">{financeActionCard.helper}</p>
           </div>
           <button
             type="button"
             onClick={financeActionCard.action}
             disabled={!financeActionCard.canRun}
             className={cx(
-              "inline-flex items-center justify-center gap-2 rounded-[18px] px-4 py-3 text-sm font-semibold",
+              "inline-flex items-center justify-center gap-2 rounded-[16px] px-4 py-2.5 text-sm font-semibold",
               financeActionCard.canRun
                 ? "bg-black text-white hover:bg-stone-800"
                 : "cursor-not-allowed bg-stone-200 text-stone-500",
@@ -2230,7 +2230,7 @@ function FinanceBillingQueue({
             type="button"
             onClick={() => onFilterChange(filter.key)}
             className={cx(
-              "rounded-full border px-3 py-2 text-sm font-semibold transition-colors",
+              "rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] transition-colors",
               activeFilter === filter.key
                 ? "border-black bg-black text-white"
                 : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50",
@@ -2249,20 +2249,20 @@ function FinanceBillingQueue({
           />
         </div>
       ) : (
-        <div className="mt-4 overflow-hidden rounded-[22px] border border-stone-200">
+        <div className="mt-4 overflow-hidden rounded-[20px] border border-stone-200">
           <div className="overflow-x-auto">
             <table className="min-w-full border-collapse">
-              <thead className="bg-stone-100 text-left text-xs uppercase tracking-[0.16em] text-stone-500">
+              <thead className="bg-stone-100 text-left text-[11px] uppercase tracking-[0.16em] text-stone-500">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Periode</th>
-                  <th className="px-4 py-3 font-semibold">Projet</th>
-                  <th className="px-4 py-3 font-semibold">Avancement</th>
-                  <th className="px-4 py-3 font-semibold">Facture</th>
-                  <th className="px-4 py-3 font-semibold">Statut</th>
-                  <th className="px-4 py-3 font-semibold">Echeance</th>
-                  <th className="px-4 py-3 font-semibold">Restant</th>
-                  <th className="px-4 py-3 font-semibold">Paiement</th>
-                  <th className="px-4 py-3 font-semibold">Action</th>
+                  <th className="px-3.5 py-2.5 font-semibold">Periode</th>
+                  <th className="px-3.5 py-2.5 font-semibold">Projet</th>
+                  <th className="px-3.5 py-2.5 font-semibold">Avancement</th>
+                  <th className="px-3.5 py-2.5 font-semibold">Facture</th>
+                  <th className="px-3.5 py-2.5 font-semibold">Statut</th>
+                  <th className="px-3.5 py-2.5 font-semibold">Echeance</th>
+                  <th className="px-3.5 py-2.5 font-semibold">Restant</th>
+                  <th className="px-3.5 py-2.5 font-semibold">Paiement</th>
+                  <th className="px-3.5 py-2.5 font-semibold">Action</th>
                 </tr>
               </thead>
               <tbody className="bg-white">
@@ -2274,29 +2274,34 @@ function FinanceBillingQueue({
                       onClick={() => onRowClick(invoice.id)}
                       className="cursor-pointer border-t border-stone-100 align-top transition-colors hover:bg-stone-50"
                     >
-                      <td className="px-4 py-4 text-sm text-stone-700">{formatDate(invoice.periodMonth)}</td>
-                      <td className="px-4 py-4 text-sm text-stone-700">{invoice.project}</td>
-                      <td className="px-4 py-4">
-                        <div className="space-y-2">
+                      <td className="px-3.5 py-3.5 text-sm text-stone-700">{formatDate(invoice.periodMonth)}</td>
+                      <td className="px-3.5 py-3.5">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-stone-950">{invoice.project}</p>
+                          <p className="text-xs text-stone-500">{invoice.projectId}</p>
+                        </div>
+                      </td>
+                      <td className="px-3.5 py-3.5">
+                        <div className="space-y-1.5">
                           <p className="text-sm font-semibold text-stone-950">{invoice.sourceProgress}%</p>
                           <ProgressBar value={invoice.sourceProgress} tone="primary" />
                         </div>
                       </td>
-                      <td className="px-4 py-4">
+                      <td className="px-3.5 py-3.5">
                         <div className="space-y-1">
                           <p className="text-sm font-semibold text-stone-950">{invoice.invoiceNumber}</p>
                           <p className="text-xs text-stone-500">{formatCurrency(invoice.amountTtc)} TTC</p>
                         </div>
                       </td>
-                      <td className="px-4 py-4">
-                        <div className="space-y-2">
+                      <td className="px-3.5 py-3.5">
+                        <div className="space-y-1.5">
                           <StatusBadge tone={getQueueStatusTone(invoice.displayStatus)}>
                             {invoice.displayStatus}
                           </StatusBadge>
-                          <p className="text-xs leading-5 text-stone-500">{action.helper}</p>
+                          <p className="max-w-[180px] text-xs leading-5 text-stone-500">{action.helper}</p>
                         </div>
                       </td>
-                      <td className="px-4 py-4">
+                      <td className="px-3.5 py-3.5">
                         <div className="space-y-1">
                           <p className="text-sm font-semibold text-stone-950">{formatDate(invoice.dueDate)}</p>
                           <p className={cx("text-xs", invoice.isOverdue ? "text-rose-600" : "text-stone-500")}>
@@ -2304,11 +2309,18 @@ function FinanceBillingQueue({
                           </p>
                         </div>
                       </td>
-                      <td className="px-4 py-4 text-sm font-semibold text-stone-950">
-                        {formatCurrency(invoice.remainingAmount)}
+                      <td className="px-3.5 py-3.5">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-stone-950">
+                            {formatCurrency(invoice.remainingAmount)}
+                          </p>
+                          <p className="text-xs text-stone-500">
+                            HT {formatCurrency(invoice.amountHt)}
+                          </p>
+                        </div>
                       </td>
-                      <td className="px-4 py-4">
-                        <div className="space-y-2">
+                      <td className="px-3.5 py-3.5">
+                        <div className="space-y-1.5">
                           <div className="flex items-center justify-between text-xs text-stone-500">
                             <span>{invoice.coverage}%</span>
                             <span>{formatCurrency(invoice.paidAmount)}</span>
@@ -2319,14 +2331,14 @@ function FinanceBillingQueue({
                           />
                         </div>
                       </td>
-                      <td className="px-4 py-4">
+                      <td className="px-3.5 py-3.5">
                         <button
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation();
                             onAction(invoice, action.drawerTab);
                           }}
-                          className="inline-flex items-center gap-2 rounded-[16px] border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-100"
+                          className="inline-flex items-center gap-2 rounded-[14px] border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-100"
                         >
                           {action.label}
                           <ChevronRight className="size-4" />
@@ -2364,12 +2376,12 @@ function FinanceCollectionsSection({
     >
       <div className="grid gap-3 md:grid-cols-4">
         {agingBuckets.map((bucket) => (
-          <div key={bucket.key} className="rounded-[20px] border border-stone-200 bg-white p-4">
+          <div key={bucket.key} className="rounded-[18px] border border-stone-200 bg-white p-3.5">
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs uppercase tracking-[0.16em] text-stone-500">{bucket.label}</p>
               <StatusBadge tone={bucket.tone}>{toneLabel(bucket.tone)}</StatusBadge>
             </div>
-            <p className="mt-3 font-display text-2xl font-semibold text-stone-950">
+            <p className="mt-2.5 font-display text-[1.65rem] font-semibold leading-none text-stone-950">
               {formatCurrency(bucket.value)}
             </p>
           </div>
@@ -2382,11 +2394,11 @@ function FinanceCollectionsSection({
         <CompactSummaryCard label="Restant" value={formatCurrency(summary.totalRemaining)} tone="warning" />
       </div>
 
-      <div className="mt-4 rounded-[20px] border border-stone-200 bg-stone-50 p-4">
+      <div className="mt-4 rounded-[18px] border border-stone-200 bg-stone-50 px-4 py-3.5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-sm font-semibold text-stone-950">Lecture encaissements</p>
-            <p className="mt-2 text-sm leading-6 text-stone-600">
+            <p className="mt-1.5 text-sm leading-5 text-stone-600">
               {overdueCount > 0
                 ? `${overdueCount} retard(s) restent a relancer. Le detail des factures se traite dans la file active.`
                 : "Les factures encaissables et les relances se traitent dans la file active pour eviter une seconde file de travail."}
@@ -2396,14 +2408,14 @@ function FinanceCollectionsSection({
             <button
               type="button"
               onClick={() => onOpenQueue("collectible")}
-              className="rounded-[16px] border border-stone-200 bg-white px-4 py-3 text-sm font-semibold text-stone-900 hover:bg-stone-100"
+              className="rounded-[14px] border border-stone-200 bg-white px-4 py-2.5 text-sm font-semibold text-stone-900 hover:bg-stone-100"
             >
               Voir les encaissements ({collectibleCount})
             </button>
             <button
               type="button"
               onClick={() => onOpenQueue("overdue")}
-              className="rounded-[16px] border border-stone-200 bg-white px-4 py-3 text-sm font-semibold text-stone-900 hover:bg-stone-100"
+              className="rounded-[14px] border border-stone-200 bg-white px-4 py-2.5 text-sm font-semibold text-stone-900 hover:bg-stone-100"
             >
               Voir les retards ({overdueCount})
             </button>
@@ -3117,12 +3129,12 @@ function CompactSummaryCard({
   value: string;
 }) {
   return (
-    <div className="rounded-[18px] border border-stone-200 bg-white p-4">
+    <div className="rounded-[16px] border border-stone-200 bg-white px-3.5 py-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs uppercase tracking-[0.14em] text-stone-500">{label}</p>
         {tone !== "neutral" ? <StatusBadge tone={tone}>{toneLabel(tone)}</StatusBadge> : null}
       </div>
-      <p className="mt-3 text-lg font-semibold text-stone-950">{value}</p>
+      <p className="mt-2 text-base font-semibold text-stone-950">{value}</p>
     </div>
   );
 }
