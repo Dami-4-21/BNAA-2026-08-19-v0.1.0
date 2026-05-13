@@ -383,6 +383,7 @@ Goal: rebuild the `Finance` domain on the new backend and frontend stack while p
 - [x] Fix finance section deep-link restore, visible queue filter parity, billing queue project-label clarity, and lightweight lower-section jump navigation without changing the cockpit layout.
 - [x] Improve the live finance cockpit for finance confidence with exception-first queue ordering, clearer collection priority, stronger proof visibility, and more explicit blocked-state wording.
 - [x] Tighten the live DM composer layout so period, lots, and the calculation summary read as one balanced finance block without changing the cockpit structure.
+- [x] Consolidate the live DM setup area into one cleaner preparation card so the period and linked lots feel like a single finance setup surface.
 - [ ] Rebuild finance overview, statement, invoice, and payment screens on rebuild APIs.
 - [ ] Keep finance documents discoverable and traceable from the unified document hub without exposing unrelated technical/site files to finance roles.
 - [ ] Rebuild the finance step flow:

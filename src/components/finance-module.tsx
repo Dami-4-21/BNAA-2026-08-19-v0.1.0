@@ -2065,35 +2065,37 @@ function FinanceDecompteComposer({
       description="Le DM lance le cycle mensuel. Verifiez les montants avant generation."
     >
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
-        <div className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.9fr)]">
-            <label className="block rounded-[20px] border border-stone-200 bg-white px-4 py-3">
-              <span className="text-xs uppercase tracking-[0.16em] text-stone-500">
-                Periode de facturation
-              </span>
-              <input
-                type="month"
-                value={toMonthInputValue(dmDraft.periodMonth)}
-                onChange={(event) =>
-                  setDmDraft((current) => ({ ...current, periodMonth: event.target.value }))
-                }
-                className="mt-2 w-full bg-transparent text-sm font-semibold text-stone-950 outline-none"
-              />
-            </label>
+        <div className="min-w-0 space-y-4">
+          <div className="rounded-[20px] border border-stone-200 bg-white p-4">
+            <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)] xl:items-start">
+              <label className="block rounded-[18px] border border-stone-200 bg-stone-50 px-4 py-3">
+                <span className="text-xs uppercase tracking-[0.16em] text-stone-500">
+                  Periode de facturation
+                </span>
+                <input
+                  type="month"
+                  value={toMonthInputValue(dmDraft.periodMonth)}
+                  onChange={(event) =>
+                    setDmDraft((current) => ({ ...current, periodMonth: event.target.value }))
+                  }
+                  className="mt-2 w-full bg-transparent text-sm font-semibold text-stone-950 outline-none"
+                />
+              </label>
 
-            <div className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
-              <span className="text-xs uppercase tracking-[0.16em] text-stone-500">
-                Lots relies au decompte
-              </span>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {projectLots.map((lot) => (
-                  <span
-                    key={lot}
-                    className="rounded-full border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700"
-                  >
-                    {lot}
-                  </span>
-                ))}
+              <div className="rounded-[18px] border border-stone-200 bg-stone-50 px-4 py-3">
+                <span className="text-xs uppercase tracking-[0.16em] text-stone-500">
+                  Lots relies au decompte
+                </span>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {projectLots.map((lot) => (
+                    <span
+                      key={lot}
+                      className="rounded-full border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700"
+                    >
+                      {lot}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
