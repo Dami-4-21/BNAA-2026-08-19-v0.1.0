@@ -363,7 +363,7 @@ export class StatementsService {
       retentionPct,
       sourceReport: {
         id: sourceReport.id,
-        reportDate: sourceReport.report_date,
+        reportDate: formatDateOnly(sourceReport.report_date),
         status: sourceReport.status,
       },
       subtotalHt,
@@ -387,7 +387,7 @@ export class StatementsService {
       id: row.id,
       lineItems: parseStatementLineItems(row.line_items),
       netPayableHt: toNumber(row.net_payable_ht),
-      periodMonth: row.period_month,
+      periodMonth: formatDateOnly(row.period_month),
       projectId: row.project_id,
       projectName: row.project_name ?? null,
       rejectionNote: row.rejection_note,
@@ -507,4 +507,17 @@ function toNumber(value: unknown) {
 function roundTo(value: number, precision: number) {
   const factor = 10 ** precision;
   return Math.round(value * factor) / factor;
+}
+
+function formatDateOnly(value: unknown) {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return raw;
+  }
+
+  return raw.length >= 10 ? raw.slice(0, 10) : raw;
 }
