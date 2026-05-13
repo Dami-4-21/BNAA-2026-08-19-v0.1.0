@@ -155,8 +155,9 @@ export class BootstrapService implements OnModuleInit {
               status,
               governorate,
               city,
+              contract_amount_ht,
               created_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
             [
               projectId,
               project.name,
@@ -164,10 +165,21 @@ export class BootstrapService implements OnModuleInit {
               "active",
               project.governorate,
               project.city,
+              project.budgetTnd,
               fallbackCreatorId,
             ],
           );
         }
+
+        await client.query(
+          `UPDATE projects
+           SET contract_amount_ht = CASE
+             WHEN contract_amount_ht IS NULL OR contract_amount_ht = 0 THEN $2
+             ELSE contract_amount_ht
+           END
+           WHERE id = $1`,
+          [projectId, project.budgetTnd],
+        );
 
         for (const memberEmail of project.memberEmails) {
           const member = userIdByEmail.get(memberEmail.toLowerCase());

@@ -41,6 +41,7 @@ export const pilotUsers: Array<{
 
 export const pilotProjects: Array<{
   backendId: string;
+  budgetTnd: number;
   city: string;
   governorate: string;
   memberEmails: string[];
@@ -48,6 +49,7 @@ export const pilotProjects: Array<{
   type: string;
 }> = pilotProjectCatalog.map((project) => ({
   backendId: project.backendId,
+  budgetTnd: project.budgetTnd,
   city: project.city,
   governorate: project.governorate,
   memberEmails: project.memberLegacyIds
