@@ -2064,31 +2064,37 @@ function FinanceDecompteComposer({
       title="Preparer le decompte du mois"
       description="Le DM lance le cycle mensuel. Verifiez les montants avant generation."
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_252px]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
         <div className="space-y-4">
-          <label className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
-            <span className="text-xs uppercase tracking-[0.16em] text-stone-500">Periode de facturation</span>
-            <input
-              type="month"
-              value={toMonthInputValue(dmDraft.periodMonth)}
-              onChange={(event) =>
-                setDmDraft((current) => ({ ...current, periodMonth: event.target.value }))
-              }
-              className="mt-2 w-full bg-transparent text-sm font-semibold text-stone-950 outline-none"
-            />
-          </label>
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.9fr)]">
+            <label className="block rounded-[20px] border border-stone-200 bg-white px-4 py-3">
+              <span className="text-xs uppercase tracking-[0.16em] text-stone-500">
+                Periode de facturation
+              </span>
+              <input
+                type="month"
+                value={toMonthInputValue(dmDraft.periodMonth)}
+                onChange={(event) =>
+                  setDmDraft((current) => ({ ...current, periodMonth: event.target.value }))
+                }
+                className="mt-2 w-full bg-transparent text-sm font-semibold text-stone-950 outline-none"
+              />
+            </label>
 
-          <div className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
-            <span className="text-xs uppercase tracking-[0.16em] text-stone-500">Lots relies au decompte</span>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {projectLots.map((lot) => (
-                <span
-                  key={lot}
-                  className="rounded-full border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700"
-                >
-                  {lot}
-                </span>
-              ))}
+            <div className="rounded-[20px] border border-stone-200 bg-white px-4 py-3">
+              <span className="text-xs uppercase tracking-[0.16em] text-stone-500">
+                Lots relies au decompte
+              </span>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {projectLots.map((lot) => (
+                  <span
+                    key={lot}
+                    className="rounded-full border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700"
+                  >
+                    {lot}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -2133,12 +2139,12 @@ function FinanceDecompteComposer({
           </button>
         </div>
 
-        <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-4">
+        <div className="rounded-[22px] border border-stone-200 bg-stone-50 p-5">
           <p className="text-sm font-semibold text-stone-950">Synthese de calcul</p>
           <p className="mt-2 text-sm leading-6 text-stone-600">
             Controle rapide avant envoi vers le circuit de validation.
           </p>
-          <div className="mt-4 space-y-3">
+          <div className="mt-5 space-y-3">
             <LineItem label="Base HT" value={formatCurrency(dmDraft.baseAmountHt)} />
             <LineItem
               label={`Retenue (${dmDraft.retentionPct}%)`}
