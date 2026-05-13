@@ -86,6 +86,8 @@ type InvoiceItem = {
   moeValidatedAt?: string;
   moeValidatedBy?: string;
   pdfUrl?: string;
+  statementId?: string;
+  statementPdfUrl?: string;
 };
 
 type PaymentItem = {
@@ -96,6 +98,7 @@ type PaymentItem = {
   method: string;
   reference: string;
   paidAt: string;
+  receiptPdfUrl?: string;
 };
 
 type WorkflowOwnerDisplay = {
@@ -1148,6 +1151,7 @@ function FinanceModuleContent({
     const invoicePayments = invoice
       ? payments.filter((payment) => payment.invoiceId === invoice.id)
       : [];
+    const paymentProofCount = invoicePayments.filter((payment) => payment.receiptPdfUrl).length;
 
     return [
       {
@@ -1161,23 +1165,23 @@ function FinanceModuleContent({
         url: invoice?.pdfUrl,
       },
       {
-        actionLabel: invoice?.pdfUrl ? "Voir le DM" : "A preparer",
+        actionLabel: invoice?.statementPdfUrl ? "Voir le DM" : invoice?.pdfUrl ? "Voir le DM" : "A preparer",
         description:
           "Le decompte mensuel reste la base de calcul et la trace de l'avancement facture.",
         id: "dm-pdf",
         kind: "DM PDF",
-        status: invoice ? "Genere avec la facture" : "A lancer",
-        url: invoice?.pdfUrl,
+        status: invoice?.statementPdfUrl ? "Disponible" : invoice ? "Genere avec la facture" : "A lancer",
+        url: invoice?.statementPdfUrl ?? invoice?.pdfUrl,
       },
       {
-        actionLabel: invoicePayments.length > 0 ? "Voir les references" : "En attente",
+        actionLabel: paymentProofCount > 0 ? "Voir les references" : "En attente",
         description:
           "Justificatifs de paiement relies a l'encaissement en cours ou complet.",
         id: "payment-proof",
         kind: "Justificatifs paiement",
         status:
-          invoicePayments.length > 0
-            ? `${invoicePayments.length} preuve(s)`
+          paymentProofCount > 0
+            ? `${paymentProofCount} preuve(s)`
             : "Aucune preuve",
       },
       {
@@ -1193,11 +1197,13 @@ function FinanceModuleContent({
 
   const proofSummary = useMemo<ProofSummary>(() => {
     const paymentProofCount = selectedInvoice
-      ? payments.filter((payment) => payment.invoiceId === selectedInvoice.id).length
+      ? payments.filter(
+          (payment) => payment.invoiceId === selectedInvoice.id && payment.receiptPdfUrl,
+        ).length
       : 0;
 
     return {
-      dmStatus: selectedInvoice ? "Pret pour audit" : "A lancer",
+      dmStatus: selectedInvoice?.statementPdfUrl ? "Pret pour audit" : selectedInvoice ? "Genere avec la facture" : "A lancer",
       invoicePdfStatus: selectedInvoice?.pdfUrl ? "Disponible" : "En attente",
       paymentProofStatus: paymentProofCount > 0 ? `${paymentProofCount} preuve(s)` : "Aucune preuve",
       signedReportsStatus: selectedInvoice ? `${selectedInvoice.sourceProgress}% d'avancement` : "A definir",

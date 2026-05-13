@@ -330,6 +330,8 @@ export type FinanceInvoiceRecord = {
   validatedByMoe: boolean;
   validatedByMo: boolean;
   pdfUrl?: string;
+  statementId?: string;
+  statementPdfUrl?: string;
   moeValidatedBy?: string;
   moeValidatedAt?: string;
   moValidatedBy?: string;
@@ -344,6 +346,7 @@ export type FinancePaymentRecord = {
   method: string;
   reference: string;
   paidAt: string;
+  receiptPdfUrl?: string;
 };
 
 export type FinanceModuleBaseData = {

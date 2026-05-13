@@ -387,20 +387,20 @@ Goal: rebuild the `Finance` domain on the new backend and frontend stack while p
 - [x] Improve the live finance cockpit for finance confidence with exception-first queue ordering, clearer collection priority, stronger proof visibility, and more explicit blocked-state wording.
 - [x] Tighten the live DM composer layout so period, lots, and the calculation summary read as one balanced finance block without changing the cockpit structure.
 - [x] Consolidate the live DM setup area into one cleaner preparation card so the period and linked lots feel like a single finance setup surface.
-- [ ] Rebuild finance overview, statement, invoice, and payment screens on rebuild APIs.
-- [ ] Keep finance documents discoverable and traceable from the unified document hub without exposing unrelated technical/site files to finance roles.
-- [ ] Rebuild the finance step flow:
-- [ ] Preparer le decompte
-- [ ] Envoyer
-- [ ] Validation projet
-- [ ] Validation client
-- [ ] Paiement recu
-- [ ] Rebuild treasury and KPI summaries from rebuild APIs.
+- [x] Rebuild finance overview, statement, invoice, and payment screens on rebuild APIs.
+- [x] Keep finance documents discoverable and traceable from the unified document hub without exposing unrelated technical/site files to finance roles.
+- [x] Rebuild the finance step flow:
+- [x] Preparer le decompte
+- [x] Envoyer
+- [x] Validation projet
+- [x] Validation client
+- [x] Paiement recu
+- [x] Rebuild treasury and KPI summaries from rebuild APIs.
 
 ### Cutover Tasks
 
-- [ ] Add a feature-flagged compat bridge for `/api/projects/[projectId]/finance`.
-- [ ] Replace the legacy finance route with rebuild-backed data once parity is validated.
+- [x] Add a feature-flagged compat bridge for `/api/projects/[projectId]/finance`.
+- [x] Replace the legacy finance route with rebuild-backed data once parity is validated.
 
 ### Phase 5 Exit Criteria
 
