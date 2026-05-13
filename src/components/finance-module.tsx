@@ -167,6 +167,22 @@ type FinanceHealthSummary = {
   vatStatus: string;
 };
 
+type CollectionFocus = {
+  amountLabel: string;
+  filter: QueueFilter;
+  helper: string;
+  invoiceNumber: string;
+  project: string;
+  tone: Tone;
+};
+
+type ProofSummary = {
+  dmStatus: string;
+  invoicePdfStatus: string;
+  paymentProofStatus: string;
+  signedReportsStatus: string;
+};
+
 const allManualInvoiceStatuses = [
   "Brouillon",
   "Envoyee",
@@ -914,34 +930,51 @@ function FinanceModuleContent({
   const filteredInvoices = useMemo(() => {
     const query = searchValue.trim().toLowerCase();
 
-    return queueRecords.filter((invoice) => {
-      if (periodFilter !== "all" && invoice.periodMonth !== periodFilter) {
-        return false;
-      }
+    return queueRecords
+      .filter((invoice) => {
+        if (periodFilter !== "all" && invoice.periodMonth !== periodFilter) {
+          return false;
+        }
 
-      if (!matchesQueueFilter(invoice, queueFilter)) {
-        return false;
-      }
+        if (!matchesQueueFilter(invoice, queueFilter)) {
+          return false;
+        }
 
-      if (!query) {
-        return true;
-      }
+        if (!query) {
+          return true;
+        }
 
-      const paymentReferences = payments
-        .filter((payment) => payment.invoiceId === invoice.id)
-        .map((payment) => payment.reference.toLowerCase());
+        const paymentReferences = payments
+          .filter((payment) => payment.invoiceId === invoice.id)
+          .map((payment) => payment.reference.toLowerCase());
 
-      return [
-        invoice.invoiceNumber,
-        invoice.project,
-        invoice.status,
-        invoice.displayStatus,
-        invoice.periodMonth,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(query) || paymentReferences.some((reference) => reference.includes(query));
-    });
+        return [
+          invoice.invoiceNumber,
+          invoice.project,
+          invoice.status,
+          invoice.displayStatus,
+          invoice.periodMonth,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(query) || paymentReferences.some((reference) => reference.includes(query));
+      })
+      .sort((left, right) => {
+        const priorityDelta = getQueuePriority(left) - getQueuePriority(right);
+        if (priorityDelta !== 0) {
+          return priorityDelta;
+        }
+
+        if (left.isOverdue !== right.isOverdue) {
+          return left.isOverdue ? -1 : 1;
+        }
+
+        if (left.remainingAmount !== right.remainingAmount) {
+          return right.remainingAmount - left.remainingAmount;
+        }
+
+        return new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime();
+      });
   }, [payments, periodFilter, queueFilter, queueRecords, searchValue]);
 
   const actionCenterCards = useMemo<ActionCenterCard[]>(() => {
@@ -1157,6 +1190,38 @@ function FinanceModuleContent({
       },
     ];
   }, [payments, selectedInvoice]);
+
+  const proofSummary = useMemo<ProofSummary>(() => {
+    const paymentProofCount = selectedInvoice
+      ? payments.filter((payment) => payment.invoiceId === selectedInvoice.id).length
+      : 0;
+
+    return {
+      dmStatus: selectedInvoice ? "Pret pour audit" : "A lancer",
+      invoicePdfStatus: selectedInvoice?.pdfUrl ? "Disponible" : "En attente",
+      paymentProofStatus: paymentProofCount > 0 ? `${paymentProofCount} preuve(s)` : "Aucune preuve",
+      signedReportsStatus: selectedInvoice ? `${selectedInvoice.sourceProgress}% d'avancement` : "A definir",
+    };
+  }, [payments, selectedInvoice]);
+
+  const collectionsFocus = useMemo<CollectionFocus | null>(() => {
+    const priorityInvoice = overdueCollectibleInvoices[0] ?? collectibleInvoices[0] ?? null;
+
+    if (!priorityInvoice) {
+      return null;
+    }
+
+    return {
+      amountLabel: formatCurrency(priorityInvoice.remainingAmount),
+      filter: priorityInvoice.isOverdue ? "overdue" : "collectible",
+      helper: priorityInvoice.isOverdue
+        ? `${priorityInvoice.overdueDays} jour(s) de retard. Relance a lancer en priorite.`
+        : "Facture validee prete pour enregistrement ou suivi d'encaissement.",
+      invoiceNumber: priorityInvoice.invoiceNumber,
+      project: priorityInvoice.project,
+      tone: priorityInvoice.isOverdue ? "danger" : "primary",
+    };
+  }, [collectibleInvoices, overdueCollectibleInvoices]);
 
   const myActions = (() => {
     const items: Array<{
@@ -1771,6 +1836,7 @@ function FinanceModuleContent({
             <FinanceCollectionsSection
               agingBuckets={agingBuckets}
               collectibleCount={collectibleInvoices.length}
+              focus={collectionsFocus}
               overdueCount={overdueCollectibleInvoices.length}
               onOpenQueue={(filter) => {
                 setQueueFilter(filter);
@@ -1799,6 +1865,7 @@ function FinanceModuleContent({
             <FinanceDocumentsProofs
               documents={linkedDocuments}
               onOpenDocumentsHub={openDocumentsHub}
+              proofSummary={proofSummary}
             />
           </section>
 
@@ -1848,6 +1915,7 @@ function FinanceModuleContent({
         paymentDraft={paymentDraft}
         payments={payments.filter((payment) => payment.invoiceId === selectedInvoice?.id)}
         pendingAction={pendingAction}
+        proofSummary={proofSummary}
         selectedInvoice={selectedInvoice}
         selectedQueueRecord={selectedQueueRecord}
         sendInvoiceHelper={sendInvoiceHelper}
@@ -2341,12 +2409,14 @@ function FinanceBillingQueue({
 function FinanceCollectionsSection({
   agingBuckets,
   collectibleCount,
+  focus,
   onOpenQueue,
   overdueCount,
   summary,
 }: {
   agingBuckets: Array<{ key: string; label: string; tone: Tone; value: number }>;
   collectibleCount: number;
+  focus: CollectionFocus | null;
   onOpenQueue: (filter: QueueFilter) => void;
   overdueCount: number;
   summary: { totalInvoiced: number; totalPaid: number; totalRemaining: number };
@@ -2375,6 +2445,35 @@ function FinanceCollectionsSection({
         <CompactSummaryCard label="Encaisse" value={formatCurrency(summary.totalPaid)} tone="success" />
         <CompactSummaryCard label="Restant" value={formatCurrency(summary.totalRemaining)} tone="warning" />
       </div>
+
+      {focus ? (
+        <div className="mt-4 rounded-[18px] border border-stone-200 bg-white px-4 py-3.5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-stone-950">Priorite de relance</p>
+                <StatusBadge tone={focus.tone}>
+                  {focus.tone === "danger" ? "A traiter" : "A encaisser"}
+                </StatusBadge>
+              </div>
+              <p className="mt-2 text-sm font-semibold text-stone-950">
+                {focus.invoiceNumber} · {focus.project}
+              </p>
+              <p className="mt-1.5 text-sm leading-5 text-stone-600">{focus.helper}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <p className="text-sm font-semibold text-stone-950">{focus.amountLabel}</p>
+              <button
+                type="button"
+                onClick={() => onOpenQueue(focus.filter)}
+                className="rounded-[14px] border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm font-semibold text-stone-900 hover:bg-stone-100"
+              >
+                Ouvrir la file
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 rounded-[18px] border border-stone-200 bg-stone-50 px-4 py-3.5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -2411,9 +2510,11 @@ function FinanceCollectionsSection({
 function FinanceDocumentsProofs({
   documents,
   onOpenDocumentsHub,
+  proofSummary,
 }: {
   documents: LinkedFinanceDocument[];
   onOpenDocumentsHub: () => void;
+  proofSummary: ProofSummary;
 }) {
   return (
     <Panel
@@ -2430,6 +2531,28 @@ function FinanceDocumentsProofs({
         </button>
       }
     >
+      <div className="mb-4 rounded-[18px] border border-stone-200 bg-stone-50 p-3.5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-stone-950">Piste d&apos;audit</p>
+            <p className="mt-1 text-xs leading-5 text-stone-600">
+              Les preuves cle restent lisibles avant d&apos;ouvrir le detail facture.
+            </p>
+          </div>
+          <StatusBadge
+            tone={proofSummary.invoicePdfStatus === "Disponible" ? "success" : "warning"}
+          >
+            {proofSummary.invoicePdfStatus === "Disponible" ? "Pret" : "A completer"}
+          </StatusBadge>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <MiniStat label="Facture PDF" value={proofSummary.invoicePdfStatus} />
+          <MiniStat label="DM" value={proofSummary.dmStatus} />
+          <MiniStat label="Justificatifs" value={proofSummary.paymentProofStatus} />
+          <MiniStat label="Rapports signes" value={proofSummary.signedReportsStatus} />
+        </div>
+      </div>
+
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {documents.map((document) => (
           <div key={document.id} className="rounded-[20px] border border-stone-200 bg-white p-4">
@@ -2728,6 +2851,7 @@ function FinanceInvoiceDrawer({
   paymentDraft,
   payments,
   pendingAction,
+  proofSummary,
   selectedInvoice,
   selectedQueueRecord,
   sendInvoiceHelper,
@@ -2763,6 +2887,7 @@ function FinanceInvoiceDrawer({
   };
   payments: PaymentItem[];
   pendingAction: string;
+  proofSummary: ProofSummary;
   selectedInvoice: InvoiceItem | undefined;
   selectedQueueRecord: QueueRecord | null;
   sendInvoiceHelper: string;
@@ -3056,6 +3181,28 @@ function FinanceInvoiceDrawer({
 
           {drawerTab === "documents" ? (
             <div className="space-y-4">
+              <div className="rounded-[18px] border border-stone-200 bg-stone-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-stone-950">Piste d&apos;audit facture</p>
+                    <p className="mt-1 text-xs leading-5 text-stone-600">
+                      Verifiez rapidement si le dossier est complet avant partage ou controle.
+                    </p>
+                  </div>
+                  <StatusBadge
+                    tone={proofSummary.invoicePdfStatus === "Disponible" ? "success" : "warning"}
+                  >
+                    {proofSummary.invoicePdfStatus === "Disponible" ? "Pret" : "A completer"}
+                  </StatusBadge>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <CompactSummaryCard label="Facture PDF" value={proofSummary.invoicePdfStatus} />
+                  <CompactSummaryCard label="DM" value={proofSummary.dmStatus} />
+                  <CompactSummaryCard label="Justificatifs" value={proofSummary.paymentProofStatus} />
+                  <CompactSummaryCard label="Rapports signes" value={proofSummary.signedReportsStatus} />
+                </div>
+              </div>
+
               <div className="grid gap-3">
                 {linkedDocuments.map((document) => (
                   <div key={document.id} className="rounded-[18px] border border-stone-200 bg-white p-4">
@@ -3245,7 +3392,7 @@ function deriveQueueAction(invoice: QueueRecord) {
   if (invoice.displayStatus === "Litigieuse") {
     return {
       drawerTab: "workflow" as DrawerTab,
-      helper: "Verifier le blocage et les validations.",
+      helper: "Litige ouvert: verifier les validations, les preuves et la prochaine relance a engager.",
       label: "Suivre le litige",
     };
   }
@@ -3253,7 +3400,7 @@ function deriveQueueAction(invoice: QueueRecord) {
   if (invoice.displayStatus === "En retard") {
     return {
       drawerTab: "payments" as DrawerTab,
-      helper: "Un encaissement manque apres l'echeance.",
+      helper: `Encaissement depasse de ${invoice.overdueDays} jour(s). Relance a prioriser.`,
       label: "Relancer",
     };
   }
@@ -3261,7 +3408,7 @@ function deriveQueueAction(invoice: QueueRecord) {
   if (invoice.status === "Brouillon") {
     return {
       drawerTab: "workflow" as DrawerTab,
-      helper: "Le brouillon doit etre envoye pour lancer le circuit.",
+      helper: "Brouillon non envoye: le PDF doit partir avant toute validation.",
       label: "Envoyer",
     };
   }
@@ -3269,7 +3416,7 @@ function deriveQueueAction(invoice: QueueRecord) {
   if (!invoice.validatedByMoe) {
     return {
       drawerTab: "workflow" as DrawerTab,
-      helper: "La validation projet reste la prochaine etape.",
+      helper: "Bloquee cote projet tant que la validation interne n'est pas recue.",
       label: "Validation projet",
     };
   }
@@ -3277,7 +3424,7 @@ function deriveQueueAction(invoice: QueueRecord) {
   if (!invoice.validatedByMo) {
     return {
       drawerTab: "workflow" as DrawerTab,
-      helper: "La validation client est attendue avant encaissement.",
+      helper: "Bloquee cote client tant que la validation finale n'est pas recue.",
       label: "Validation client",
     };
   }
@@ -3285,7 +3432,10 @@ function deriveQueueAction(invoice: QueueRecord) {
   if (invoice.remainingAmount > 0) {
     return {
       drawerTab: "payments" as DrawerTab,
-      helper: "Le paiement peut maintenant etre saisi.",
+      helper:
+        invoice.coverage > 0
+          ? `Paiement partiel saisi. ${formatCurrency(invoice.remainingAmount)} restent a encaisser.`
+          : "Facture validee prete pour saisie ou suivi d'encaissement.",
       label: "Paiement recu",
     };
   }
@@ -3295,6 +3445,38 @@ function deriveQueueAction(invoice: QueueRecord) {
     helper: "La facture est cloturee et archivable.",
     label: "Voir le dossier",
   };
+}
+
+function getQueuePriority(invoice: QueueRecord) {
+  if (invoice.displayStatus === "Litigieuse") {
+    return 0;
+  }
+
+  if (invoice.isOverdue) {
+    return 1;
+  }
+
+  if (invoice.displayStatus === "Validation client") {
+    return 2;
+  }
+
+  if (invoice.displayStatus === "Validation projet") {
+    return 3;
+  }
+
+  if (invoice.status === "Brouillon") {
+    return 4;
+  }
+
+  if (invoice.isPartial) {
+    return 5;
+  }
+
+  if (invoice.remainingAmount > 0) {
+    return 6;
+  }
+
+  return 7;
 }
 
 function buildFinanceAlerts(queueRecords: QueueRecord[], treasuryAlert: string) {
