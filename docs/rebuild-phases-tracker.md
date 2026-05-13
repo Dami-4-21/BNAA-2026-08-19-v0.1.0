@@ -353,23 +353,24 @@ Goal: rebuild the `Finance` domain on the new backend and frontend stack while p
 
 - [ ] Create or finalize rebuild schema/models for:
 - [x] statements
-- [ ] invoices
+- [x] invoices
 - [ ] payments
 - [ ] finance-document links so statements, invoices, payment proofs, and generated PDFs can surface cleanly inside Module 6.
 - [ ] Implement rebuild endpoints for:
 - [x] create monthly statement
 - [x] statement detail
-- [ ] create invoice
+- [x] create invoice
 - [ ] validate invoice
 - [ ] register payment
 - [ ] financial summary
 - [ ] cashflow
 - [x] Implement statement calculation from chantier progress.
-- [ ] Implement invoice numbering rules from the specification.
-- [ ] Implement retention / advance deduction rules.
+- [x] Implement invoice numbering rules from the specification.
+- [x] Implement retention / advance deduction rules.
 - [ ] Implement payment reconciliation and overdue rules.
 - [ ] Implement finance notifications and email triggers.
-- [ ] Implement PDF generation on the rebuild backend for invoices/statements.
+- [x] Implement PDF generation on the rebuild backend for invoices.
+- [ ] Implement PDF generation on the rebuild backend for statements.
 
 ### Frontend Tasks
 
