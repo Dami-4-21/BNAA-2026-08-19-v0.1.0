@@ -103,6 +103,10 @@ enum StatementStatus {
 }
 
 enum InvoiceStatus {
+  draft
+  project_validation
+  client_validation
+  validated
   issued
   partially_paid
   paid
@@ -364,6 +368,7 @@ model Statement {
   advanceDeduction Decimal         @default(0) @map("advance_deduction") @db.Decimal(15, 3)
   netPayableHt     Decimal         @default(0) @map("net_payable_ht") @db.Decimal(15, 3)
   status           StatementStatus @default(draft)
+  pdfUrl           String?         @map("pdf_url")
   createdBy        String          @map("created_by") @db.Uuid
   validatedBy      String?         @map("validated_by") @db.Uuid
   validatedAt      DateTime?       @map("validated_at")
@@ -389,7 +394,13 @@ model Invoice {
   amountTtc     Decimal       @map("amount_ttc") @db.Decimal(15, 3)
   amountPaid    Decimal       @default(0) @map("amount_paid") @db.Decimal(15, 3)
   dueDate       DateTime      @map("due_date") @db.Date
-  status        InvoiceStatus @default(issued)
+  status        InvoiceStatus @default(draft)
+  sentAt        DateTime?     @map("sent_at")
+  projectValidatedBy String?  @map("project_validated_by") @db.Uuid
+  projectValidatedAt DateTime? @map("project_validated_at")
+  clientValidatedBy String?   @map("client_validated_by") @db.Uuid
+  clientValidatedAt DateTime? @map("client_validated_at")
+  paidAt        DateTime?     @map("paid_at")
   pdfUrl        String?       @map("pdf_url")
   createdBy     String        @map("created_by") @db.Uuid
   createdAt     DateTime      @default(now()) @map("created_at")
@@ -407,6 +418,7 @@ model Payment {
   amount        Decimal  @db.Decimal(15, 3)
   paymentDate   DateTime @map("payment_date") @db.Date
   bankReference String?  @map("bank_reference") @db.VarChar(255)
+  receiptPdfUrl String?  @map("receipt_pdf_url")
   notes         String?
   recordedBy    String   @map("recorded_by") @db.Uuid
   createdAt     DateTime @default(now()) @map("created_at")

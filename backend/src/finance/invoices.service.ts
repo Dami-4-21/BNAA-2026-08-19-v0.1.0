@@ -1,41 +1,55 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { UserRole } from "@prisma/client";
 import type { PoolClient } from "pg";
 import { v4 as uuidv4 } from "uuid";
 
-import { pilotProjects } from "@/bootstrap/pilot-catalog";
 import { AuthenticatedUser } from "@/common/types/authenticated-user.interface";
 import { CreateInvoiceDto } from "@/finance/dto/create-invoice.dto";
+import { UpdateInvoiceStatusDto } from "@/finance/dto/update-invoice-status.dto";
+import { ValidateInvoiceDto } from "@/finance/dto/validate-invoice.dto";
+import { FinanceDocumentsService } from "@/finance/finance-documents.service";
+import {
+  formatDateOnly,
+  normalizeDate,
+  resolveProjectClient,
+  resolveProjectCode,
+  roundTo,
+  toNumber,
+} from "@/finance/finance-helpers";
+import { FinanceStatusService } from "@/finance/finance-status.service";
+import { MailService } from "@/mail/mail.service";
+import { NotificationsService } from "@/notifications/notifications.service";
 import { PdfService } from "@/pdf/pdf.service";
 import { SiteScopeService } from "@/site-reports/site-scope.service";
 
 const DEFAULT_TVA_RATE = 19;
 const DEFAULT_PAYMENT_TERM_DAYS = 30;
 
-const pilotCodeByProjectId = new Map(
-  pilotProjects.map((project) => [project.backendId, project.code]),
-);
-const pilotClientByProjectId = new Map(
-  pilotProjects.map((project) => [project.backendId, project.client]),
-);
-
 type InvoiceRow = {
   amount_ht: number | string;
   amount_paid: number | string;
   amount_ttc: number | string;
+  client_validated_at: string | null;
+  client_validated_by: string | null;
   created_at: string;
   created_by: string;
   due_date: string;
   id: string;
   invoice_number: string;
+  paid_at: string | null;
   pdf_url: string | null;
   period_month: string;
   project_id: string;
   project_name?: string | null;
+  project_validated_at: string | null;
+  project_validated_by: string | null;
+  sent_at: string | null;
   statement_id: string | null;
   status: string;
   tva_amount: number | string;
@@ -49,6 +63,7 @@ type StatementRow = {
   id: string;
   line_items: unknown;
   net_payable_ht: number | string;
+  pdf_url: string | null;
   period_month: string;
   project_id: string;
   retention_amount: number | string;
@@ -69,6 +84,7 @@ type PaymentRow = {
   id: string;
   notes: string | null;
   payment_date: string;
+  receipt_pdf_url: string | null;
   recorded_by: string;
 };
 
@@ -80,15 +96,27 @@ type StatementLineItem = {
   tasks: string[];
 };
 
+type ValidationStage = "client" | "project";
+
 @Injectable()
 export class InvoicesService {
   constructor(
     private readonly pdfService: PdfService,
     private readonly siteScope: SiteScopeService,
+    private readonly financeDocumentsService: FinanceDocumentsService,
+    private readonly financeStatusService: FinanceStatusService,
+    private readonly notificationsService: NotificationsService,
+    private readonly mailService: MailService,
   ) {}
 
   async list(currentUser: AuthenticatedUser, projectId: string) {
     return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
+      await this.financeStatusService.syncDerivedInvoiceStatuses(
+        client,
+        currentUser.tenantId,
+        projectId,
+      );
+
       const result = await client.query<InvoiceRow>(
         `SELECT
            i.id,
@@ -103,7 +131,13 @@ export class InvoicesService {
            i.amount_ttc,
            i.amount_paid,
            i.due_date,
-           i.status,
+           i.status::text AS status,
+           i.sent_at,
+           i.project_validated_by,
+           i.project_validated_at,
+           i.client_validated_by,
+           i.client_validated_at,
+           i.paid_at,
            i.pdf_url,
            i.created_by,
            i.created_at
@@ -123,12 +157,18 @@ export class InvoicesService {
 
   async detail(currentUser: AuthenticatedUser, projectId: string, invoiceId: string) {
     return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
+      await this.financeStatusService.syncDerivedInvoiceStatuses(
+        client,
+        currentUser.tenantId,
+        projectId,
+      );
+
       const invoice = await this.getInvoice(client, projectId, invoiceId);
       const statement = invoice.statement_id
         ? await this.getStatement(client, projectId, invoice.statement_id)
         : null;
       const payments = await client.query<PaymentRow>(
-        `SELECT id, amount, payment_date, bank_reference, notes, recorded_by, created_at
+        `SELECT id, amount, payment_date, bank_reference, receipt_pdf_url, notes, recorded_by, created_at
          FROM payments
          WHERE invoice_id = $1
          ORDER BY payment_date DESC, created_at DESC`,
@@ -137,7 +177,6 @@ export class InvoicesService {
 
       return {
         item: this.mapInvoiceRow(invoice),
-        statement: statement ? this.mapStatementSummary(statement) : null,
         payments: payments.rows.map((row) => ({
           amount: toNumber(row.amount),
           bankReference: row.bank_reference,
@@ -145,8 +184,11 @@ export class InvoicesService {
           id: row.id,
           notes: row.notes,
           paymentDate: formatDateOnly(row.payment_date),
+          receiptPdfUrl: row.receipt_pdf_url,
           recordedBy: row.recorded_by,
         })),
+        statement: statement ? this.mapStatementSummary(statement) : null,
+        workflow: this.mapWorkflowState(invoice),
       };
     });
   }
@@ -179,7 +221,7 @@ export class InvoicesService {
       const tvaRate = roundTo(payload.tvaRate ?? DEFAULT_TVA_RATE, 2);
       const tvaAmount = roundTo(amountHt * (tvaRate / 100), 3);
       const amountTtc = roundTo(amountHt + tvaAmount, 3);
-      const invoiceNumber = await this.buildInvoiceNumber(client, projectId, statement.period_month);
+      const invoiceNumber = await this.buildInvoiceNumber(client, projectId, project.name, statement.period_month);
       const dueDate = payload.dueDate
         ? normalizeDate(payload.dueDate)
         : defaultDueDate(statement.period_month);
@@ -187,7 +229,7 @@ export class InvoicesService {
       const pdfResult = await this.pdfService.generateInvoicePdf({
         amountHt,
         amountTtc,
-        clientName: pilotClientByProjectId.get(projectId) ?? project.name,
+        clientName: resolveProjectClient(projectId, project.name),
         createdBy: currentUser.fullName,
         dueDate,
         invoiceId,
@@ -222,7 +264,9 @@ export class InvoicesService {
           pdf_url,
           created_by
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10, 'issued', $11, $12
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10,
+          'draft'::tenant_template."InvoiceStatus",
+          $11, $12
         )`,
         [
           invoiceId,
@@ -240,6 +284,25 @@ export class InvoicesService {
         ],
       );
 
+      const statementDocumentId = await this.financeDocumentsService.findDocumentIdBySourceRecord(
+        client,
+        projectId,
+        statement.id,
+      );
+
+      await this.financeDocumentsService.syncInvoicePdf(client, {
+        documentCode: invoiceNumber,
+        fileBuffer: pdfResult.buffer,
+        fileName: pdfResult.fileName,
+        parentDocumentId: statementDocumentId,
+        pdfUrl: pdfResult.pdfUrl,
+        projectId,
+        projectName: project.name,
+        recordedBy: currentUser.sub,
+        sourceRecordId: invoiceId,
+        title: `Facture client ${invoiceNumber}`,
+      });
+
       const created = await this.getInvoice(client, projectId, invoiceId);
 
       return {
@@ -252,23 +315,242 @@ export class InvoicesService {
     });
   }
 
+  async send(currentUser: AuthenticatedUser, projectId: string, invoiceId: string) {
+    return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
+      const invoice = await this.getInvoice(client, projectId, invoiceId);
+      if (!["draft", "issued"].includes(invoice.status)) {
+        throw new ConflictException("Only draft invoices can be sent into the validation workflow.");
+      }
+
+      await client.query(
+        `UPDATE invoices
+         SET status = 'project_validation'::tenant_template."InvoiceStatus",
+             sent_at = COALESCE(sent_at, NOW())
+         WHERE id = $1
+           AND project_id = $2`,
+        [invoiceId, projectId],
+      );
+
+      const project = await this.getProject(client, projectId);
+      const recipients = await this.siteScope.listProjectUsersByRoles(client, currentUser.tenantId, projectId, [
+        UserRole.CP,
+      ]);
+      const targetRecipients = recipients.filter((recipient) => recipient.id !== currentUser.sub);
+
+      if (targetRecipients.length > 0) {
+        await this.notificationsService.createForUsers(client, {
+          userIds: targetRecipients.map((recipient) => recipient.id),
+          projectId,
+          type: "finance.invoice.project_validation",
+          title: "Validation projet requise",
+          body: `${invoice.invoice_number} attend la validation projet.`,
+          link: `/finance?invoice=${invoiceId}&section=facturation`,
+        });
+
+        for (const recipient of targetRecipients) {
+          await this.mailService.sendInvoiceProjectValidationEmail({
+            amountTtc: toNumber(invoice.amount_ttc),
+            invoiceLink: `/finance?invoice=${invoiceId}&section=facturation`,
+            invoiceNumber: invoice.invoice_number,
+            projectName: project.name,
+            recipientEmail: recipient.email,
+            recipientName: recipient.fullName,
+          });
+        }
+      }
+
+      return {
+        item: this.mapInvoiceRow(await this.getInvoice(client, projectId, invoiceId)),
+      };
+    });
+  }
+
+  async validate(
+    currentUser: AuthenticatedUser,
+    projectId: string,
+    invoiceId: string,
+    payload: ValidateInvoiceDto,
+  ) {
+    return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
+      const invoice = await this.getInvoice(client, projectId, invoiceId);
+      const project = await this.getProject(client, projectId);
+      const stage = this.resolveValidationStage(currentUser, invoice, payload);
+
+      if (stage === "project") {
+        if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.CP) {
+          throw new ForbiddenException("Only the project approver can validate this invoice.");
+        }
+
+        if (!["project_validation", "issued"].includes(invoice.status)) {
+          throw new ConflictException("This invoice is not waiting for project validation.");
+        }
+
+        await client.query(
+          `UPDATE invoices
+           SET status = 'client_validation'::tenant_template."InvoiceStatus",
+               sent_at = COALESCE(sent_at, NOW()),
+               project_validated_by = $3,
+               project_validated_at = NOW()
+           WHERE id = $1
+             AND project_id = $2`,
+          [invoiceId, projectId, currentUser.sub],
+        );
+
+        const recipients = await this.siteScope.listProjectUsersByRoles(client, currentUser.tenantId, projectId, [
+          UserRole.MO,
+        ]);
+        const targetRecipients = recipients.filter((recipient) => recipient.id !== currentUser.sub);
+
+        if (targetRecipients.length > 0) {
+          await this.notificationsService.createForUsers(client, {
+            userIds: targetRecipients.map((recipient) => recipient.id),
+            projectId,
+            type: "finance.invoice.client_validation",
+            title: "Validation client requise",
+            body: `${invoice.invoice_number} attend la validation client.`,
+            link: `/finance?invoice=${invoiceId}&section=facturation`,
+          });
+
+          for (const recipient of targetRecipients) {
+            await this.mailService.sendInvoiceClientValidationEmail({
+              amountTtc: toNumber(invoice.amount_ttc),
+              invoiceLink: `/finance?invoice=${invoiceId}&section=facturation`,
+              invoiceNumber: invoice.invoice_number,
+              projectName: project.name,
+              recipientEmail: recipient.email,
+              recipientName: recipient.fullName,
+            });
+          }
+        }
+      } else {
+        if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.MO) {
+          throw new ForbiddenException("Only the client approver can validate this invoice.");
+        }
+
+        if (invoice.status !== "client_validation") {
+          throw new ConflictException("This invoice is not waiting for client validation.");
+        }
+
+        await client.query(
+          `UPDATE invoices
+           SET status = 'validated'::tenant_template."InvoiceStatus",
+               client_validated_by = $3,
+               client_validated_at = NOW()
+           WHERE id = $1
+             AND project_id = $2`,
+          [invoiceId, projectId, currentUser.sub],
+        );
+
+        const recipients = await this.siteScope.listProjectUsersByRoles(client, currentUser.tenantId, projectId, [
+          UserRole.CO,
+        ]);
+        const targetRecipients = recipients.filter((recipient) => recipient.id !== currentUser.sub);
+
+        if (targetRecipients.length > 0) {
+          await this.notificationsService.createForUsers(client, {
+            userIds: targetRecipients.map((recipient) => recipient.id),
+            projectId,
+            type: "finance.invoice.validated",
+            title: "Facture validee",
+            body: `${invoice.invoice_number} peut passer en encaissement.`,
+            link: `/finance?invoice=${invoiceId}&section=collections`,
+          });
+
+          for (const recipient of targetRecipients) {
+            await this.mailService.sendInvoiceValidatedEmail({
+              amountTtc: toNumber(invoice.amount_ttc),
+              invoiceLink: `/finance?invoice=${invoiceId}&section=collections`,
+              invoiceNumber: invoice.invoice_number,
+              projectName: project.name,
+              recipientEmail: recipient.email,
+              recipientName: recipient.fullName,
+            });
+          }
+        }
+      }
+
+      return {
+        item: this.mapInvoiceRow(await this.getInvoice(client, projectId, invoiceId)),
+      };
+    });
+  }
+
+  async updateStatus(
+    currentUser: AuthenticatedUser,
+    projectId: string,
+    invoiceId: string,
+    payload: UpdateInvoiceStatusDto,
+  ) {
+    return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
+      const invoice = await this.getInvoice(client, projectId, invoiceId);
+      const nextStatus = payload.status;
+
+      if (
+        currentUser.role !== UserRole.ADMIN &&
+        currentUser.role !== UserRole.CO &&
+        currentUser.role !== UserRole.CP
+      ) {
+        throw new ForbiddenException("You are not allowed to update this invoice status manually.");
+      }
+
+      if (nextStatus === "validated" && !invoice.client_validated_at && currentUser.role !== UserRole.ADMIN) {
+        throw new ForbiddenException("Validated status requires completed client validation.");
+      }
+
+      const sentAt =
+        nextStatus === "issued" || nextStatus === "project_validation" || nextStatus === "client_validation" || nextStatus === "validated"
+          ? invoice.sent_at ?? new Date().toISOString()
+          : nextStatus === "draft"
+            ? null
+            : invoice.sent_at;
+
+      await client.query(
+        `UPDATE invoices
+         SET status = CAST($3 AS text)::tenant_template."InvoiceStatus",
+             sent_at = $4,
+             project_validated_by = CASE
+               WHEN $3 = 'draft' THEN NULL
+               ELSE project_validated_by
+             END,
+             project_validated_at = CASE
+               WHEN $3 = 'draft' THEN NULL
+               ELSE project_validated_at
+             END,
+             client_validated_by = CASE
+               WHEN $3 IN ('draft', 'issued', 'project_validation') THEN NULL
+               ELSE client_validated_by
+             END,
+             client_validated_at = CASE
+               WHEN $3 IN ('draft', 'issued', 'project_validation') THEN NULL
+               ELSE client_validated_at
+             END
+         WHERE id = $1
+           AND project_id = $2`,
+        [invoiceId, projectId, nextStatus, sentAt],
+      );
+
+      return {
+        item: this.mapInvoiceRow(await this.getInvoice(client, projectId, invoiceId)),
+      };
+    });
+  }
+
   async downloadPdf(currentUser: AuthenticatedUser, projectId: string, invoiceId: string) {
     return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
       const invoice = await this.getInvoice(client, projectId, invoiceId);
+      const project = await this.getProject(client, projectId);
+      const statement = invoice.statement_id
+        ? await this.getStatement(client, projectId, invoice.statement_id)
+        : null;
 
       let buffer: Buffer;
       try {
         buffer = await this.pdfService.readInvoicePdf(invoiceId);
       } catch {
-        const project = await this.getProject(client, projectId);
-        const statement = invoice.statement_id
-          ? await this.getStatement(client, projectId, invoice.statement_id)
-          : null;
-
         const pdfResult = await this.pdfService.generateInvoicePdf({
           amountHt: toNumber(invoice.amount_ht),
           amountTtc: toNumber(invoice.amount_ttc),
-          clientName: pilotClientByProjectId.get(projectId) ?? project.name,
+          clientName: resolveProjectClient(projectId, project.name),
           createdBy: String(invoice.created_by),
           dueDate: normalizeDate(invoice.due_date),
           invoiceId,
@@ -286,14 +568,30 @@ export class InvoicesService {
           tvaRate: toNumber(invoice.tva_rate),
         });
 
-        if (String(invoice.pdf_url ?? "") !== pdfResult.pdfUrl) {
-          await client.query(
-            `UPDATE invoices
-             SET pdf_url = $3
-             WHERE id = $1 AND project_id = $2`,
-            [invoiceId, projectId, pdfResult.pdfUrl],
-          );
-        }
+        await client.query(
+          `UPDATE invoices
+           SET pdf_url = $3
+           WHERE id = $1
+             AND project_id = $2`,
+          [invoiceId, projectId, pdfResult.pdfUrl],
+        );
+
+        const statementDocumentId = invoice.statement_id
+          ? await this.financeDocumentsService.findDocumentIdBySourceRecord(client, projectId, invoice.statement_id)
+          : null;
+
+        await this.financeDocumentsService.syncInvoicePdf(client, {
+          documentCode: invoice.invoice_number,
+          fileBuffer: pdfResult.buffer,
+          fileName: pdfResult.fileName,
+          parentDocumentId: statementDocumentId,
+          pdfUrl: pdfResult.pdfUrl,
+          projectId,
+          projectName: project.name,
+          recordedBy: String(invoice.created_by),
+          sourceRecordId: invoiceId,
+          title: `Facture client ${invoice.invoice_number}`,
+        });
 
         buffer = pdfResult.buffer;
       }
@@ -334,6 +632,7 @@ export class InvoicesService {
          advance_deduction,
          net_payable_ht,
          status,
+         pdf_url,
          created_by,
          created_at
        FROM statements
@@ -365,7 +664,13 @@ export class InvoicesService {
          i.amount_ttc,
          i.amount_paid,
          i.due_date,
-         i.status,
+         i.status::text AS status,
+         i.sent_at,
+         i.project_validated_by,
+         i.project_validated_at,
+         i.client_validated_by,
+         i.client_validated_at,
+         i.paid_at,
          i.pdf_url,
          i.created_by,
          i.created_at
@@ -388,10 +693,11 @@ export class InvoicesService {
   private async buildInvoiceNumber(
     client: PoolClient,
     projectId: string,
+    projectName: string,
     periodMonth: string,
   ) {
     const year = normalizeDate(periodMonth).slice(0, 4);
-    const projectCode = resolveProjectCode(projectId);
+    const projectCode = resolveProjectCode(projectId, projectName);
     const result = await client.query<{ invoice_number: string }>(
       `SELECT invoice_number
        FROM invoices
@@ -412,6 +718,30 @@ export class InvoicesService {
     return `FAC-${year}-${projectCode}-${String(nextSequence).padStart(3, "0")}`;
   }
 
+  private resolveValidationStage(
+    currentUser: AuthenticatedUser,
+    invoice: InvoiceRow,
+    payload: ValidateInvoiceDto,
+  ): ValidationStage {
+    if (payload.stage) {
+      return payload.stage;
+    }
+
+    if (invoice.status === "project_validation" || invoice.status === "issued") {
+      return "project";
+    }
+
+    if (invoice.status === "client_validation") {
+      return "client";
+    }
+
+    if (currentUser.role === UserRole.MO) {
+      return "client";
+    }
+
+    return "project";
+  }
+
   private mapInvoiceRow(row: InvoiceRow) {
     const amountTtc = toNumber(row.amount_ttc);
     const amountPaid = toNumber(row.amount_paid);
@@ -421,16 +751,22 @@ export class InvoicesService {
       amountHt: toNumber(row.amount_ht),
       amountPaid,
       amountTtc,
+      clientValidatedAt: row.client_validated_at,
+      clientValidatedBy: row.client_validated_by,
       createdAt: row.created_at,
       createdBy: row.created_by,
       dueDate: formatDateOnly(row.due_date),
       id: row.id,
       invoiceNumber: row.invoice_number,
+      paidAt: row.paid_at,
       pdfUrl: row.pdf_url,
       periodMonth: formatDateOnly(row.period_month),
       projectId: row.project_id,
       projectName: row.project_name ?? null,
+      projectValidatedAt: row.project_validated_at,
+      projectValidatedBy: row.project_validated_by,
       remainingAmount,
+      sentAt: row.sent_at,
       statementId: row.statement_id,
       status: row.status,
       tvaAmount: toNumber(row.tva_amount),
@@ -446,11 +782,24 @@ export class InvoicesService {
       id: row.id,
       lineItems: parseStatementLineItems(row.line_items),
       netPayableHt: toNumber(row.net_payable_ht),
+      pdfUrl: row.pdf_url,
       periodMonth: formatDateOnly(row.period_month),
       retentionAmount: toNumber(row.retention_amount),
       retentionPct: toNumber(row.retention_pct),
       status: row.status,
       subtotalHt: toNumber(row.subtotal_ht),
+    };
+  }
+
+  private mapWorkflowState(row: InvoiceRow) {
+    return {
+      clientValidatedAt: row.client_validated_at,
+      clientValidatedBy: row.client_validated_by,
+      paidAt: row.paid_at,
+      projectValidatedAt: row.project_validated_at,
+      projectValidatedBy: row.project_validated_by,
+      sentAt: row.sent_at,
+      status: row.status,
     };
   }
 }
@@ -460,59 +809,40 @@ function parseStatementLineItems(raw: unknown): StatementLineItem[] {
     return [];
   }
 
-  const parsed = raw
-    .map((item): StatementLineItem | null => {
-      if (!item || typeof item !== "object") {
-        return null;
-      }
+  const parsed = raw.map((item): StatementLineItem | null => {
+    if (!item || typeof item !== "object") {
+      return null;
+    }
 
-      const record = item as Record<string, unknown>;
-      const lot = String(record.lot ?? "").trim();
-      if (!lot) {
-        return null;
-      }
+    const record = item as Record<string, unknown>;
+    const lot = String(record.lot ?? "").trim();
+    if (!lot) {
+      return null;
+    }
 
-      const tasks = Array.isArray(record.tasks)
-        ? record.tasks
-            .map((task) => String(task ?? "").trim())
-            .filter((task) => task.length > 0)
-        : [];
+    const tasks = Array.isArray(record.tasks)
+      ? record.tasks
+          .map((task) => String(task ?? "").trim())
+          .filter((task) => task.length > 0)
+      : [];
 
-      return {
-        amountHt: roundTo(toNumber(record.amountHt), 3),
-        calculationMode:
-          typeof record.calculationMode === "string" && record.calculationMode.trim().length > 0
-            ? record.calculationMode.trim()
-            : undefined,
-        lot,
-        progressPct: roundTo(toNumber(record.progressPct), 2),
-        tasks,
-      };
-    });
+    return {
+      amountHt: roundTo(toNumber(record.amountHt), 3),
+      calculationMode:
+        typeof record.calculationMode === "string" && record.calculationMode.trim().length > 0
+          ? record.calculationMode.trim()
+          : undefined,
+      lot,
+      progressPct: roundTo(toNumber(record.progressPct), 2),
+      tasks,
+    };
+  });
 
   return parsed.filter((item): item is StatementLineItem => item !== null);
 }
 
-function resolveProjectCode(projectId: string) {
-  const pilotCode = pilotCodeByProjectId.get(projectId);
-  if (pilotCode) {
-    return pilotCode.replace(/[^A-Za-z0-9]/g, "");
-  }
-
-  return projectId.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase() || "PRJ";
-}
-
 function buildInvoiceFileName(invoiceNumber: string) {
   return `${invoiceNumber}.pdf`;
-}
-
-function normalizeDate(input: string) {
-  const parsed = new Date(input);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new BadRequestException("Invalid date.");
-  }
-
-  return parsed.toISOString().slice(0, 10);
 }
 
 function defaultDueDate(periodMonth: string) {
@@ -520,31 +850,4 @@ function defaultDueDate(periodMonth: string) {
   parsed.setUTCMonth(parsed.getUTCMonth() + 1);
   parsed.setUTCDate(parsed.getUTCDate() + DEFAULT_PAYMENT_TERM_DAYS - 1);
   return parsed.toISOString().slice(0, 10);
-}
-
-function formatDateOnly(value: unknown) {
-  if (value instanceof Date) {
-    return value.toISOString().slice(0, 10);
-  }
-
-  const raw = String(value ?? "").trim();
-  return raw.length >= 10 ? raw.slice(0, 10) : raw;
-}
-
-function toNumber(value: unknown) {
-  if (typeof value === "number") {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : 0;
-  }
-
-  return 0;
-}
-
-function roundTo(value: number, precision: number) {
-  const factor = 10 ** precision;
-  return Math.round(value * factor) / factor;
 }

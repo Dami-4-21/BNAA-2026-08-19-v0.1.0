@@ -4,20 +4,28 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { UserRole } from "@prisma/client";
 import type { PoolClient } from "pg";
 import { v4 as uuidv4 } from "uuid";
 
-import { pilotProjects } from "@/bootstrap/pilot-catalog";
 import { AuthenticatedUser } from "@/common/types/authenticated-user.interface";
 import { CreateStatementDto } from "@/finance/dto/create-statement.dto";
+import { FinanceDocumentsService } from "@/finance/finance-documents.service";
+import {
+  buildMonthEnd,
+  formatDateOnly,
+  normalizePeriodMonth,
+  resolveProjectBudget,
+  roundTo,
+  toNumber,
+} from "@/finance/finance-helpers";
+import { MailService } from "@/mail/mail.service";
+import { NotificationsService } from "@/notifications/notifications.service";
+import { PdfService } from "@/pdf/pdf.service";
 import { SiteScopeService } from "@/site-reports/site-scope.service";
 
 const DEFAULT_RETENTION_PCT = 5;
 const DEFAULT_ADVANCE_DEDUCTION = 0;
-
-const pilotBudgetByProjectId = new Map(
-  pilotProjects.map((project) => [project.backendId, project.budgetTnd]),
-);
 
 type StatementRow = {
   advance_deduction: number | string;
@@ -26,6 +34,7 @@ type StatementRow = {
   id: string;
   line_items: unknown;
   net_payable_ht: number | string;
+  pdf_url: string | null;
   period_month: string;
   project_id: string;
   project_name?: string | null;
@@ -83,7 +92,13 @@ type ParsedProgressLine = {
 
 @Injectable()
 export class StatementsService {
-  constructor(private readonly siteScope: SiteScopeService) {}
+  constructor(
+    private readonly siteScope: SiteScopeService,
+    private readonly pdfService: PdfService,
+    private readonly financeDocumentsService: FinanceDocumentsService,
+    private readonly notificationsService: NotificationsService,
+    private readonly mailService: MailService,
+  ) {}
 
   async list(currentUser: AuthenticatedUser, projectId: string) {
     return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
@@ -100,6 +115,7 @@ export class StatementsService {
            s.advance_deduction,
            s.net_payable_ht,
            s.status,
+           s.pdf_url,
            s.created_by,
            s.validated_by,
            s.validated_at,
@@ -186,7 +202,44 @@ export class StatementsService {
         ],
       );
 
+      const pdf = await this.pdfService.generateStatementPdf({
+        advanceDeduction: calculation.advanceDeduction,
+        contractAmountHt: calculation.contractAmountHt,
+        createdBy: currentUser.fullName,
+        lineItems: calculation.lineItems,
+        netPayableHt: calculation.netPayableHt,
+        overallProgressPct: calculation.overallProgressPct,
+        periodMonth,
+        projectId,
+        projectName: project.name,
+        retentionAmount: calculation.retentionAmount,
+        retentionPct: calculation.retentionPct,
+        statementId,
+        subtotalHt: calculation.subtotalHt,
+      });
+
+      await client.query(
+        `UPDATE statements
+         SET pdf_url = $3
+         WHERE id = $1
+           AND project_id = $2`,
+        [statementId, projectId, pdf.pdfUrl],
+      );
+
+      await this.financeDocumentsService.syncStatementPdf(client, {
+        fileBuffer: pdf.buffer,
+        fileName: pdf.fileName,
+        pdfUrl: pdf.pdfUrl,
+        periodMonth,
+        projectId,
+        projectName: project.name,
+        recordedBy: currentUser.sub,
+        sourceRecordId: statementId,
+        title: buildStatementTitle(project.name, periodMonth),
+      });
+
       const created = await this.getStatement(client, projectId, statementId);
+      await this.notifyStatementReady(client, currentUser, projectId, project.name, periodMonth, statementId);
 
       return {
         item: this.mapStatementRow(created),
@@ -195,6 +248,76 @@ export class StatementsService {
           overallProgressPct: calculation.overallProgressPct,
           sourceReport: calculation.sourceReport,
         },
+        pdf: {
+          fileName: pdf.fileName,
+          pdfUrl: pdf.pdfUrl,
+        },
+      };
+    });
+  }
+
+  async downloadPdf(currentUser: AuthenticatedUser, projectId: string, statementId: string) {
+    return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
+      const statement = await this.getStatement(client, projectId, statementId);
+      const project = await this.getProject(client, projectId);
+
+      let buffer: Buffer;
+      try {
+        buffer = await this.pdfService.readStatementPdf(statementId);
+      } catch {
+        const lineItems = parseStatementLineItems(statement.line_items);
+        const overallProgressPct =
+          lineItems.length > 0
+            ? roundTo(
+                lineItems.reduce((sum, item) => sum + item.progressPct, 0) / lineItems.length,
+                2,
+              )
+            : 0;
+
+        const pdf = await this.pdfService.generateStatementPdf({
+          advanceDeduction: toNumber(statement.advance_deduction),
+          contractAmountHt: this.resolveContractAmount(project),
+          createdBy: String(statement.created_by),
+          lineItems,
+          netPayableHt: toNumber(statement.net_payable_ht),
+          overallProgressPct,
+          periodMonth: statement.period_month,
+          projectId,
+          projectName: project.name,
+          retentionAmount: toNumber(statement.retention_amount),
+          retentionPct: toNumber(statement.retention_pct),
+          statementId,
+          subtotalHt: toNumber(statement.subtotal_ht),
+        });
+
+        await client.query(
+          `UPDATE statements
+           SET pdf_url = $3
+           WHERE id = $1
+             AND project_id = $2`,
+          [statementId, projectId, pdf.pdfUrl],
+        );
+
+        await this.financeDocumentsService.syncStatementPdf(client, {
+          fileBuffer: pdf.buffer,
+          fileName: pdf.fileName,
+          pdfUrl: pdf.pdfUrl,
+          periodMonth: statement.period_month,
+          projectId,
+          projectName: project.name,
+          recordedBy: String(statement.created_by),
+          sourceRecordId: statementId,
+          title: buildStatementTitle(project.name, statement.period_month),
+        });
+
+        buffer = pdf.buffer;
+      }
+
+      return {
+        buffer,
+        fileName: `${buildStatementTitle(project.name, statement.period_month)}.pdf`
+          .replace(/[^a-zA-Z0-9.-]+/g, "-")
+          .toLowerCase(),
       };
     });
   }
@@ -229,6 +352,7 @@ export class StatementsService {
          s.advance_deduction,
          s.net_payable_ht,
          s.status,
+         s.pdf_url,
          s.created_by,
          s.validated_by,
          s.validated_at,
@@ -255,7 +379,7 @@ export class StatementsService {
     projectId: string,
     periodMonth: string,
   ): Promise<ReportRow | null> {
-    const periodEnd = endOfMonth(periodMonth);
+    const periodEnd = buildMonthEnd(periodMonth);
     const result = await client.query<ReportRow>(
       `SELECT id, report_date, status, progress_by_lot
        FROM daily_reports
@@ -322,7 +446,10 @@ export class StatementsService {
 
     const equalLotShare = contractAmountHt / lotCount;
     const lineItems = [...groupedByLot.entries()].map(([lot, entry]) => {
-      const progressPct = roundTo(entry.progress.reduce((sum, value) => sum + value, 0) / entry.progress.length, 2);
+      const progressPct = roundTo(
+        entry.progress.reduce((sum, value) => sum + value, 0) / entry.progress.length,
+        2,
+      );
       const amountHt = roundTo(equalLotShare * (progressPct / 100), 3);
 
       return {
@@ -376,7 +503,7 @@ export class StatementsService {
       return explicitAmount;
     }
 
-    return roundTo(pilotBudgetByProjectId.get(project.id) ?? 0, 3);
+    return resolveProjectBudget(project.id, project.name);
   }
 
   private mapStatementRow(row: StatementRow) {
@@ -387,6 +514,7 @@ export class StatementsService {
       id: row.id,
       lineItems: parseStatementLineItems(row.line_items),
       netPayableHt: toNumber(row.net_payable_ht),
+      pdfUrl: row.pdf_url,
       periodMonth: formatDateOnly(row.period_month),
       projectId: row.project_id,
       projectName: row.project_name ?? null,
@@ -399,24 +527,48 @@ export class StatementsService {
       validatedBy: row.validated_by,
     };
   }
-}
 
-function normalizePeriodMonth(input: string) {
-  const parsed = new Date(input);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new BadRequestException("Invalid billing period.");
+  private async notifyStatementReady(
+    client: PoolClient,
+    currentUser: AuthenticatedUser,
+    projectId: string,
+    projectName: string,
+    periodMonth: string,
+    statementId: string,
+  ) {
+    const recipients = await this.siteScope.listProjectUsersByRoles(client, currentUser.tenantId, projectId, [
+      UserRole.CP,
+      UserRole.MO,
+    ]);
+    const targetRecipients = recipients.filter((recipient) => recipient.id !== currentUser.sub);
+
+    if (targetRecipients.length === 0) {
+      return;
+    }
+
+    await this.notificationsService.createForUsers(client, {
+      userIds: targetRecipients.map((recipient) => recipient.id),
+      projectId,
+      type: "finance.statement.ready",
+      title: "Decompte mensuel prepare",
+      body: `${projectName} - ${formatDateOnly(periodMonth)} est pret pour controle finance.`,
+      link: `/finance?statement=${statementId}&section=facturation`,
+    });
+
+    for (const recipient of targetRecipients) {
+      await this.mailService.sendStatementReadyEmail({
+        periodMonth: formatDateOnly(periodMonth),
+        projectName,
+        recipientEmail: recipient.email,
+        recipientName: recipient.fullName,
+        statementLink: `/finance?statement=${statementId}&section=facturation`,
+      });
+    }
   }
-
-  return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), 1))
-    .toISOString()
-    .slice(0, 10);
 }
 
-function endOfMonth(periodMonth: string) {
-  const parsed = new Date(periodMonth);
-  return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, 0))
-    .toISOString()
-    .slice(0, 10);
+function buildStatementTitle(projectName: string, periodMonth: string) {
+  return `Decompte mensuel ${projectName} ${formatDateOnly(periodMonth)}`;
 }
 
 function parseProgressLines(raw: unknown): ParsedProgressLine[] {
@@ -489,35 +641,4 @@ function parseStatementLineItems(raw: unknown): StatementLineItem[] {
       };
     })
     .filter((item): item is StatementLineItem => item !== null);
-}
-
-function toNumber(value: unknown) {
-  if (typeof value === "number") {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : 0;
-  }
-
-  return 0;
-}
-
-function roundTo(value: number, precision: number) {
-  const factor = 10 ** precision;
-  return Math.round(value * factor) / factor;
-}
-
-function formatDateOnly(value: unknown) {
-  if (value instanceof Date) {
-    return value.toISOString().slice(0, 10);
-  }
-
-  const raw = String(value ?? "").trim();
-  if (!raw) {
-    return raw;
-  }
-
-  return raw.length >= 10 ? raw.slice(0, 10) : raw;
 }

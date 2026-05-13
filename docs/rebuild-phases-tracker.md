@@ -351,26 +351,28 @@ Goal: rebuild the `Finance` domain on the new backend and frontend stack while p
 
 ### Backend Tasks
 
-- [ ] Create or finalize rebuild schema/models for:
+- [x] Create or finalize rebuild schema/models for:
 - [x] statements
 - [x] invoices
-- [ ] payments
-- [ ] finance-document links so statements, invoices, payment proofs, and generated PDFs can surface cleanly inside Module 6.
-- [ ] Implement rebuild endpoints for:
+- [x] payments
+- [x] finance-document links so statements, invoices, payment proofs, and generated PDFs can surface cleanly inside Module 6.
+- [x] Keep the shared Prisma `tenant_template` finance schema aligned with the expanded invoice workflow statuses and finance workflow columns used by the rebuild backend.
+- [x] Implement rebuild endpoints for:
 - [x] create monthly statement
 - [x] statement detail
 - [x] create invoice
-- [ ] validate invoice
-- [ ] register payment
-- [ ] financial summary
-- [ ] cashflow
+- [x] validate invoice
+- [x] register payment
+- [x] financial summary
+- [x] cashflow
 - [x] Implement statement calculation from chantier progress.
 - [x] Implement invoice numbering rules from the specification.
 - [x] Implement retention / advance deduction rules.
-- [ ] Implement payment reconciliation and overdue rules.
-- [ ] Implement finance notifications and email triggers.
+- [x] Implement payment reconciliation and overdue rules.
+- [x] Implement finance notifications and email triggers.
 - [x] Implement PDF generation on the rebuild backend for invoices.
-- [ ] Implement PDF generation on the rebuild backend for statements.
+- [x] Implement PDF generation on the rebuild backend for statements.
+- [x] Add controlled manual invoice status updates for rebuild parity with the live finance workflow.
 
 ### Frontend Tasks
 

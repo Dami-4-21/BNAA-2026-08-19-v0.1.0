@@ -226,6 +226,152 @@ export class MailService {
     });
   }
 
+  async sendStatementReadyEmail(input: {
+    periodMonth: string;
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+    statementLink: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `DM pret - ${input.projectName}`,
+      title: "Decompte mensuel prepare",
+      intro: "Un decompte mensuel a ete prepare et peut etre controle avant facturation.",
+      ctaLabel: "Ouvrir la finance",
+      ctaPath: input.statementLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Periode : ${input.periodMonth}`,
+      ],
+    });
+  }
+
+  async sendInvoiceProjectValidationEmail(input: {
+    amountTtc: number;
+    invoiceLink: string;
+    invoiceNumber: string;
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `Validation projet requise - ${input.invoiceNumber}`,
+      title: "Facture en attente de validation projet",
+      intro: "Une facture est prete pour le premier niveau de validation finance.",
+      ctaLabel: "Voir la facture",
+      ctaPath: input.invoiceLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Facture : ${input.invoiceNumber}`,
+        `Montant TTC : ${input.amountTtc.toFixed(3)} TND`,
+      ],
+    });
+  }
+
+  async sendInvoiceClientValidationEmail(input: {
+    amountTtc: number;
+    invoiceLink: string;
+    invoiceNumber: string;
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `Validation client requise - ${input.invoiceNumber}`,
+      title: "Facture en attente de validation client",
+      intro: "La validation projet est terminee. La facture attend maintenant la validation client.",
+      ctaLabel: "Voir la facture",
+      ctaPath: input.invoiceLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Facture : ${input.invoiceNumber}`,
+        `Montant TTC : ${input.amountTtc.toFixed(3)} TND`,
+      ],
+    });
+  }
+
+  async sendInvoiceValidatedEmail(input: {
+    amountTtc: number;
+    invoiceLink: string;
+    invoiceNumber: string;
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `Facture validee - ${input.invoiceNumber}`,
+      title: "Facture validee",
+      intro: "La facture est validee cote client et peut maintenant passer en suivi d'encaissement.",
+      ctaLabel: "Ouvrir la facture",
+      ctaPath: input.invoiceLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Facture : ${input.invoiceNumber}`,
+        `Montant TTC : ${input.amountTtc.toFixed(3)} TND`,
+      ],
+    });
+  }
+
+  async sendInvoiceOverdueEmail(input: {
+    amountRemaining: number;
+    dueDate: string;
+    invoiceLink: string;
+    invoiceNumber: string;
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `Facture en retard - ${input.invoiceNumber}`,
+      title: "Facture en retard",
+      intro: "Une facture depasse son echeance et doit etre relancee.",
+      ctaLabel: "Voir la relance",
+      ctaPath: input.invoiceLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Facture : ${input.invoiceNumber}`,
+        `Echeance : ${input.dueDate}`,
+        `Restant a encaisser : ${input.amountRemaining.toFixed(3)} TND`,
+      ],
+    });
+  }
+
+  async sendPaymentRecordedEmail(input: {
+    amount: number;
+    invoiceLink: string;
+    invoiceNumber: string;
+    paymentDate: string;
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `Paiement enregistre - ${input.invoiceNumber}`,
+      title: "Paiement enregistre",
+      intro: "Un paiement client a ete saisi sur la facture.",
+      ctaLabel: "Voir l'encaissement",
+      ctaPath: input.invoiceLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Facture : ${input.invoiceNumber}`,
+        `Paiement : ${input.paymentDate}`,
+        `Montant : ${input.amount.toFixed(3)} TND`,
+      ],
+    });
+  }
+
   private async sendEmail(input: {
     html: string;
     recipientEmail: string;

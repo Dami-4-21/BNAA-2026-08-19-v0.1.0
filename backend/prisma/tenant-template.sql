@@ -145,8 +145,24 @@ BEGIN
     WHERE t.typname = 'InvoiceStatus'
       AND n.nspname = __SCHEMA_NAME__
   ) THEN
-    EXECUTE 'CREATE TYPE __SCHEMA__."InvoiceStatus" AS ENUM (''issued'', ''partially_paid'', ''paid'', ''overdue'', ''litigious'')';
+    EXECUTE 'CREATE TYPE __SCHEMA__."InvoiceStatus" AS ENUM (''draft'', ''issued'', ''project_validation'', ''client_validation'', ''validated'', ''partially_paid'', ''paid'', ''overdue'', ''litigious'')';
   END IF;
+END $$;
+
+DO $$
+BEGIN
+  EXECUTE 'ALTER TYPE __SCHEMA__."InvoiceStatus" ADD VALUE IF NOT EXISTS ''draft''';
+  EXECUTE 'ALTER TYPE __SCHEMA__."InvoiceStatus" ADD VALUE IF NOT EXISTS ''project_validation''';
+  EXECUTE 'ALTER TYPE __SCHEMA__."InvoiceStatus" ADD VALUE IF NOT EXISTS ''client_validation''';
+  EXECUTE 'ALTER TYPE __SCHEMA__."InvoiceStatus" ADD VALUE IF NOT EXISTS ''validated''';
+  EXECUTE 'ALTER TYPE __SCHEMA__."InvoiceStatus" ADD VALUE IF NOT EXISTS ''issued''';
+  EXECUTE 'ALTER TYPE __SCHEMA__."InvoiceStatus" ADD VALUE IF NOT EXISTS ''partially_paid''';
+  EXECUTE 'ALTER TYPE __SCHEMA__."InvoiceStatus" ADD VALUE IF NOT EXISTS ''paid''';
+  EXECUTE 'ALTER TYPE __SCHEMA__."InvoiceStatus" ADD VALUE IF NOT EXISTS ''overdue''';
+  EXECUTE 'ALTER TYPE __SCHEMA__."InvoiceStatus" ADD VALUE IF NOT EXISTS ''litigious''';
+EXCEPTION
+  WHEN duplicate_object THEN
+    NULL;
 END $$;
 
 CREATE TABLE IF NOT EXISTS __SCHEMA__.projects (
@@ -301,6 +317,7 @@ CREATE TABLE IF NOT EXISTS __SCHEMA__.statements (
   advance_deduction NUMERIC(15,3) NOT NULL DEFAULT 0,
   net_payable_ht NUMERIC(15,3) NOT NULL DEFAULT 0,
   status __SCHEMA__."StatementStatus" NOT NULL DEFAULT 'draft',
+  pdf_url TEXT,
   created_by UUID NOT NULL,
   validated_by UUID,
   validated_at TIMESTAMP,
@@ -321,7 +338,13 @@ CREATE TABLE IF NOT EXISTS __SCHEMA__.invoices (
   amount_ttc NUMERIC(15,3) NOT NULL,
   amount_paid NUMERIC(15,3) NOT NULL DEFAULT 0,
   due_date DATE NOT NULL,
-  status __SCHEMA__."InvoiceStatus" NOT NULL DEFAULT 'issued',
+  status __SCHEMA__."InvoiceStatus" NOT NULL DEFAULT 'draft',
+  sent_at TIMESTAMP,
+  project_validated_by UUID,
+  project_validated_at TIMESTAMP,
+  client_validated_by UUID,
+  client_validated_at TIMESTAMP,
+  paid_at TIMESTAMP,
   pdf_url TEXT,
   created_by UUID NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -333,6 +356,7 @@ CREATE TABLE IF NOT EXISTS __SCHEMA__.payments (
   amount NUMERIC(15,3) NOT NULL,
   payment_date DATE NOT NULL,
   bank_reference VARCHAR(255),
+  receipt_pdf_url TEXT,
   notes TEXT,
   recorded_by UUID NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -377,6 +401,20 @@ ALTER TABLE __SCHEMA__.document_versions
 
 ALTER TABLE __SCHEMA__.document_distributions
   ADD COLUMN IF NOT EXISTS audience VARCHAR(255);
+
+ALTER TABLE __SCHEMA__.statements
+  ADD COLUMN IF NOT EXISTS pdf_url TEXT;
+
+ALTER TABLE __SCHEMA__.invoices
+  ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS project_validated_by UUID,
+  ADD COLUMN IF NOT EXISTS project_validated_at TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS client_validated_by UUID,
+  ADD COLUMN IF NOT EXISTS client_validated_at TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP;
+
+ALTER TABLE __SCHEMA__.payments
+  ADD COLUMN IF NOT EXISTS receipt_pdf_url TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_reports_project_date
   ON __SCHEMA__.daily_reports(project_id, report_date DESC);

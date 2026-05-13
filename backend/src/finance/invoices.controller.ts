@@ -16,6 +16,8 @@ import { JwtAuthGuard } from "@/common/guards/jwt-auth.guard";
 import { RolesGuard } from "@/common/guards/roles.guard";
 import { AuthenticatedUser } from "@/common/types/authenticated-user.interface";
 import { CreateInvoiceDto } from "@/finance/dto/create-invoice.dto";
+import { UpdateInvoiceStatusDto } from "@/finance/dto/update-invoice-status.dto";
+import { ValidateInvoiceDto } from "@/finance/dto/validate-invoice.dto";
 import { InvoicesService } from "@/finance/invoices.service";
 
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -64,5 +66,37 @@ export class InvoicesController {
     @Body() payload: CreateInvoiceDto,
   ) {
     return this.invoicesService.create(currentUser, projectId, payload);
+  }
+
+  @Post(":invoiceId/send")
+  @Roles("ADMIN", "CO")
+  send(
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+  ) {
+    return this.invoicesService.send(currentUser, projectId, invoiceId);
+  }
+
+  @Post(":invoiceId/validate")
+  @Roles("ADMIN", "CP", "MO")
+  validate(
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() payload: ValidateInvoiceDto,
+  ) {
+    return this.invoicesService.validate(currentUser, projectId, invoiceId, payload);
+  }
+
+  @Post(":invoiceId/status")
+  @Roles("ADMIN", "CO", "CP")
+  updateStatus(
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() payload: UpdateInvoiceStatusDto,
+  ) {
+    return this.invoicesService.updateStatus(currentUser, projectId, invoiceId, payload);
   }
 }

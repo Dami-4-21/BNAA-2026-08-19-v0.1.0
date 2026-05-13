@@ -48,10 +48,44 @@ type InvoicePdfInput = {
   tvaRate: number;
 };
 
+type StatementPdfInput = {
+  advanceDeduction: number;
+  contractAmountHt: number;
+  createdBy: string;
+  lineItems: Array<{
+    amountHt?: number;
+    lot?: string;
+    progressPct?: number;
+    tasks?: string[];
+  }>;
+  netPayableHt: number;
+  overallProgressPct: number;
+  periodMonth: string;
+  projectId: string;
+  projectName: string;
+  retentionAmount: number;
+  retentionPct: number;
+  statementId: string;
+  subtotalHt: number;
+};
+
+type PaymentReceiptPdfInput = {
+  amount: number;
+  bankReference?: string | null;
+  createdBy: string;
+  invoiceNumber: string;
+  paymentDate: string;
+  paymentId: string;
+  projectId: string;
+  projectName: string;
+};
+
 @Injectable()
 export class PdfService {
   private readonly reportsDir = resolve(process.cwd(), "var", "pdf", "reports");
   private readonly invoicesDir = resolve(process.cwd(), "var", "pdf", "invoices");
+  private readonly paymentsDir = resolve(process.cwd(), "var", "pdf", "payments");
+  private readonly statementsDir = resolve(process.cwd(), "var", "pdf", "statements");
 
   buildReportPdfUrl(projectId: string, reportId: string) {
     return `/api/v1/projects/${projectId}/reports/${reportId}/pdf`;
@@ -59,6 +93,10 @@ export class PdfService {
 
   buildInvoicePdfUrl(projectId: string, invoiceId: string) {
     return `/api/v1/projects/${projectId}/invoices/${invoiceId}/pdf`;
+  }
+
+  buildStatementPdfUrl(projectId: string, statementId: string) {
+    return `/api/v1/projects/${projectId}/statements/${statementId}/pdf`;
   }
 
   async generateReportPdf(input: ReportPdfInput) {
@@ -99,6 +137,44 @@ export class PdfService {
     return readFile(join(this.invoicesDir, `${invoiceId}.pdf`));
   }
 
+  async generateStatementPdf(input: StatementPdfInput) {
+    await mkdir(this.statementsDir, { recursive: true });
+    const buffer = this.buildStatementPdfBuffer(input);
+    const filename = `${input.statementId}.pdf`;
+    const filePath = join(this.statementsDir, filename);
+    await writeFile(filePath, buffer);
+
+    return {
+      buffer,
+      filePath,
+      fileName: this.buildStatementFileName(input),
+      pdfUrl: this.buildStatementPdfUrl(input.projectId, input.statementId),
+    };
+  }
+
+  async readStatementPdf(statementId: string) {
+    return readFile(join(this.statementsDir, `${statementId}.pdf`));
+  }
+
+  async generatePaymentReceiptPdf(input: PaymentReceiptPdfInput) {
+    await mkdir(this.paymentsDir, { recursive: true });
+    const buffer = this.buildPaymentReceiptPdfBuffer(input);
+    const filename = `${input.paymentId}.pdf`;
+    const filePath = join(this.paymentsDir, filename);
+    await writeFile(filePath, buffer);
+
+    return {
+      buffer,
+      filePath,
+      fileName: this.buildPaymentReceiptFileName(input),
+      pdfUrl: `/api/v1/projects/${input.projectId}/payments/${input.paymentId}/receipt`,
+    };
+  }
+
+  async readPaymentReceiptPdf(paymentId: string) {
+    return readFile(join(this.paymentsDir, `${paymentId}.pdf`));
+  }
+
   hasReportPdfPath(reportId: string) {
     return join(this.reportsDir, `${reportId}.pdf`);
   }
@@ -115,6 +191,10 @@ export class PdfService {
     return { mode: "scaffold", queue: "pdf", invoiceId };
   }
 
+  queueStatementPdf(statementId: string) {
+    return { mode: "scaffold", queue: "pdf", statementId };
+  }
+
   private buildReportFileName(input: ReportPdfInput) {
     const safeProject = this.toAscii(input.projectName).replace(/[^a-zA-Z0-9]+/g, "-");
     return `${safeProject || "chantier"}-${input.reportDate}.pdf`;
@@ -122,6 +202,15 @@ export class PdfService {
 
   private buildInvoiceFileName(invoiceNumber: string) {
     return `${invoiceNumber}.pdf`;
+  }
+
+  private buildStatementFileName(input: StatementPdfInput) {
+    const safeProject = this.toAscii(input.projectName).replace(/[^a-zA-Z0-9]+/g, "-");
+    return `${safeProject || "projet"}-DM-${input.periodMonth}.pdf`;
+  }
+
+  private buildPaymentReceiptFileName(input: PaymentReceiptPdfInput) {
+    return `${input.invoiceNumber}-paiement-${input.paymentDate}.pdf`;
   }
 
   private buildInvoicePdfBuffer(input: InvoicePdfInput) {
@@ -178,6 +267,100 @@ export class PdfService {
 
   private buildReportPdfBuffer(input: ReportPdfInput) {
     const lines = this.buildReportLines(input);
+    const pageSize = 42;
+    const pages: string[][] = [];
+    for (let index = 0; index < lines.length; index += pageSize) {
+      pages.push(lines.slice(index, index + pageSize));
+    }
+
+    const objects: string[] = [];
+    objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
+    objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+
+    const pageReferences: string[] = [];
+    let nextObjectId = 4;
+
+    for (const pageLines of pages) {
+      const pageObjectId = nextObjectId;
+      const contentObjectId = nextObjectId + 1;
+      nextObjectId += 2;
+
+      pageReferences.push(`${pageObjectId} 0 R`);
+      const content = this.buildPageContent(pageLines);
+      objects[pageObjectId] =
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] ` +
+        `/Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjectId} 0 R >>`;
+      objects[contentObjectId] =
+        `<< /Length ${Buffer.byteLength(content, "latin1")} >>\nstream\n${content}\nendstream`;
+    }
+
+    objects[2] = `<< /Type /Pages /Count ${pages.length} /Kids [${pageReferences.join(" ")}] >>`;
+
+    let pdf = "%PDF-1.4\n";
+    const offsets: number[] = [0];
+
+    for (let index = 1; index < objects.length; index += 1) {
+      offsets[index] = Buffer.byteLength(pdf, "latin1");
+      pdf += `${index} 0 obj\n${objects[index]}\nendobj\n`;
+    }
+
+    const xrefOffset = Buffer.byteLength(pdf, "latin1");
+    pdf += `xref\n0 ${objects.length}\n`;
+    pdf += "0000000000 65535 f \n";
+    for (let index = 1; index < objects.length; index += 1) {
+      pdf += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+    }
+
+    pdf += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\n`;
+    pdf += `startxref\n${xrefOffset}\n%%EOF`;
+
+    return Buffer.from(pdf, "latin1");
+  }
+
+  private buildStatementPdfBuffer(input: StatementPdfInput) {
+    const lines = [
+      "BnaaSaaS - Decompte mensuel",
+      `Projet : ${input.projectName}`,
+      `Periode : ${input.periodMonth}`,
+      `Avancement global : ${input.overallProgressPct.toFixed(2)}%`,
+      `Montant contractuel HT : ${input.contractAmountHt.toFixed(3)} TND`,
+      "",
+      "Synthese",
+      `Sous-total HT : ${input.subtotalHt.toFixed(3)} TND`,
+      `Retenue (${input.retentionPct.toFixed(2)}%) : -${input.retentionAmount.toFixed(3)} TND`,
+      `Deduction avance : -${input.advanceDeduction.toFixed(3)} TND`,
+      `Net payable HT : ${input.netPayableHt.toFixed(3)} TND`,
+      "",
+      "Lots factures",
+      ...this.ensureSectionLines(
+        input.lineItems.map((item) => {
+          const taskSuffix =
+            item.tasks && item.tasks.length > 0 ? ` | ${item.tasks.join(", ")}` : "";
+          return `- ${item.lot ?? "Lot"} : ${Number(item.progressPct ?? 0).toFixed(2)}% - ${Number(item.amountHt ?? 0).toFixed(3)} TND${taskSuffix}`;
+        }),
+      ),
+      "",
+      `Genere par : ${input.createdBy}`,
+    ];
+
+    return this.buildPdfBuffer(lines.flatMap((line) => this.wrapText(line, 92)));
+  }
+
+  private buildPaymentReceiptPdfBuffer(input: PaymentReceiptPdfInput) {
+    const lines = [
+      "BnaaSaaS - Recu de paiement",
+      `Projet : ${input.projectName}`,
+      `Facture : ${input.invoiceNumber}`,
+      `Paiement : ${input.paymentDate}`,
+      `Montant enregistre : ${input.amount.toFixed(3)} TND`,
+      `Reference bancaire : ${input.bankReference?.trim() || "Non renseignee"}`,
+      `Saisi par : ${input.createdBy}`,
+    ];
+
+    return this.buildPdfBuffer(lines.flatMap((line) => this.wrapText(line, 92)));
+  }
+
+  private buildPdfBuffer(lines: string[]) {
     const pageSize = 42;
     const pages: string[][] = [];
     for (let index = 0; index < lines.length; index += pageSize) {
