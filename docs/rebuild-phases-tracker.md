@@ -418,7 +418,8 @@ Goal: finish the MVP rebuild and retire the legacy internal backend path safely.
   - [x] Add a BullMQ-compatible queue foundation with named email, PDF, reminder, and deferred-work queues plus safe disabled fallback and queue-ready adapters in the rebuild mail/PDF services.
 - [ ] Expand rebuild notifications to cover all module events from the spec.
   - [x] Add the remaining high-value MVP workflow events to rebuild notifications: invoice-generated alerts for `MO` recipients and read-acknowledgement alerts for controlled document distributions.
-- [ ] Expand rebuild search aggregation across the migrated domains.
+- [x] Expand rebuild search aggregation across the migrated domains.
+  - [x] Rebuild the public `/api/search` wrapper so projects, reports, documents, invoices, and admin users resolve from rebuild-backed domains while preserving the existing search route contract and legacy fallback.
 - [ ] Expand rebuild audit/activity feeds across the migrated domains.
 - [ ] Finalize the cross-module document-hub ingestion layer so Site, Documents, and Finance outputs all resolve into one searchable project document system.
 

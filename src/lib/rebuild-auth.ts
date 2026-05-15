@@ -466,7 +466,7 @@ function buildInitials(name: string) {
     .toUpperCase();
 }
 
-async function fetchRebuildJson<T>(
+export async function fetchRebuildJson<T>(
   path: string,
   accessToken: string,
   options?: RequestInit,

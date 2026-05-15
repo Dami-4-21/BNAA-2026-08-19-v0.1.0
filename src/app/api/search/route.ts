@@ -1,26 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { sessionCookieName } from "@/lib/backend/session";
-import type { GlobalSearchPayload } from "@/lib/backend/types";
 import { getGlobalSearchPayload, isApiError } from "@/lib/backend/service";
 import {
-  fetchRebuildProjectScope,
   getRebuildAccessTokenFromRequest,
   shouldUseRebuildProjectsBridge,
 } from "@/lib/rebuild-auth";
 import { workspaceProjects } from "@/lib/mock-data";
+import { fetchRebuildSearchPayload } from "@/lib/rebuild-search";
 
 export async function GET(request: NextRequest) {
   try {
-    const token = request.cookies.get(sessionCookieName)?.value ?? "";
     const query = request.nextUrl.searchParams.get("q") ?? "";
-    const legacyPayload = await getGlobalSearchPayload(token, query);
 
     if (shouldUseRebuildProjectsBridge()) {
       const rebuildAccessToken = getRebuildAccessTokenFromRequest(request);
-      const bridgedPayload = await buildSearchBridgePayload(
+      const bridgedPayload = await fetchRebuildSearchPayload(
         rebuildAccessToken,
-        legacyPayload,
+        workspaceProjects,
+        query,
       );
 
       if (bridgedPayload) {
@@ -28,7 +26,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const payload = legacyPayload;
+    const token = request.cookies.get(sessionCookieName)?.value ?? "";
+    const payload = await getGlobalSearchPayload(token, query);
     return NextResponse.json(payload);
   } catch (error) {
     if (isApiError(error)) {
@@ -37,29 +36,4 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ error: "Erreur recherche globale." }, { status: 500 });
   }
-}
-
-async function buildSearchBridgePayload(
-  rebuildAccessToken: string,
-  legacyPayload: GlobalSearchPayload,
-): Promise<GlobalSearchPayload | null> {
-  const projectScope = await fetchRebuildProjectScope(
-    rebuildAccessToken,
-    workspaceProjects,
-  );
-
-  if (!projectScope) {
-    return null;
-  }
-
-  if (projectScope.hasCompatibilityGap) {
-    return null;
-  }
-
-  return {
-    ...legacyPayload,
-    results: legacyPayload.results.filter(
-      (result) => !result.projectId || projectScope.allowedProjectIds.has(result.projectId),
-    ),
-  };
 }
