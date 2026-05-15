@@ -19,6 +19,7 @@ import { MailService } from "@/mail/mail.service";
 import { NotificationsService } from "@/notifications/notifications.service";
 import { PdfService } from "@/pdf/pdf.service";
 import { SiteScopeService } from "@/site-reports/site-scope.service";
+import { StorageService } from "@/storage/storage.service";
 
 type DocumentListRow = {
   code: string | null;
@@ -244,6 +245,7 @@ export class DocumentsService {
     private readonly notificationsService: NotificationsService,
     private readonly mailService: MailService,
     private readonly pdfService: PdfService,
+    private readonly storageService: StorageService,
   ) {}
 
   async list(currentUser: AuthenticatedUser, projectId: string) {
@@ -345,7 +347,12 @@ export class DocumentsService {
             `Revision : ${revision}`,
             `Projet : ${projectId}`,
           ]);
-      const fileUrl = buildDataUrl(fileBuffer, payload.mimeType);
+      const fileKey = `managed/documents/${documentId}/${revision}/${sanitizeFileSegment(payload.fileName)}`;
+      const storedAsset = await this.storageService.storeBuffer({
+        buffer: fileBuffer,
+        fileKey,
+        mimeType: payload.mimeType,
+      });
       const versionId = uuidv4();
       const versionLabel = revision;
 
@@ -380,8 +387,8 @@ export class DocumentsService {
           versionId,
           documentId,
           versionLabel,
-          fileUrl,
-          `inline/documents/${documentId}/${sanitizeFileSegment(payload.fileName)}`,
+          storedAsset.fileUrl,
+          storedAsset.fileKey,
           payload.fileName,
           roundFileSizeMb(fileBuffer),
           payload.format.trim() || document.file_type || inferFormatFromMimeType(payload.mimeType),
@@ -396,11 +403,12 @@ export class DocumentsService {
       await client.query(
         `UPDATE documents
          SET status = 'active'::tenant_template."DocumentStatus",
+             storage_mode = $2,
              offline_ready = true,
              last_distributed_at = NULL,
              created_by = created_by
          WHERE id = $1`,
-        [documentId],
+        [documentId, storedAsset.storageMode],
       );
 
       await this.notificationsService.createForProjectRoles(client, {
@@ -668,7 +676,10 @@ export class DocumentsService {
       }
 
       return {
-        buffer: decodeDataUrlToBuffer(version.file_url),
+        buffer: await this.storageService.readStoredBuffer({
+          fileKey: version.file_key,
+          fileUrl: version.file_url,
+        }),
         fileName:
           version.file_name ??
           `${document.code ?? document.name}-${version.version_label}.${(version.file_type ?? "pdf").toLowerCase()}`,
@@ -719,7 +730,10 @@ export class DocumentsService {
       }
 
       return {
-        buffer: decodeDataUrlToBuffer(item.file_url),
+        buffer: await this.storageService.readStoredBuffer({
+          fileKey: item.file_key,
+          fileUrl: item.file_url,
+        }),
         fileName:
           item.file_name ??
           `${document.code ?? document.name}-${item.version_label}.${(item.file_type ?? "pdf").toLowerCase()}`,

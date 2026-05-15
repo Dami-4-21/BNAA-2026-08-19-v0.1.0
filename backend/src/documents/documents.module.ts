@@ -8,10 +8,11 @@ import { MailModule } from "@/mail/mail.module";
 import { NotificationsModule } from "@/notifications/notifications.module";
 import { PdfModule } from "@/pdf/pdf.module";
 import { SiteScopeService } from "@/site-reports/site-scope.service";
+import { StorageModule } from "@/storage/storage.module";
 import { TenantsModule } from "@/tenants/tenants.module";
 
 @Module({
-  imports: [TenantsModule, PdfModule, NotificationsModule, MailModule],
+  imports: [TenantsModule, PdfModule, NotificationsModule, MailModule, StorageModule],
   controllers: [DocumentsController],
   providers: [SiteScopeService, DocumentsService, VersionsService, DistributionService],
 })

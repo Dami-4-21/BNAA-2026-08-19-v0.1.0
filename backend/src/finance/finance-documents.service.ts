@@ -9,6 +9,7 @@ import {
   FINANCE_DOCUMENT_PHASE,
   FINANCE_DOCUMENT_VISIBILITY,
 } from "@/finance/finance-helpers";
+import { StorageService } from "@/storage/storage.service";
 
 type FinanceDocumentType = "invoice" | "payment" | "statement";
 
@@ -29,6 +30,8 @@ type UpsertFinanceDocumentInput = {
 
 @Injectable()
 export class FinanceDocumentsService {
+  constructor(private readonly storageService: StorageService) {}
+
   async findDocumentIdBySourceRecord(
     client: PoolClient,
     projectId: string,
@@ -96,6 +99,13 @@ export class FinanceDocumentsService {
     const documentId = existing.rows[0]?.id ?? uuidv4();
     const code = this.buildDocumentCode(existing.rows[0]?.code, input);
 
+    const fileKey = `generated/finance/${input.type}/${documentId}/${sanitizeFileSegment(input.fileName)}`;
+    const storedAsset = await this.storageService.storeBuffer({
+      buffer: input.fileBuffer,
+      fileKey,
+      mimeType: "application/pdf",
+    });
+
     if (!existing.rowCount) {
       await client.query(
         `INSERT INTO documents (
@@ -122,9 +132,9 @@ export class FinanceDocumentsService {
           $1, $2, $3, $4, $5, $6,
           CAST($7 AS text)::tenant_template."DocumentPhase",
           CAST($8 AS text)::tenant_template."DocumentType",
-          'Finance', $9, $10, 'finance', 'high', $11::jsonb, false, 'inline',
+          'Finance', $9, $10, 'finance', 'high', $11::jsonb, false, $12,
           CAST('active' AS text)::tenant_template."DocumentStatus",
-          $12, NOW()
+          $13, NOW()
         )`,
         [
           documentId,
@@ -138,6 +148,7 @@ export class FinanceDocumentsService {
           input.sourceRecordId,
           input.parentDocumentId ?? null,
           JSON.stringify(FINANCE_DOCUMENT_VISIBILITY),
+          storedAsset.storageMode,
           input.recordedBy,
         ],
       );
@@ -150,7 +161,8 @@ export class FinanceDocumentsService {
              lot = $6,
              discipline = $7,
              priority = 'high',
-             visibility_scope = $8::jsonb
+             visibility_scope = $8::jsonb,
+             storage_mode = $9
          WHERE id = $1
            AND project_id = $2`,
         [
@@ -162,6 +174,7 @@ export class FinanceDocumentsService {
           FINANCE_DOCUMENT_LOT,
           FINANCE_DOCUMENT_DISCIPLINE,
           JSON.stringify(FINANCE_DOCUMENT_VISIBILITY),
+          storedAsset.storageMode,
         ],
       );
     }
@@ -188,8 +201,6 @@ export class FinanceDocumentsService {
 
     const versionId = uuidv4();
     const versionLabel = await this.nextVersionLabel(client, documentId);
-    const dataUrl = buildDataUrl(input.fileBuffer, "application/pdf");
-    const fileKey = `generated/finance/${input.type}/${documentId}/${sanitizeFileSegment(input.fileName)}`;
 
     await client.query(
       `INSERT INTO document_versions (
@@ -216,8 +227,8 @@ export class FinanceDocumentsService {
         versionId,
         documentId,
         versionLabel,
-        dataUrl,
-        fileKey,
+        storedAsset.fileUrl,
+        storedAsset.fileKey,
         input.fileName,
         roundFileSizeMb(input.fileBuffer),
         `${input.type} finance`,
@@ -274,10 +285,6 @@ export class FinanceDocumentsService {
 
     return `v${Number(match[1]) + 1}.0`;
   }
-}
-
-function buildDataUrl(buffer: Buffer, mimeType: string) {
-  return `data:${mimeType};base64,${buffer.toString("base64")}`;
 }
 
 function roundFileSizeMb(buffer: Buffer) {

@@ -413,6 +413,7 @@ Goal: finish the MVP rebuild and retire the legacy internal backend path safely.
 ### Shared Services
 
 - [ ] Move rebuild storage to the target object-storage flow (`MinIO` / compatible).
+  - [x] Add a MinIO-compatible storage service with safe inline fallback for rebuild document versions and generated finance PDFs.
 - [ ] Wire BullMQ / Redis jobs for emails, PDFs, reminders, and deferred work.
 - [ ] Expand rebuild notifications to cover all module events from the spec.
 - [ ] Expand rebuild search aggregation across the migrated domains.

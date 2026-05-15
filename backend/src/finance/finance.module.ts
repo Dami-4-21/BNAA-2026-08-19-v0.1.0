@@ -14,10 +14,11 @@ import { StatementsService } from "@/finance/statements.service";
 import { NotificationsModule } from "@/notifications/notifications.module";
 import { PdfModule } from "@/pdf/pdf.module";
 import { SiteScopeService } from "@/site-reports/site-scope.service";
+import { StorageModule } from "@/storage/storage.module";
 import { TenantsModule } from "@/tenants/tenants.module";
 
 @Module({
-  imports: [TenantsModule, PdfModule, NotificationsModule],
+  imports: [TenantsModule, PdfModule, NotificationsModule, StorageModule],
   controllers: [
     FinanceModuleController,
     FinanceOverviewController,
