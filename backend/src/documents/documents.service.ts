@@ -597,7 +597,7 @@ export class DocumentsService {
     payload: AcknowledgeDocumentDto,
   ) {
     return this.siteScope.withProjectAccess(currentUser, projectId, async (client) => {
-      await this.getAnyDocument(client, projectId, documentId);
+      const document = await this.getAnyDocument(client, projectId, documentId);
       const distribution = await client.query<DistributionRow & { recipient_id: string }>(
         `SELECT
            dd.id,
@@ -633,6 +633,21 @@ export class DocumentsService {
          WHERE id = $1`,
         [payload.recipientId],
       );
+
+      const documentLabel =
+        "code" in document
+          ? document.code ?? document.name
+          : document.id.replace(/^site-(report|photo|ncr)--/, "").trim() || "ce document";
+
+      await this.notificationsService.createForProjectRoles(client, {
+        projectId,
+        roles: [UserRole.ADMIN, UserRole.BE, UserRole.CP],
+        type: "documents.read_acknowledged",
+        title: "Lecture confirmee",
+        body: `${item.full_name} a confirme la lecture de ${documentLabel}.`,
+        link: `/documents?document=${documentId}&tab=distribution`,
+        excludeUserIds: [currentUser.sub],
+      });
 
       return this.buildWorkspacePayload(client, currentUser, projectId);
     });

@@ -304,6 +304,13 @@ export class InvoicesService {
       });
 
       const created = await this.getInvoice(client, projectId, invoiceId);
+      await this.notifyInvoiceGenerated(
+        client,
+        currentUser,
+        projectId,
+        project.name,
+        created,
+      );
 
       return {
         item: this.mapInvoiceRow(created),
@@ -801,6 +808,48 @@ export class InvoicesService {
       sentAt: row.sent_at,
       status: row.status,
     };
+  }
+
+  private async notifyInvoiceGenerated(
+    client: PoolClient,
+    currentUser: AuthenticatedUser,
+    projectId: string,
+    projectName: string,
+    invoice: InvoiceRow,
+  ) {
+    const recipients = await this.siteScope.listProjectUsersByRoles(
+      client,
+      currentUser.tenantId,
+      projectId,
+      [UserRole.MO],
+    );
+    const targetRecipients = recipients.filter((recipient) => recipient.id !== currentUser.sub);
+
+    if (targetRecipients.length === 0) {
+      return;
+    }
+
+    const financeLink = `/finance?invoice=${invoice.id}&section=facturation`;
+    await this.notificationsService.createForUsers(client, {
+      userIds: targetRecipients.map((recipient) => recipient.id),
+      projectId,
+      type: "finance.invoice.generated",
+      title: "Facture generee",
+      body: `${invoice.invoice_number} est disponible pour suivi et validation.`,
+      link: financeLink,
+    });
+
+    for (const recipient of targetRecipients) {
+      await this.mailService.sendInvoiceGeneratedEmail({
+        amountTtc: toNumber(invoice.amount_ttc),
+        invoiceLink: financeLink,
+        invoiceNumber: invoice.invoice_number,
+        periodMonth: formatDateOnly(invoice.period_month),
+        projectName,
+        recipientEmail: recipient.email,
+        recipientName: recipient.fullName,
+      });
+    }
   }
 }
 

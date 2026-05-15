@@ -322,6 +322,32 @@ export class MailService {
     });
   }
 
+  async sendInvoiceGeneratedEmail(input: {
+    amountTtc: number;
+    invoiceLink: string;
+    invoiceNumber: string;
+    periodMonth: string;
+    projectName: string;
+    recipientEmail: string;
+    recipientName: string;
+  }) {
+    return this.sendSiteActionEmail({
+      recipientEmail: input.recipientEmail,
+      recipientName: input.recipientName,
+      subject: `Facture generee - ${input.invoiceNumber}`,
+      title: "Facture client generee",
+      intro: "Une nouvelle facture client est disponible dans le circuit finance du projet.",
+      ctaLabel: "Voir la facture",
+      ctaPath: input.invoiceLink,
+      contextLines: [
+        `Projet : ${input.projectName}`,
+        `Facture : ${input.invoiceNumber}`,
+        `Periode : ${input.periodMonth}`,
+        `Montant TTC : ${input.amountTtc.toFixed(3)} TND`,
+      ],
+    });
+  }
+
   async sendInvoiceClientValidationEmail(input: {
     amountTtc: number;
     invoiceLink: string;
