@@ -4,7 +4,10 @@ import {
   fetchRebuildJson,
   type RebuildProjectScope,
 } from "@/lib/rebuild-auth";
-import { findPilotProjectCompatibilityByBackendId } from "@/lib/server/pilot-seed";
+import {
+  findPilotProjectCompatibilityByBackendId,
+  findPilotProjectCompatibilityByName,
+} from "@/lib/server/pilot-seed";
 
 type RebuildDocumentSearchResponse = {
   items: Array<{
@@ -139,7 +142,9 @@ function buildBridgedSearchProjects(
 
   return projectScope.rebuildProjects
     .map((project) => {
-      const compatibility = findPilotProjectCompatibilityByBackendId(project.id);
+      const compatibility =
+        findPilotProjectCompatibilityByBackendId(project.id) ??
+        findPilotProjectCompatibilityByName(project.name);
       if (!compatibility) {
         return null;
       }
