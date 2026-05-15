@@ -415,6 +415,7 @@ Goal: finish the MVP rebuild and retire the legacy internal backend path safely.
 - [ ] Move rebuild storage to the target object-storage flow (`MinIO` / compatible).
   - [x] Add a MinIO-compatible storage service with safe inline fallback for rebuild document versions and generated finance PDFs.
 - [ ] Wire BullMQ / Redis jobs for emails, PDFs, reminders, and deferred work.
+  - [x] Add a BullMQ-compatible queue foundation with named email, PDF, reminder, and deferred-work queues plus safe disabled fallback and queue-ready adapters in the rebuild mail/PDF services.
 - [ ] Expand rebuild notifications to cover all module events from the spec.
 - [ ] Expand rebuild search aggregation across the migrated domains.
 - [ ] Expand rebuild audit/activity feeds across the migrated domains.

@@ -2,6 +2,10 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Resend } from "resend";
 
+import { EMAIL_JOB_TYPES } from "@/queue/queue.constants";
+import { QueueService } from "@/queue/queue.service";
+import type { EmailQueuePayload, QueueDispatchResult } from "@/queue/queue.types";
+
 type InviteEmailInput = {
   inviteLink: string;
   inviterName: string;
@@ -40,7 +44,10 @@ export class MailService {
   private readonly emailFrom: string;
   private readonly appUrl: string;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly queueService: QueueService,
+  ) {
     const apiKey = this.configService.get<string>("RESEND_API_KEY", "").trim();
     this.emailFrom = this.configService
       .get<string>("EMAIL_FROM", "noreply@bnaasaas.tn")
@@ -104,6 +111,49 @@ export class MailService {
 
   buildAppLink(path: string) {
     return `${this.appUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  }
+
+  async queueInviteEmail(input: InviteEmailInput): Promise<QueueDispatchResult> {
+    return this.queueService.enqueueEmailJob(
+      EMAIL_JOB_TYPES.invite,
+      {
+        kind: "invite",
+        payload: input,
+      },
+      {
+        jobId: this.buildQueueJobId("invite", input.recipientEmail, input.tenantName),
+      },
+    );
+  }
+
+  async queueResetPasswordEmail(
+    input: ResetPasswordEmailInput,
+  ): Promise<QueueDispatchResult> {
+    return this.queueService.enqueueEmailJob(
+      EMAIL_JOB_TYPES.resetPassword,
+      {
+        kind: "reset-password",
+        payload: input,
+      },
+      {
+        jobId: this.buildQueueJobId("reset-password", input.recipientEmail, input.resetLink),
+      },
+    );
+  }
+
+  async queueSiteActionEmail(
+    input: SiteActionEmailInput,
+  ): Promise<QueueDispatchResult> {
+    return this.queueService.enqueueEmailJob(
+      EMAIL_JOB_TYPES.siteAction,
+      {
+        kind: "site-action",
+        payload: input,
+      },
+      {
+        jobId: this.buildQueueJobId("site-action", input.recipientEmail, input.subject),
+      },
+    );
   }
 
   async sendReportSubmittedEmail(input: {
@@ -424,5 +474,13 @@ export class MailService {
       recipientEmail: input.recipientEmail,
       subject: input.subject,
     });
+  }
+
+  private buildQueueJobId(type: string, recipientEmail: string, context: string) {
+    const normalizedContext = Buffer.from(`${recipientEmail}:${context}`)
+      .toString("base64url")
+      .slice(0, 40);
+
+    return `${type}:${normalizedContext}`;
   }
 }

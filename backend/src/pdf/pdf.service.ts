@@ -2,6 +2,10 @@ import { Injectable } from "@nestjs/common";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
+import { PDF_JOB_TYPES, QUEUE_NAMES } from "@/queue/queue.constants";
+import { QueueService } from "@/queue/queue.service";
+import type { QueueDispatchResult } from "@/queue/queue.types";
+
 type ReportPdfInput = {
   activities: string;
   createdBy: string;
@@ -86,6 +90,8 @@ export class PdfService {
   private readonly invoicesDir = resolve(process.cwd(), "var", "pdf", "invoices");
   private readonly paymentsDir = resolve(process.cwd(), "var", "pdf", "payments");
   private readonly statementsDir = resolve(process.cwd(), "var", "pdf", "statements");
+
+  constructor(private readonly queueService: QueueService) {}
 
   buildReportPdfUrl(projectId: string, reportId: string) {
     return `/api/v1/projects/${projectId}/reports/${reportId}/pdf`;
@@ -181,18 +187,90 @@ export class PdfService {
 
   queueReportPdf(reportId: string) {
     return {
-      mode: "inline",
-      queue: "pdf",
+      mode: this.queueService.isQueueBrokerEnabled() ? "queued" : "inline",
+      queue: QUEUE_NAMES.pdf,
       reportId,
     };
   }
 
+  async enqueueReportPdf(reportId: string): Promise<QueueDispatchResult> {
+    return this.queueService.enqueuePdfJob(
+      PDF_JOB_TYPES.report,
+      {
+        kind: "report",
+        payload: { reportId },
+      },
+      {
+        jobId: this.buildQueueJobId("report", reportId),
+      },
+    );
+  }
+
+  async enqueueInvoicePdf(invoiceId: string): Promise<QueueDispatchResult> {
+    return this.queueService.enqueuePdfJob(
+      PDF_JOB_TYPES.invoice,
+      {
+        kind: "invoice",
+        payload: { invoiceId },
+      },
+      {
+        jobId: this.buildQueueJobId("invoice", invoiceId),
+      },
+    );
+  }
+
+  async enqueueStatementPdf(statementId: string): Promise<QueueDispatchResult> {
+    return this.queueService.enqueuePdfJob(
+      PDF_JOB_TYPES.statement,
+      {
+        kind: "statement",
+        payload: { statementId },
+      },
+      {
+        jobId: this.buildQueueJobId("statement", statementId),
+      },
+    );
+  }
+
+  async enqueuePaymentReceiptPdf(paymentId: string): Promise<QueueDispatchResult> {
+    return this.queueService.enqueuePdfJob(
+      PDF_JOB_TYPES.paymentReceipt,
+      {
+        kind: "payment-receipt",
+        payload: { paymentId },
+      },
+      {
+        jobId: this.buildQueueJobId("payment", paymentId),
+      },
+    );
+  }
+
   queueInvoicePdf(invoiceId: string) {
-    return { mode: "scaffold", queue: "pdf", invoiceId };
+    return {
+      mode: this.queueService.isQueueBrokerEnabled() ? "queued" : "scaffold",
+      queue: QUEUE_NAMES.pdf,
+      invoiceId,
+    };
   }
 
   queueStatementPdf(statementId: string) {
-    return { mode: "scaffold", queue: "pdf", statementId };
+    return {
+      mode: this.queueService.isQueueBrokerEnabled() ? "queued" : "scaffold",
+      queue: QUEUE_NAMES.pdf,
+      statementId,
+    };
+  }
+
+  private buildQueueJobId(type: string, resourceId: string) {
+    return `${type}:${resourceId}`;
+  }
+
+  queuePaymentReceiptPdf(paymentId: string) {
+    return {
+      mode: this.queueService.isQueueBrokerEnabled() ? "queued" : "scaffold",
+      paymentId,
+      queue: QUEUE_NAMES.pdf,
+    };
   }
 
   private buildReportFileName(input: ReportPdfInput) {
